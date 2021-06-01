@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -22,6 +22,8 @@ DEALINGS IN THE SOFTWARE.
 
 #pragma once
 
+#include "utility/ElapsedTime.h"
+
 #include <iostream>
 #include <stdio.h>
 #include <stdint.h>
@@ -30,6 +32,9 @@ DEALINGS IN THE SOFTWARE.
 #include <thread>
 #include <ctime>
 #include <map>
+#include <deque>
+#include <sstream>
+#include <atomic>
 
 #ifdef WIN32
 #include <winsock2.h>
@@ -40,13 +45,11 @@ DEALINGS IN THE SOFTWARE.
 #include <sys/types.h>
 #include <arpa/inet.h>
 #endif
-#include "../udt/udt.h"
+#include "udt/udt.h"
 #include "SyncQueue.h"
 
-#define MAX_UDTBUF_SIZE 10240000		
-
-#define MAX_LIST_COUNT	50000			
-
+#define MAX_UDTBUF_SIZE 10240000
+#define MAX_LIST_COUNT	50000
 
 #ifdef FD_SETSIZE
 #undef FD_SETSIZE // prevent redefinition compiler warning
@@ -56,33 +59,60 @@ DEALINGS IN THE SOFTWARE.
 typedef struct _tudtnode
 {
     string Ip;
-    uint32_t Port;
-    uint32_t BufLen;
-    string DataBuf;
+    uint32_t Port = 0;
+
+    _tudtnode() {}
+    _tudtnode(const string IPAddr, int port) : Ip(IPAddr), Port(port)
+    {}
+
+    bool operator<(_tudtnode const& other) const
+    {
+        if (Ip == other.Ip) {
+            return Port < other.Port;
+        }
+        return Ip < other.Ip;
+    }
+
 }T_UDTNODE, *T_PUDTNODE;
 
 typedef struct _tudtrecvnode
 {
-    struct sockaddr_in fromAddr;
-    string DataBuf;
+    T_UDTNODE fromAddr;
+    std::shared_ptr<std::stringbuf> spDataBuf;
+    char compressed = false;
 }T_UDTRECV, *T_PUDTRECV;
 
-typedef struct _tserverkey
-{
-    string Ip;
-    uint32_t Port;
 
-    _tserverkey(string ip, uint32_t port) : Ip(ip), Port(port) {}
+typedef struct _tUDTData{
+    std::set<UDTSOCKET> udtsckset;
+    int64_t tmlastconn = 0; //time of last reconnection
+    int nretryconn = 0;     //retry times
+    deque<std::tuple<int64_t, string>> datas;
 
-    bool operator<(_tserverkey const& other) const
+    inline bool isLongTimeNotConn()
     {
-        if (Ip < other.Ip) { return true; }
-        if (Ip > other.Ip) { return false; }
-        return Port < other.Port;
+        return (udtsckset.size() == 0 && nretryconn > 30);
     }
-}T_SERVERKEY;
 
-typedef map<T_SERVERKEY/*string*/, UDTSOCKET>		  MAP_CONNECTED_SOCKET;
+    inline void refreshReconn(bool bConnSucc) {
+        tmlastconn = time(nullptr);
+        bConnSucc ? nretryconn = 0 : nretryconn++;
+    }
+
+    inline bool isReconnAllowed() {
+        const int nBaseInterval = 100;
+        const int nLow = 10;
+
+        int nInterval = nBaseInterval;
+        if (nretryconn > nLow) {
+
+            nInterval = (1 + nretryconn / nLow) * nBaseInterval;
+        }
+        return time(nullptr) > tmlastconn + nInterval;
+    }
+} UDTData;
+
+typedef map<UDTSOCKET, T_UDTNODE>		  MAP_CONNECTED_SOCKET;
 typedef MAP_CONNECTED_SOCKET::iterator    ITR_MAP_CONNECTED_SOCKET;
 
 class UdtThreadPool
@@ -93,37 +123,59 @@ public:
     int send(const string &peerIP, uint32_t peerPort, const char * buf, size_t len);
     void start();
     void stop();
-    size_t getUdtSendQueueSize() { return m_sendList.size(); }
+
+    bool peerConnected(const string& peerIP, uint32_t peerPort)
+    {
+        T_UDTNODE peer(peerIP, peerPort);
+
+        std::lock_guard<std::mutex> lk(m_sendDatasLock);
+        if (m_sendDatas.count(peer)) {
+            auto udata = m_sendDatas[peer];
+            return udata.udtsckset.size() > 0;
+        }
+        return false;
+    }
+
+    string getUdtStatics();
+
+    size_t getUdtSendQueueSize();
     size_t getUdtRecvQueueSize() { return m_recvList.size(); }
 
 private:
     void Listen();
-    void RecvData();
-    void SendData();
+    void Recv();
+    void SendData(int eid, int udtsck);
     int  CreateListenSocket();
     void CloseAllConnectedSocket();
-    void Recv(UDTSOCKET socket_fd);
-    void FillFdSets(UDT::UDSET &readfds);
+    void RecvData(int eid, UDTSOCKET socket_fd);
+    void FillFdSets(int eid);
     void FillRecvSocketList(UDT::UDSET &readfds, int &activeNum);
-    bool AcceptConnectionSocket(UDTSOCKET listenFd);
-    void CloseConnectedSocket(UDTSOCKET &socket_fd);
-    void CloseConnectedSocket(T_SERVERKEY &serverKey);
+    bool AcceptConnectionSocket(int eid, UDTSOCKET listenFd);
     int BindSocket(UDTSOCKET &socket_fd);
-    UDTSOCKET GetConnectedSocket(T_SERVERKEY &serverAddr);
-    UDTSOCKET CreateConnectionSocket(T_SERVERKEY &serverAddr);
+    UDTSOCKET CreateConnectionSocket(const T_UDTNODE &serverNode);
+
+    void removeSendNode(T_UDTNODE& node);
 
 private:
-    bool					m_isstop;
-    uint32_t				m_localPort;
+    bool                    m_isstop;
+    uint32_t                m_localPort;
     const char*             m_localIp;
-    UDTSOCKET				m_listenFd;
-    SyncQueue<T_UDTNODE>	m_sendList;
-    SyncQueue<T_UDTRECV>	m_recvList;
-    std::thread				m_listenthread;
-    std::list<std::thread>	m_sendthreads;
-    std::list<std::thread>	m_recvthreads;
-    uint32_t				m_sendthreads_num;
-    uint32_t				m_recvthreads_num;
+    UDTSOCKET m_listenFd;
+
+    std::mutex              m_sendDatasLock;
+    map<T_UDTNODE, UDTData> m_sendDatas;
+
+    atomic_int64_t     m_nWaitingSnd = 0;
+    atomic_int64_t     m_nWaitingSndBytes = 0;
+
+    atomic_int64_t     m_nDiscardedSnd = 0;
+    atomic_int64_t     m_nDiscardedSndBytes = 0;
+
+    SyncQueue<T_UDTRECV>    m_recvList;
+    std::thread             m_listenthread;
+    std::list<std::thread>  m_recvthreads;
+    uint32_t                m_recvthreads_num;
     MAP_CONNECTED_SOCKET    m_socketMap;
-    std::mutex              m_socketMapLock;
+
+    CActionCostStatistics   m_actioncoststt;
 };

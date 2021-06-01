@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -21,17 +21,23 @@ DEALINGS IN THE SOFTWARE.
 */
 
 #include "newLog.h"
+#include "defer.h"
+#include "headers/inter_public.h"
+
 #include "UdtThreadPool.h"
 #include "UdpRecvDataHandler.hpp"
 
+#include <boost/iostreams/filtering_stream.hpp>
+#include <boost/iostreams/copy.hpp>
+#include <boost/iostreams/filter/zlib.hpp>
+
 UdtThreadPool::UdtThreadPool(const char* localIp, uint32_t localPort, uint32_t numthreads, uint32_t maxnumtasks) :
-    m_sendList(maxnumtasks), m_recvList(maxnumtasks)
+   m_recvList(maxnumtasks)
 {
     m_isstop = true;
     m_listenFd = UDT::INVALID_SOCK;
     m_localIp = localIp;
     m_localPort = localPort;
-    m_sendthreads_num = numthreads;
     m_recvthreads_num = numthreads;
 
     UDT::startup();
@@ -54,13 +60,14 @@ void UdtThreadPool::start()
 
     m_isstop = false;
 
+    m_actioncoststt.AddAction(0, "sendreq");
+    m_actioncoststt.AddAction(1, "SendData");
+    m_actioncoststt.AddAction(2, "epoll-FillSets");
+
     m_listenthread = std::thread(&UdtThreadPool::Listen, this);
 
-    for (size_t i = 0; i < m_sendthreads_num; i++)
-        m_sendthreads.push_back(std::thread(&UdtThreadPool::SendData, this));
-
     for (size_t i = 0; i < m_recvthreads_num; i++)
-        m_recvthreads.push_back(std::thread(&UdtThreadPool::RecvData, this));
+        m_recvthreads.push_back(std::thread(&UdtThreadPool::Recv, this));
 }
 
 void UdtThreadPool::stop()
@@ -68,14 +75,7 @@ void UdtThreadPool::stop()
     m_isstop = true;
 
     m_listenthread.join();
-
-    m_sendList.stop();
     m_recvList.stop();
-
-    for (auto& t : m_sendthreads)
-        t.join();
-
-    m_sendthreads.clear();
 
     for (auto& t : m_recvthreads)
         t.join();
@@ -83,99 +83,273 @@ void UdtThreadPool::stop()
     m_recvthreads.clear();
 
     CloseAllConnectedSocket();
-    //UDT::close(m_listenFd);
+
     UDT::cleanup();
+}
+
+size_t UdtThreadPool::getUdtSendQueueSize()
+{
+    return m_nWaitingSnd;
+}
+
+static vector<const char*> udtstatusdesc = {
+    "Undefined",
+    "INIT",
+    "OPENED",
+    "LISTENING",
+    "CONNECTING",
+    "CONNECTED",
+    "BROKEN",
+    "CLOSING",
+    "CLOSED",
+    "NONEXIST",
+};
+
+string UdtThreadPool::getUdtStatics()
+{
+    ostringstream oss;
+    oss << "UDTPool:\n";
+    {
+        std::lock_guard<std::mutex> lk(m_sendDatasLock);
+        for (auto& sendsock : m_sendDatas) {
+
+            oss << StringFormat("\t%s:%d queue:%d ", sendsock.first.Ip, sendsock.first.Port,
+                sendsock.second.datas.size());
+
+            UDTSTATUS status = UDTSTATUS::CLOSED;
+            for (auto s : sendsock.second.udtsckset) {
+                status = UDT::getsockstate(s);
+                oss << StringFormat("sck:%d(%s) ", s, udtstatusdesc[status]);
+            }
+            oss << "\n";
+        }
+    }
+
+    oss << StringFormat("\tSummary: Waiting to send: %d, %.1f(KB)\n"
+        "\tSenddata discarded: %d, %.1f(KB)\n"
+        "\tRecvList size: %d\n\n"
+        "%s",
+        (int)m_nWaitingSnd, m_nWaitingSndBytes / 1024.0,
+        (int)m_nDiscardedSnd, m_nDiscardedSndBytes / 1024.0,
+        m_recvList.size(),
+        m_actioncoststt.Statistics("UDTPool cost statistics: "));
+    return oss.str();
+}
+
+void UdtThreadPool::removeSendNode(T_UDTNODE &node)
+{
+    UDTData& udtd = m_sendDatas[node];
+    auto& datas = udtd.datas;
+    m_nWaitingSnd -= (int64_t)datas.size();
+    m_nDiscardedSnd += (int64_t)datas.size();
+
+    auto iter = datas.begin();
+    for (; iter != datas.end(); ++iter) {
+        size_t nBytes = std::get<1>(*iter).size();
+        m_nWaitingSndBytes -= nBytes;
+        m_nDiscardedSndBytes += nBytes;
+    }
+
+    datas.clear();
+
+    g_console_logger->info("UdtThreadPool: [{}:{}] cannot connect for a long time, remove the node", node.Ip, node.Port);
+
+    m_sendDatas.erase(node);
 }
 
 int UdtThreadPool::send(const string &peerIP, uint32_t peerPort, const char * buffer, size_t len)
 {
-    T_UDTNODE tTcpNode;
+    T_UDTNODE tTcpNode(peerIP, peerPort);
 
-    tTcpNode.Ip = peerIP;
-    tTcpNode.Port = peerPort;
-    tTcpNode.BufLen = len;
-    tTcpNode.DataBuf = std::move(string(buffer, len));
+    auto ststonce = m_actioncoststt.NewStatt(0);
 
-    if (false == m_sendList.push(std::move(tTcpNode))) {
-        g_daily_logger->error("UdtThreadPool::Send() m_sendList.push() failed!");
-        cout << "UdtThreadPool::Send() m_sendList.push() failed!" << endl;
-        return -1;
+    std::lock_guard<std::mutex> lk(m_sendDatasLock);
+
+    if (m_sendDatas.count(tTcpNode)) {
+        auto& udtd = m_sendDatas[tTcpNode];
+        auto& datas = udtd.datas;
+
+        if (udtd.isLongTimeNotConn()) {
+            m_nDiscardedSnd++;
+            m_nDiscardedSndBytes += len;
+            return 0;
+        }
+        datas.push_back(make_tuple(time(nullptr),string(buffer, len)));
+    } else {
+        UDTData udtdata;
+        deque<std::tuple<int64_t,string>> deq;
+        deq.push_back(make_tuple(time(nullptr), string(buffer, len)));
+        udtdata.datas = std::move(deq);
+        m_sendDatas[tTcpNode] = std::move(udtdata);
     }
 
+    m_nWaitingSnd++;
+    m_nWaitingSndBytes += (int64_t)len;
     return 0;
 }
 
-void UdtThreadPool::SendData()
+class vfstream : public std::fstream
 {
-    int sendlen = 0;
-    uint32_t sended = 0;
-    UDTSOCKET sendFd;
-    list<T_UDTNODE> sendlist;
+public:
+    vfstream(string &databuf)
+    {
+        if (databuf.size() > 1024) {
 
-    while (!m_isstop) {
-        m_sendList.pop(sendlist);
+            boost::iostreams::filtering_ostream out;
+            out.push(boost::iostreams::zlib_compressor(boost::iostreams::zlib::best_compression));
+            out.push(_ssdata);
+            out.write(databuf.c_str(), databuf.size());
+            out.pop();
 
-        for (auto &t : sendlist) {
-            if (t.BufLen >= MAX_UDTBUF_SIZE) {
-                g_daily_logger->error("UdtThreadPool::SendData(), can't send so much data(BufLen = {})", t.BufLen);
-                continue;
-            }
-
-            T_SERVERKEY ServerKey(t.Ip, t.Port);
-            sendFd = GetConnectedSocket(ServerKey);
-            if (sendFd == UDT::INVALID_SOCK) {
-                g_daily_logger->error("UdtThreadPool::SendData(), can't connect to serverAddr (ip = {}, port = {})", t.Ip.c_str(), t.Port);
-                continue;
-            }
-
-            sended = 0;
-            do
-            {
-                sendlen = UDT::sendmsg(sendFd, t.DataBuf.c_str() + sended, t.BufLen - sended);
-                if (sendlen == UDT::ERROR) {
-                    g_daily_logger->error("UdtThreadPool::SendData() send (ip = {}, port = {}, BufLen = {}) failed! [{}]",
-                        t.Ip.c_str(), t.Port, t.BufLen, UDT::getlasterror().getErrorMessage());
-
-                    int errCode = UDT::getlasterror().getErrorCode();
-                    if (errCode == CUDTException::ECONNLOST ||
-                        errCode == CUDTException::ENOCONN ||
-                        errCode == CUDTException::EINVSOCK) {
-                        CloseConnectedSocket(ServerKey);
-
-                        UDT::close(sendFd);
-                        sendFd = GetConnectedSocket(ServerKey);
-                        if (sendFd == UDT::INVALID_SOCK) {
-                            g_daily_logger->error("UdtThreadPool::SendData() can't connect to serverAddr (ip = {}, port = {})", t.Ip.c_str(), t.Port);
-                            break;
-                        }
-                    }
-                }
-                else {
-                    sended += sendlen;
-                }
-            } while (sended < t.BufLen);
-
-            g_daily_logger->debug("UdtThreadPool::SendData() send (ip = {}, port = {}, BufLen = {})", t.Ip.c_str(), t.Port, t.BufLen);
+            _ssdata.seekp(0, ios::end);
+            _nsize = _ssdata.tellp();
+            _iscompressed = true;
+        }
+        else {
+            _nsize = databuf.size();
+            _ssdata = stringstream(databuf);
         }
 
-        sendlist.clear();
+        iostream* f = this;
+        f->rdbuf(_ssdata.rdbuf());
     }
+
+    inline size_t GetSize(char &isCompress)
+    {
+        isCompress = _iscompressed;
+        return _nsize;
+    }
+
+private:
+    stringstream _ssdata;
+    size_t _nsize;
+    char _iscompressed = false;
+};
+
+inline
+int sendheader(int udtsck, int32_t nsize, char iscompress)
+{
+    char headsend[6];
+    memcpy(headsend, &nsize, sizeof(int32_t));
+    headsend[4] = iscompress;
+    return UDT::send(udtsck, (char*)&headsend, 5, 0);
 }
 
-UDTSOCKET UdtThreadPool::GetConnectedSocket(T_SERVERKEY &serverKey)
+inline
+int recvheader(int udtsck, int32_t &nsize, char &iscompress)
 {
-    UDTSOCKET socket_fd = UDT::INVALID_SOCK;
+    char headrecv[6] = {0};
+    if (UDT::ERROR == UDT::recv(udtsck, (char*)&headrecv, 5, 0)) {
+        return UDT::ERROR;
+    }
+    memcpy(&nsize, headrecv, sizeof(int32_t));
+    iscompress = headrecv[4];
+    return sizeof(int32_t) + 1;
+}
 
-    std::lock_guard<std::mutex> lk(m_socketMapLock);
-    ITR_MAP_CONNECTED_SOCKET iter_map = m_socketMap.find(serverKey/*.Ip*/);
-    if (iter_map != m_socketMap.end()) {
-        socket_fd = iter_map->second;
-        return socket_fd;
+
+void UdtThreadPool::SendData(int eid, int udtsck)
+{
+    if (!m_socketMap.count(udtsck)) {
+        return;
     }
 
-    socket_fd = CreateConnectionSocket(serverKey);
+    auto &peer = m_socketMap[udtsck];
 
-    return socket_fd;
+    auto ststonce = m_actioncoststt.NewStatt(1);
+
+    std::unique_lock<std::mutex> unilck(m_sendDatasLock);
+    if (!m_sendDatas.count(peer)) {
+        return;
+    }
+
+    auto &sendings = m_sendDatas[peer].datas;
+    unilck.unlock();
+
+    int sndsize = 0;
+    int64_t nStartingtime = time(nullptr);
+    while (!m_isstop) {
+        unilck.lock();
+        if (sendings.empty()) {
+            unilck.unlock();
+            UDT::epoll_remove_usock(eid, udtsck);
+            break;
+        }
+
+        auto& sendingD = sendings.front();
+        sndsize = (int)(std::get<1>(sendingD).size());
+        if (time(nullptr) - std::get<0>(sendingD) > 300) {
+
+            m_nDiscardedSnd++;
+            m_nDiscardedSndBytes += sndsize;
+
+            m_nWaitingSnd--;
+            m_nWaitingSndBytes -= sndsize;
+
+            sendings.pop_front();
+            unilck.unlock();
+            continue;
+        }
+
+        vfstream vfst(std::get<1>(sendingD));
+        sendings.pop_front();
+        unilck.unlock();
+
+        m_nWaitingSnd--;
+        m_nWaitingSndBytes -= sndsize;
+
+        char isCommpressed = false;
+        int leftsize = (int)vfst.GetSize(isCommpressed);
+
+        if (UDT::ERROR == sendheader(udtsck, leftsize, isCommpressed)) {
+            if (CUDTException::ETIMEOUT == UDT::getlasterror().getErrorCode()) {
+
+                unilck.lock();
+                sendings.push_front(sendingD);
+                unilck.unlock();
+
+                m_nWaitingSnd++;
+                m_nWaitingSndBytes += sndsize;
+                return;
+            }
+            goto err;
+        }
+
+        int64_t offset = 0;
+
+        while (leftsize > 0 && !m_isstop) {
+            int sended = (int)UDT::sendfile(udtsck, vfst, offset, leftsize);
+            if (UDT::ERROR == sended) {
+                goto err;
+            }
+            offset += sended;
+            leftsize -= sended;
+        }
+
+        if (time(nullptr) - nStartingtime > 2) {
+
+            break;
+        }
+    }
+
+    return;
+
+err:
+
+
+    m_nDiscardedSnd++;
+    m_nDiscardedSndBytes += sndsize;
+
+    g_daily_logger->error("UdtThreadPool::SendData() send (ip = {}, port = {}) failed! [{}]",
+        peer.Ip, peer.Port, UDT::getlasterror().getErrorMessage());
+
+    int errCode = UDT::getlasterror().getErrorCode();
+    if (errCode == CUDTException::ECONNLOST ||
+        errCode == CUDTException::ENOCONN ||
+        errCode == CUDTException::EINVSOCK) {
+
+        UDT::close(udtsck);
+    }
 }
 
 int UdtThreadPool::BindSocket(UDTSOCKET &socket_fd)
@@ -192,14 +366,14 @@ int UdtThreadPool::BindSocket(UDTSOCKET &socket_fd)
         bindIp = "INADDR_ANY";
     }
     else {
-        my_addr.sin_addr.s_addr = inet_addr(m_localIp);
+        inet_pton(AF_INET, m_localIp, &my_addr.sin_addr);
         bindIp = m_localIp;
     }
 
     int ret = UDT::bind(socket_fd, (const sockaddr *)&my_addr, sizeof(struct sockaddr));
     if (UDT::ERROR == ret) {
-        g_daily_logger->error("UdtThreadPool::BindSocket(), bind [{}:{}] error: {}", bindIp.c_str(), m_localPort, UDT::getlasterror().getErrorMessage());
-        g_console_logger->error("UdtThreadPool::BindSocket(), bind [{}:{}] error: {}", bindIp.c_str(), m_localPort, UDT::getlasterror().getErrorMessage());
+        g_daily_logger->error("UdtThreadPool::BindSocket(), bind [{}:{}] error: {}", bindIp, m_localPort, UDT::getlasterror().getErrorMessage());
+        g_console_logger->error("UdtThreadPool::BindSocket(), bind [{}:{}] error: {}", bindIp, m_localPort, UDT::getlasterror().getErrorMessage());
     }
 
     return ret;
@@ -208,19 +382,20 @@ int UdtThreadPool::BindSocket(UDTSOCKET &socket_fd)
 int UdtThreadPool::CreateListenSocket()
 {
     UDTSTATUS status = UDT::getsockstate(m_listenFd);
-    g_daily_logger->info("CreateListenSocket() UDT::getsockstate(m_listenFd): {}", status);
     if (LISTENING == status)
         return 0;
 
-//    if (NONEXIST != status && CLOSED != status)
-//        UDT::close(m_listenFd);
-
-    m_listenFd = UDT::socket(AF_INET, SOCK_DGRAM, 0);
+    m_listenFd = UDT::socket(AF_INET, SOCK_STREAM, 0);
     if (m_listenFd == UDT::INVALID_SOCK) {
         g_daily_logger->error("UdtThreadPool::CreateListenSocket(), m_listenFd == UDT::INVALID_SOCK");
         g_console_logger->error("UdtThreadPool::CreateListenSocket(), m_listenFd == UDT::INVALID_SOCK");
         return -1;
     }
+
+
+    //bool isblock = false;
+    //UDT::setsockopt(m_listenFd, 0, UDT_SNDSYN, &isblock, sizeof(bool));
+    //UDT::setsockopt(m_listenFd, 0, UDT_RCVSYN, &isblock, sizeof(bool));
 
     int ret = BindSocket(m_listenFd);
     if (UDT::ERROR == ret) {
@@ -228,7 +403,7 @@ int UdtThreadPool::CreateListenSocket()
         return -1;
     }
 
-    ret = UDT::listen(m_listenFd, FD_SETSIZE);
+    ret = UDT::listen(m_listenFd, 1024);
     if (ret == UDT::ERROR) {
         g_daily_logger->error("UdtThreadPool::CreateListenSocket(), listen error: {}", UDT::getlasterror().getErrorMessage());
         g_console_logger->error("UdtThreadPool::CreateListenSocket(), listen error: {}", UDT::getlasterror().getErrorMessage());
@@ -237,17 +412,23 @@ int UdtThreadPool::CreateListenSocket()
     }
 
     g_daily_logger->info("UdtThreadPool::CreateListenSocket(), socket_fd = {}", m_listenFd);
-    g_console_logger->info("UdtThreadPool::CreateListenSocket(), socket_fd = {}", m_listenFd);
 
     return 0;
 }
 
-UDTSOCKET UdtThreadPool::CreateConnectionSocket(T_SERVERKEY &serverKey)
+void setrecvsendtimeout(UDTSOCKET socket_fd)
+{
+    int nTimeout = 1000; //1 second
+    UDT::setsockopt(socket_fd, 0, UDT_SNDTIMEO, &nTimeout, sizeof(int));
+    UDT::setsockopt(socket_fd, 0, UDT_RCVTIMEO, &nTimeout, sizeof(int));
+}
+
+UDTSOCKET UdtThreadPool::CreateConnectionSocket(const T_UDTNODE& serverNode)
 {
     int ret = 0;
     UDTSOCKET socket_fd;
 
-    socket_fd = UDT::socket(AF_INET, SOCK_DGRAM, 0);
+    socket_fd = UDT::socket(AF_INET, SOCK_STREAM, 0);
     if (socket_fd == UDT::INVALID_SOCK) {
         g_daily_logger->error("UdtThreadPool, socket_fd == UDT::INVALID_SOCK");
         g_console_logger->error("UdtThreadPool, socket_fd == UDT::INVALID_SOCK");
@@ -263,26 +444,35 @@ UDTSOCKET UdtThreadPool::CreateConnectionSocket(T_SERVERKEY &serverKey)
     struct sockaddr_in serverAddr;
     memset(&serverAddr, 0, sizeof(serverAddr));
     serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = inet_addr(serverKey.Ip.c_str());
-    serverAddr.sin_port = htons(serverKey.Port);
+    inet_pton(AF_INET, serverNode.Ip.c_str(), &serverAddr.sin_addr);
+    serverAddr.sin_port = htons(serverNode.Port);
+
+    setrecvsendtimeout(socket_fd);
+
+//#ifdef WIN32
+//    int mss = 1052;
+//    UDT::setsockopt(socket_fd, 0, UDT_MSS, &mss, sizeof(int));
+//#endif
 
     ret = UDT::connect(socket_fd, (const sockaddr *)&serverAddr, sizeof(serverAddr));
     if (UDT::ERROR == ret) {
         UDT::close(socket_fd);
+        g_console_logger->trace("{} [{}:{}] cannot connect \n",
+            __FUNCTION__, serverNode.Ip, serverNode.Port);
+
         return UDT::INVALID_SOCK;
     }
 
-    m_socketMap[serverKey/*.Ip*/] = socket_fd;
-
-    g_daily_logger->debug("UdtThreadPool [{}:{}] socket {}",
-        serverKey.Ip.c_str(), serverKey.Port, socket_fd);
+    g_console_logger->trace("{} [{}:{}] connected, socket {}\n",
+        __FUNCTION__, serverNode.Ip, serverNode.Port, socket_fd);
+    g_daily_logger->trace("{} [{}:{}] connected, socket {}\n",
+        __FUNCTION__, serverNode.Ip, serverNode.Port, socket_fd);
 
     return socket_fd;
 }
 
-bool UdtThreadPool::AcceptConnectionSocket(UDTSOCKET listenFd)
+bool UdtThreadPool::AcceptConnectionSocket(int eid, UDTSOCKET listenFd)
 {
-    std::lock_guard<std::mutex> lk(m_socketMapLock);
     if (m_socketMap.size() >= FD_SETSIZE)
         return false;
 
@@ -295,218 +485,257 @@ bool UdtThreadPool::AcceptConnectionSocket(UDTSOCKET listenFd)
         return false;
     }
 
-    string fromIp = inet_ntoa(serverAddr.sin_addr);
+    setrecvsendtimeout(socket_fd);
+
+    char str[INET_ADDRSTRLEN] = {0};
+    string fromIp = inet_ntop(AF_INET, &serverAddr.sin_addr, str, sizeof(str));
+
     uint32_t fromPort = ntohs(serverAddr.sin_port);
-    T_SERVERKEY ServerKey(fromIp, fromPort);
 
-    ITR_MAP_CONNECTED_SOCKET iter_map = m_socketMap.find(ServerKey);
-    if (iter_map != m_socketMap.end()) {
-        g_daily_logger->warn("UdtThreadPool [{}:{}] socket {} already exist!",
-            fromIp.c_str(), fromPort, iter_map->second);
-        g_console_logger->warn("UdtThreadPool [{}:{}] socket {} already exist!",
-            fromIp.c_str(), fromPort, iter_map->second);
-        UDT::close(iter_map->second);
-    }
 
-    m_socketMap[ServerKey/*.Ip*/] = socket_fd;
 
-    g_daily_logger->debug("UdtThreadPool [{}:{}] socket {}", fromIp.c_str(), fromPort, socket_fd);
+    T_UDTNODE udtnode(fromIp, fromPort);
+    m_socketMap[socket_fd] = udtnode;
+
+    g_console_logger->trace("{}: [{}:{}] socket {}", __FUNCTION__, fromIp, fromPort, socket_fd);
+    g_daily_logger->trace("{}: [{}:{}] socket {}", __FUNCTION__, fromIp, fromPort, socket_fd);
+
+
+    std::lock_guard<std::mutex> lk(m_sendDatasLock);
+    m_sendDatas[udtnode].udtsckset.insert(socket_fd);
+    m_sendDatas[udtnode].refreshReconn(true);
 
     return true;
 }
 
-void UdtThreadPool::CloseConnectedSocket(T_SERVERKEY &serverKey)
-{
-    std::lock_guard<std::mutex> lk(m_socketMapLock);
-    m_socketMap.erase(serverKey/*.Ip*/);
-}
-
-void UdtThreadPool::CloseConnectedSocket(UDTSOCKET &socket_fd)
-{
-    g_daily_logger->debug("UdtThreadPool::CloseConnectedSocket, socket_fd: {}", socket_fd);
-    for (auto it = m_socketMap.begin(); it != m_socketMap.end(); it++) {
-        if (it->second == socket_fd) {
-            m_socketMap.erase(it);
-            break;
-        }
-    }
-}
-
 void UdtThreadPool::CloseAllConnectedSocket()
 {
-    std::lock_guard<std::mutex> lk(m_socketMapLock);
-
     for (auto& t : m_socketMap)
-        UDT::close(t.second);
+        UDT::close(t.first);
 
     m_socketMap.clear();
 }
 
+void UdtThreadPool::FillFdSets(int eid)
+{
+    int eventsIn = UDT_EPOLL_IN;
+    int eventsInOut = UDT_EPOLL_IN | UDT_EPOLL_OUT;
+
+    UDT::epoll_add_usock(eid, m_listenFd, &eventsIn);
+
+    auto ststonce = m_actioncoststt.NewStatt(2);
+
+    deque<T_UDTNODE> reconnnodes;
+    {
+        std::lock_guard<std::mutex> lkdata(m_sendDatasLock);
+        for (auto it = m_socketMap.begin(); it != m_socketMap.end();) {
+            UDTSTATUS status = UDT::getsockstate(it->first);
+
+            if (UDTSTATUS::CONNECTED != status && UDTSTATUS::CONNECTING != status) {
+                if (m_sendDatas.count(it->second)) {
+
+                    g_console_logger->trace("{} [{}:{}] {} will be closed for {}\n",
+                        __FUNCTION__, it->second.Ip, it->second.Port, it->first, udtstatusdesc[status]);
+
+                    UDT::close(it->first);
+                    auto& udtdata = m_sendDatas[it->second];
+                    udtdata.udtsckset.erase(it->first);
+                }
+                UDT::epoll_remove_usock(eid, it->first);
+                it = m_socketMap.erase(it);
+                continue;
+            }
+
+            int events = eventsIn;
+
+            if (m_sendDatas.count(it->second)) {
+                auto& udtdata = m_sendDatas[it->second];
+                udtdata.udtsckset.insert(it->first);
+                if (UDTSTATUS::CONNECTED == status && udtdata.datas.size() > 0) {
+
+                    events = eventsInOut;
+                }
+            }
+
+            UDT::epoll_add_usock(eid, it->first, &events);
+            ++it;
+        }
+
+        for (auto& sending : m_sendDatas) {
+            if (sending.second.udtsckset.size() == 0) {
+                reconnnodes.push_back(sending.first);
+            }
+        }
+    }
+
+
+    while (!reconnnodes.empty() && !m_isstop) {
+        auto& node = reconnnodes.front();
+
+        std::unique_lock<std::mutex> unilck(m_sendDatasLock);
+
+        if (m_sendDatas.count(node)) {
+            auto& udtd = m_sendDatas[node];
+
+            if (udtd.isLongTimeNotConn()) {
+
+                removeSendNode(node);
+                unilck.unlock();
+                reconnnodes.pop_front();
+                continue;
+            }
+
+            unilck.unlock();
+            if (udtd.isReconnAllowed()) {
+                auto s = CreateConnectionSocket(node);
+                udtd.refreshReconn(s != UDT::INVALID_SOCK);
+                if (s != UDT::INVALID_SOCK) {
+                    m_socketMap[s] = std::move(node);
+                }
+            }
+            reconnnodes.pop_front();
+            continue;
+        }
+        unilck.unlock();
+        reconnnodes.pop_front();
+    }
+}
+
 void UdtThreadPool::Listen()
 {
-    UDT::UDSET fd;
-    int selectRet = 0;
-    timeval timeout;
-
+    int nFds = 0;
     if (CreateListenSocket())
         exit(-1);
 
+    set<UDTSOCKET> writefds;
+    set<UDTSOCKET> readfds;
+    int eid = UDT::epoll_create();
+
+    defer{
+        UDT::close(m_listenFd);
+        UDT::epoll_release(eid);
+    };
+
     while (!m_isstop) {
-        timeout = { 10, 0 }; 
 
-        FillFdSets(fd);
-        selectRet = UDT::select(0, &fd, NULL, NULL, &timeout);
-        if (selectRet == 0) {
+        FillFdSets(eid);
+        nFds = UDT::epoll_wait(eid, &readfds, &writefds, 3000);
+        if (nFds < 0) {
+
             continue;
         }
 
-        if (selectRet == -1) {
-            int errCode = UDT::getlasterror().getErrorCode();
-            g_daily_logger->error("UdtThreadPool::Listen() select error: [{}] {}", errCode, UDT::getlasterror().getErrorMessage());
-            g_console_logger->error("UdtThreadPool::Listen() select error: [{}] {}", errCode, UDT::getlasterror().getErrorMessage());
+        if (readfds.count(m_listenFd)) {
 
-            UDTSTATUS status = UDT::getsockstate(m_listenFd);
-            g_daily_logger->debug("Listen() UDT::getsockstate(m_listenFd): {}", status);
-            if (LISTENING != status) {
-                CreateListenSocket();
+            AcceptConnectionSocket(eid, m_listenFd);
+            readfds.erase(m_listenFd);
+        }
+
+        for (auto s : readfds) {
+            if (!m_isstop) {
+                RecvData(eid, s);
             }
-
-            continue;
         }
 
-        if (UD_ISSET(m_listenFd, &fd)) {
-            if (AcceptConnectionSocket(m_listenFd))
-                selectRet--;
+        for (auto s : writefds) {
+            if (!m_isstop) {
+                SendData(eid, s);
+            }
         }
-
-        if (selectRet > 0) {
-            FillRecvSocketList(fd, selectRet);
-        }
-    }
-
-    UDT::close(m_listenFd);
-}
-
-void UdtThreadPool::FillFdSets(UDT::UDSET& readfds)
-{
-    UD_ZERO(&readfds);
-
-    UDTSTATUS status = UDT::getsockstate(m_listenFd);
-    g_daily_logger->debug("FillFdSets() UDT::getsockstate(m_listenFd): {}", status);
-    if (LISTENING != status) {
-        if (CreateListenSocket())
-            exit(-1);
-    }
-
-    UD_SET(m_listenFd, &readfds);
-
-    std::lock_guard<std::mutex> lk(m_socketMapLock);
-    for (auto it = m_socketMap.begin(); it != m_socketMap.end();) {
-        UDTSTATUS status = UDT::getsockstate(it->second);
-        g_daily_logger->debug("FillFdSets() UDT::getsockstate({}): {}", it->second, status);
-        if (CONNECTED != UDT::getsockstate(it->second)) {
-            it = m_socketMap.erase(it);
-            continue;
-        }
-
-        UD_SET(it->second, &readfds);
-        ++it;
     }
 }
 
-void UdtThreadPool::FillRecvSocketList(UDT::UDSET &readfds, int &activeNum)
+class vifstream : public std::fstream
 {
-    std::lock_guard<std::mutex> lk(m_socketMapLock);
-
-    MAP_CONNECTED_SOCKET tempSockMap = m_socketMap;
-    for (auto &t : tempSockMap) {
-        if (UD_ISSET(t.second, &readfds)) {
-            Recv(t.second);
-            activeNum--;
-        }
-
-        if (activeNum <= 0)
-            break;
+public:
+    vifstream()
+    {
+        iostream *f = this;
+        f->rdbuf(&_recvstreamb);
     }
-}
 
-void UdtThreadPool::Recv(UDTSOCKET socket_fd)
+    inline
+    stringbuf& GetData()
+    {
+        return _recvstreamb;
+    }
+
+private:
+    stringbuf _recvstreamb;
+};
+
+void UdtThreadPool::RecvData(int eid, UDTSOCKET socket_fd)
 {
-    if (socket_fd == UDT::INVALID_SOCK)
-        return;
-
     T_UDTRECV RecvNode;
-    struct sockaddr_in fromAddr;
-    int fromLen = sizeof(fromAddr);
-    char* recvBuf = new char[MAX_UDTBUF_SIZE];
 
-    int recvNum = UDT::recvmsg(socket_fd, recvBuf, MAX_UDTBUF_SIZE);
-    //g_daily_logger->info("UdtThreadPool::Recv(), recv data len ({})", recvNum);
-    if (recvNum == UDT::ERROR) {
-        g_daily_logger->error("UdtThreadPool::Recv() recv [fd: {}] error: {}", socket_fd, UDT::getlasterror().getErrorMessage());
-        CloseConnectedSocket(socket_fd);
-        UDT::close(socket_fd);
-        delete[]recvBuf;
-        return;
+    vifstream vfst;
+    int64_t offset = 0;
+    int recvNum = 0;
+
+    int datasize = 0;
+    if (UDT::ERROR == recvheader(socket_fd, datasize, RecvNode.compressed)) {
+        goto err;
     }
 
-    if (recvNum == 0) {
-        g_daily_logger->error("UdtThreadPool::Recv() recv fd: {} closed!", socket_fd);
-        CloseConnectedSocket(socket_fd);
-        UDT::close(socket_fd);
-        delete[]recvBuf;
-        return;
+
+    while (datasize > 0 && !m_isstop) {
+        recvNum = (int)UDT::recvfile(socket_fd, vfst, offset, datasize);
+        if (recvNum == UDT::ERROR) {
+            goto err;
+        }
+        offset += recvNum;
+        datasize -= recvNum;
     }
 
-    int ret = UDT::getpeername(socket_fd, (struct sockaddr *)&fromAddr, &fromLen);
-    if (ret == UDT::ERROR) {
-        g_daily_logger->error("UdtThreadPool::Recv() getpeername error: [{}]", UDT::getlasterror().getErrorMessage());
-        g_console_logger->error("UdtThreadPool::Recv() getpeername error: [{}]", UDT::getlasterror().getErrorMessage());
-        CloseConnectedSocket(socket_fd);
-        UDT::close(socket_fd);
-        delete[]recvBuf;
-        return;
+    RecvNode.fromAddr = m_socketMap[socket_fd];
+
+    RecvNode.spDataBuf = make_shared<std::stringbuf>();
+    RecvNode.spDataBuf->swap(vfst.GetData());
+
+    if (false == m_recvList.push(std::move(RecvNode))) {
+        g_daily_logger->error("UdtThreadPool::RecvData() m_recvList.push() failed! m_recvList.size={}", m_recvList.size());
+        cout << "UdtThreadPool::RecvData() m_recvList.push() failed! m_recvList.size=" << m_recvList.size() << endl;
     }
 
-    RecvNode.DataBuf.append(recvBuf, recvNum);
-    RecvNode.fromAddr = fromAddr;
+    return;
 
-    if (false == m_recvList.push(std::forward<T_UDTRECV>(RecvNode))) {
-        g_daily_logger->error("UdtThreadPool::Recv() m_recvList.push() failed! m_recvList.size={}", m_recvList.size());
-        cout << "UdtThreadPool::Recv() m_recvList.push() failed! m_recvList.size=" << m_recvList.size() << endl;
-    }
+err:
+    g_daily_logger->error("UdtThreadPool::RecvData() recv [fd: {}] error: {}", socket_fd, UDT::getlasterror().getErrorMessage());
 
-    delete[]recvBuf;
+    UDT::epoll_remove_usock(eid, socket_fd);
+    UDT::close(socket_fd);
 }
 
 
-void UdtThreadPool::RecvData()
+void UdtThreadPool::Recv()
 {
-    bool bret;
     list<T_UDTRECV> recvlist;
-    uint32_t fromPort;
-    string fromIp;
     UdpRecvDataHandler *udprecvhandler = Singleton<UdpRecvDataHandler>::getInstance();
 
     while (!m_isstop) {
         m_recvList.pop(recvlist);
         for (auto &t : recvlist)
         {
-            fromIp = inet_ntoa(t.fromAddr.sin_addr);
-            fromPort = ntohs(t.fromAddr.sin_port);
+            TASKBUF taskbuf;
+            std::stringstream ss_decomp;
+            if (t.compressed) {
 
-        RETRY:
-            bret = udprecvhandler->put(fromIp.c_str(), fromPort, t.DataBuf.c_str(), t.DataBuf.size());
-            if (bret == false) {
-                g_daily_logger->error("UdtThreadPool::Recv() udprecvhandler->put == false!");
-                if (m_isstop)
-                    break;
-
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                goto RETRY;
+                boost::iostreams::filtering_istream recvData;
+                recvData.push(boost::iostreams::zlib_decompressor());
+                recvData.push(*t.spDataBuf);
+                boost::iostreams::copy(recvData, ss_decomp);
+                taskbuf = std::make_shared<std::string>(ss_decomp.str());
+            } else {
+                taskbuf = std::make_shared<std::string>(t.spDataBuf->str());
             }
-            g_daily_logger->debug("UdtThreadPool::udprecvhandler->put(serverAddr [{}:{}], len = {}) ",
-                fromIp.c_str(), fromPort, t.DataBuf.size());
+
+
+            udprecvhandler->put(t.fromAddr.Ip.c_str(), t.fromAddr.Port, taskbuf);
+            if (m_isstop)
+                break;
+
+            g_daily_logger->trace("UdtThreadPool::udprecvhandler->put(serverAddr [{}:{}], len = {}) ",
+                t.fromAddr.Ip, t.fromAddr.Port, taskbuf->size());
         }
 
         recvlist.clear();

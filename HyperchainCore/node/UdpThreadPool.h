@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -53,14 +53,10 @@ using std::chrono::system_clock;
 #define SLICE_HEADER  '2'
 
 #define UDP_SLICE_MAX_SIZE	1024
-#define MAX_BUFFER_SIZE		1088			
-
-#define MAX_SEND_TIMES		3				
-
-#define MAX_INTERVAL_TIME	10				
-
-#define MAX_RECV_LIST_COUNT	100000			
-
+#define MAX_BUFFER_SIZE		1088
+#define MAX_SEND_TIMES		3
+#define MAX_INTERVAL_TIME	10
+#define MAX_RECV_LIST_COUNT	100000
 
 enum _erecvflag
 {
@@ -70,15 +66,12 @@ enum _erecvflag
 
 typedef struct _tudpheader
 {
-    uint8_t HeaderType;			
-
+    uint8_t HeaderType;
     uint32_t uPacketNum;
     uint32_t uDataBufCrc;
     uint32_t uBufLen;
-    uint8_t PacketType;			
-
-    uint8_t Version;			
-
+    uint8_t PacketType;
+    uint8_t Version;
     uint16_t uSliceTotalNum;
 }T_UDPHEADER, *T_PUDPHEADER;
 
@@ -97,21 +90,14 @@ typedef struct _tudpnode
 //Slice Header
 typedef struct _tudpsliceheader
 {
-    uint8_t HeaderType;			 
-
-    uint8_t SliceType;			 
-
-    uint32_t uPacketNum;		 
-
-    uint16_t uSliceTotalNum;	 
-
-    uint16_t uSliceCurrIndex;	 
-
+    uint8_t HeaderType;
+    uint8_t SliceType;
+    uint32_t uPacketNum;
+    uint16_t uSliceTotalNum;
+    uint16_t uSliceCurrIndex;
     uint32_t uSliceBufCrc;
-    uint32_t uSliceBufLen;		 
-
-    uint32_t uSliceDataOffset;   
-
+    uint32_t uSliceBufLen;
+    uint32_t uSliceDataOffset;
 }T_UDPSLICEHEADER, *T_PUDPSLICEHEADER;
 
 typedef struct _tudpslicenode
@@ -157,7 +143,6 @@ public:
 
         minutes timespan = std::chrono::duration_cast<minutes>(curr - _tp);
         if (timespan.count() > 20) {
-            
 
             return true;
         }
