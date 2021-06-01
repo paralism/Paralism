@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -24,7 +24,7 @@ DEALINGS IN THE SOFTWARE.
 
 #ifdef WIN32
 #else
-int code_convert(char* from_charset, char* to_charset, char* inbuf, int inlen, char* outbuf, int outlen)
+int code_convert(const char* from_charset, const char* to_charset, char* inbuf, int inlen, char* outbuf, int outlen)
 {
     iconv_t cd;
     char** pin = &inbuf;

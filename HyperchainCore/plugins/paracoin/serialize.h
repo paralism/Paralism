@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -80,7 +80,8 @@ class CDataStream;
 class CAutoFile;
 static const unsigned int MAX_SIZE = 0x02000000;
 
-static const int VERSION = 40000;
+static const int VERSION_2020 = 40000;
+static const int VERSION = 50000;
 static const char* pszSubVer = "hc";
 static const bool VERSION_IS_BETA = true;
 
@@ -104,8 +105,7 @@ enum
     SER_NETWORK         = (1 << 0),
     SER_DISK            = (1 << 1),
     SER_GETHASH         = (1 << 2),
-    SER_BUDDYCONSENSUS  = (1 << 3), 
-
+    SER_BUDDYCONSENSUS  = (1 << 3),
 
     // modifiers
     SER_SKIPSIG         = (1 << 16),

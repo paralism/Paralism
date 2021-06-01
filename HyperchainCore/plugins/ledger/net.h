@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -28,6 +28,7 @@ SOFTWARE.
 #ifndef BITCOIN_NET_H
 #define BITCOIN_NET_H
 
+#include "headers/commonstruct.h"
 
 #include <deque>
 #include <boost/array.hpp>
@@ -132,6 +133,8 @@ public:
     int64 nLastRecv;
     int64 nLastSendEmpty;
     int64 nTimeConnected;
+
+    int64 nLastGetchkblk = 0;
     unsigned int nHeaderStart;
     unsigned int nMessageStart;
     CAddress addr;
@@ -142,7 +145,29 @@ public:
     bool fNetworkNode;
     bool fSuccessfullyConnected;
     bool fDisconnect;
-	std::string nodeid;
+
+    std::string nodeid;
+
+    int nPKeyIdx = -1;            //public key index, if it is a node generating block, then nPKeyIdx >= 0
+
+
+    int nScore = 0;
+    int64 tmLastReqBlk = 0;
+    int nMinInterval = 5;      //HC：块请求最小间隔
+    int64 nReqBlkInterval = 5;
+
+    void IncreReqBlkInterval();
+    void DecreReqBlkInterval(int64 timeReqBlk);
+
+
+public:
+
+    bool IsPBFTSealer()
+    {
+        return nPKeyIdx >= 0;
+    }
+
+
 protected:
     int nRefCount;
 public:
@@ -152,6 +177,7 @@ public:
     uint256 hashContinue;
     CBlockIndex* pindexLastGetBlocksBegin;
     uint256 hashLastGetBlocksEnd;
+    time_t tmRequest = 0;
     int nStartingHeight;
 
     // flood relay
@@ -169,6 +195,12 @@ public:
     // publish and subscription
     std::vector<char> vfSubscribe;
 
+
+    std::map<uint256, std::tuple<int64, uint256>> mapBlockSent;
+
+
+    uint256 hashCheckPointBlock = 0;
+    uint32_t nHeightCheckPointBlock  = 0;
 
     CNode(SOCKET hSocketIn, CAddress addrIn, bool fInboundIn=false): nodeid("")
     {
@@ -201,7 +233,6 @@ public:
         nRefCount = 0;
         nReleaseTime = 0;
         hashContinue = 0;
-        pindexLastGetBlocksBegin = 0;
         hashLastGetBlocksEnd = 0;
         nStartingHeight = -1;
         fGetAddr = false;
@@ -226,6 +257,7 @@ private:
     void operator=(const CNode&);
 public:
 
+    void GetChkBlock();
 
     int GetRefCount()
     {
@@ -265,6 +297,8 @@ public:
 
     void AddInventoryKnown(const CInv& inv)
     {
+
+        return;
         CRITICAL_BLOCK(cs_inventory)
             setInventoryKnown.insert(inv);
     }
@@ -272,8 +306,11 @@ public:
     void PushInventory(const CInv& inv)
     {
         CRITICAL_BLOCK(cs_inventory)
-            if (!setInventoryKnown.count(inv))
+        {
+
+            //if (!setInventoryKnown.count(inv))
                 vInventoryToSend.push_back(inv);
+        }
     }
 
     void AskFor(const CInv& inv)
@@ -282,7 +319,7 @@ public:
         // the key is the earliest time the request can be sent
         int64& nRequestTime = mapAlreadyAskedFor[inv];
 
-        printf("askfor %s   %" PRI64d "\n", inv.ToString().c_str(), nRequestTime);
+        TRACE_FL("askfor %s   %" PRI64d "\n", inv.ToString().c_str(), nRequestTime);
 
         // Make sure not to reuse time indexes to keep things in the same order
         int64 nNow = (GetTime() - 1) * 1000000;
@@ -304,10 +341,8 @@ public:
         nHeaderStart = vSend.size();
         vSend << CMessageHeader(pszCommand, 0);
         nMessageStart = vSend.size();
-        if (fDebug) {
-            printf("%s ", DateTimeStrFormat("%x %H:%M:%S", GetTime()).c_str());
-            printf("sending: %s ", pszCommand);
-        }
+        TRACE_FL("%s ", DateTimeStrFormat("%x %H:%M:%S", GetTime()).c_str());
+        TRACE_FL("sending: %s ", pszCommand);
     }
 
     void AbortMessage()
@@ -319,15 +354,14 @@ public:
         nMessageStart = -1;
         cs_vSend.Leave();
 
-        if (fDebug)
-            printf("(aborted)\n");
+        TRACE_FL("(aborted)\n");
     }
 
     void EndMessage()
     {
         if (mapArgs.count("-dropmessagestest") && GetRand(atoi(mapArgs["-dropmessagestest"])) == 0)
         {
-            printf("dropmessages DROPPING SEND MESSAGE\n");
+            TRACE_FL("dropmessages DROPPING SEND MESSAGE\n");
             AbortMessage();
             return;
         }
@@ -349,9 +383,7 @@ public:
             memcpy((char*)&vSend[nHeaderStart] + offsetof(CMessageHeader, nChecksum), &nChecksum, sizeof(nChecksum));
         }
 
-        if (fDebug) {
-            printf("(%d bytes)\n", nSize);
-        }
+        TRACE_FL("(%d bytes)\n", nSize);
 
         nHeaderStart = -1;
         nMessageStart = -1;
@@ -369,21 +401,7 @@ public:
             AbortMessage();
     }
 
-
-
-    void PushVersion()
-    {
-        /// when NTP implemented, change to just nTime = GetAdjustedTime()
-        int64 nTime = (fInbound ? GetAdjustedTime() : GetTime());
-        CAddress addrYou = (fUseProxy ? CAddress("0.0.0.0") : addr);
-        CAddress addrMe = (fUseProxy ? CAddress("0.0.0.0") : addrLocalHost);
-        RAND_bytes((unsigned char*)&nLocalHostNonce, sizeof(nLocalHostNonce));
-        PushMessage("version", VERSION, nLocalServices, nTime, addrYou, addrMe,
-                    nLocalHostNonce, std::string(pszSubVer), nBestHeight);
-    }
-
-
-
+    void PushVersion();
 
     void PushMessage(const char* pszCommand)
     {
@@ -399,149 +417,20 @@ public:
         }
     }
 
-    template<typename T1>
-    void PushMessage(const char* pszCommand, const T1& a1)
+    template<typename... Args>
+    void PushMessage(const char* pszCommand, const Args&... args)
     {
-        try
-        {
+        try {
             BeginMessage(pszCommand);
-            vSend << a1;
+            int arr[] = { (vSend << args, 0)... };
             EndMessage();
         }
-        catch (...)
-        {
+        catch (...) {
             AbortMessage();
             throw;
         }
     }
 
-    template<typename T1, typename T2>
-    void PushMessage(const char* pszCommand, const T1& a1, const T2& a2)
-    {
-        try
-        {
-            BeginMessage(pszCommand);
-            vSend << a1 << a2;
-            EndMessage();
-        }
-        catch (...)
-        {
-            AbortMessage();
-            throw;
-        }
-    }
-
-    template<typename T1, typename T2, typename T3>
-    void PushMessage(const char* pszCommand, const T1& a1, const T2& a2, const T3& a3)
-    {
-        try
-        {
-            BeginMessage(pszCommand);
-            vSend << a1 << a2 << a3;
-            EndMessage();
-        }
-        catch (...)
-        {
-            AbortMessage();
-            throw;
-        }
-    }
-
-    template<typename T1, typename T2, typename T3, typename T4>
-    void PushMessage(const char* pszCommand, const T1& a1, const T2& a2, const T3& a3, const T4& a4)
-    {
-        try
-        {
-            BeginMessage(pszCommand);
-            vSend << a1 << a2 << a3 << a4;
-            EndMessage();
-        }
-        catch (...)
-        {
-            AbortMessage();
-            throw;
-        }
-    }
-
-    template<typename T1, typename T2, typename T3, typename T4, typename T5>
-    void PushMessage(const char* pszCommand, const T1& a1, const T2& a2, const T3& a3, const T4& a4, const T5& a5)
-    {
-        try
-        {
-            BeginMessage(pszCommand);
-            vSend << a1 << a2 << a3 << a4 << a5;
-            EndMessage();
-        }
-        catch (...)
-        {
-            AbortMessage();
-            throw;
-        }
-    }
-
-    template<typename T1, typename T2, typename T3, typename T4, typename T5, typename T6>
-    void PushMessage(const char* pszCommand, const T1& a1, const T2& a2, const T3& a3, const T4& a4, const T5& a5, const T6& a6)
-    {
-        try
-        {
-            BeginMessage(pszCommand);
-            vSend << a1 << a2 << a3 << a4 << a5 << a6;
-            EndMessage();
-        }
-        catch (...)
-        {
-            AbortMessage();
-            throw;
-        }
-    }
-
-    template<typename T1, typename T2, typename T3, typename T4, typename T5, typename T6, typename T7>
-    void PushMessage(const char* pszCommand, const T1& a1, const T2& a2, const T3& a3, const T4& a4, const T5& a5, const T6& a6, const T7& a7)
-    {
-        try
-        {
-            BeginMessage(pszCommand);
-            vSend << a1 << a2 << a3 << a4 << a5 << a6 << a7;
-            EndMessage();
-        }
-        catch (...)
-        {
-            AbortMessage();
-            throw;
-        }
-    }
-
-    template<typename T1, typename T2, typename T3, typename T4, typename T5, typename T6, typename T7, typename T8>
-    void PushMessage(const char* pszCommand, const T1& a1, const T2& a2, const T3& a3, const T4& a4, const T5& a5, const T6& a6, const T7& a7, const T8& a8)
-    {
-        try
-        {
-            BeginMessage(pszCommand);
-            vSend << a1 << a2 << a3 << a4 << a5 << a6 << a7 << a8;
-            EndMessage();
-        }
-        catch (...)
-        {
-            AbortMessage();
-            throw;
-        }
-    }
-
-    template<typename T1, typename T2, typename T3, typename T4, typename T5, typename T6, typename T7, typename T8, typename T9>
-    void PushMessage(const char* pszCommand, const T1& a1, const T2& a2, const T3& a3, const T4& a4, const T5& a5, const T6& a6, const T7& a7, const T8& a8, const T9& a9)
-    {
-        try
-        {
-            BeginMessage(pszCommand);
-            vSend << a1 << a2 << a3 << a4 << a5 << a6 << a7 << a8 << a9;
-            EndMessage();
-        }
-        catch (...)
-        {
-            AbortMessage();
-            throw;
-        }
-    }
 
 
     void PushRequest(const char* pszCommand,
@@ -585,6 +474,7 @@ public:
 
 
     void PushGetBlocks(CBlockIndex* pindexBegin, uint256 hashEnd);
+    void PushGetBlocksReversely(uint256 hashEnd);
     bool IsSubscribed(unsigned int nChannel);
     void Subscribe(unsigned int nChannel, unsigned int nHops=0);
     void CancelSubscribe(unsigned int nChannel);
@@ -604,7 +494,6 @@ public:
 inline void RelayInventory(const CInv& inv)
 {
     // Put on lists to offer to the other nodes
-    CRITICAL_BLOCK(cs_main)
     CRITICAL_BLOCK(cs_vNodes)
         BOOST_FOREACH(CNode* pnode, vNodes)
             pnode->PushInventory(inv);
@@ -664,7 +553,6 @@ void AdvertStartPublish(CNode* pfrom, unsigned int nChannel, unsigned int nHops,
         return;
 
     // Relay
-    CRITICAL_BLOCK(cs_main)
     CRITICAL_BLOCK(cs_vNodes)
         BOOST_FOREACH(CNode* pnode, vNodes)
             if (pnode != pfrom && (nHops < PUBLISH_HOPS || pnode->IsSubscribed(nChannel)))
@@ -676,7 +564,6 @@ void AdvertStopPublish(CNode* pfrom, unsigned int nChannel, unsigned int nHops, 
 {
     uint256 hash = obj.GetHash();
 
-    CRITICAL_BLOCK(cs_main)
     CRITICAL_BLOCK(cs_vNodes)
         BOOST_FOREACH(CNode* pnode, vNodes)
             if (pnode != pfrom && (nHops < PUBLISH_HOPS || pnode->IsSubscribed(nChannel)))
@@ -695,5 +582,31 @@ void AdvertRemoveSource(CNode* pfrom, unsigned int nChannel, unsigned int nHops,
     if (obj.setSources.empty())
         AdvertStopPublish(pfrom, nChannel, nHops, obj);
 }
+
+
+typedef map<T_APPTYPE, vector<T_PAYLOADADDR>> M_APP_PAYLOADADDR;
+typedef struct tagCHAINCBDATA
+{
+    tagCHAINCBDATA(const M_APP_PAYLOADADDR &m, uint32_t hidFork, uint32_t hid, const T_SHA256 &thhash, bool isLatest) :
+        m_mapPayload(m), m_hidFork(hidFork), m_hid(hid), m_thhash(thhash), m_isLatest(isLatest)
+    {
+    }
+
+    M_APP_PAYLOADADDR m_mapPayload;
+    uint32_t m_hidFork;
+    uint32_t m_hid;
+    T_SHA256 m_thhash;
+    bool m_isLatest;
+} CHAINCBDATA;
+
+class HyperBlockMsgs
+{
+public:
+    void insert(CHAINCBDATA &&cb);
+    void process();
+private:
+    CCriticalSection m_cs_list;
+    std::list<CHAINCBDATA> m_list;
+};
 
 #endif

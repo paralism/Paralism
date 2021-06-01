@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -20,6 +20,7 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 DEALINGS IN THE SOFTWARE.
 */
 
+#include "UdtThreadPool.h"
 #include "NodeUpkeepThreadPool.h"
 #include "newLog.h"
 
@@ -43,7 +44,6 @@ void NodeUPKeepThreadPool::stop()
 }
 
 
-
 void NodeUPKeepThreadPool::InitPullList()
 {
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
@@ -52,38 +52,39 @@ void NodeUPKeepThreadPool::InitPullList()
     nodemgr->GetNodeMapNodes(vecNodes);
     for (CUInt128& id : vecNodes)
         m_lstPullNode.push_back(id);
-
-    if (g_nodetype == NodeType::Normal)
-    {
-        CUInt128 seedID = nodemgr->seedServer()->getNodeId<CUInt128>();
-        m_lstPullNode.push_back(seedID);
-    }
 }
 
 void NodeUPKeepThreadPool::PreparePullList()
 {
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
 
-    std::set<CUInt128> setResult;
-    nodemgr->PickRandomNodes(16, setResult);
-    for (CUInt128 id : setResult)
-        m_lstPullNode.push_back(id);
+    std::set<HCNode> setNodes;
+    nodemgr->PickRandomNodes(16, setNodes);
 
-    if (g_nodetype == NodeType::Normal)
-    {
-        CUInt128 seedID = nodemgr->seedServer()->getNodeId<CUInt128>();
-        if (!nodemgr->IsNodeInKBuckets(seedID))
-            m_lstPullNode.push_back(seedID);
+    UdtThreadPool* pUdtPool = Singleton<UdtThreadPool, const char*, uint32_t>::getInstance();
+
+    string peerIP;
+    int peerPort;
+    for (auto& node : setNodes) {
+        if (pUdtPool && !nodemgr->IsSeedServer(node)) {
+            m_lstPullNode.push_back(node.getNodeId<CUInt128>());
+        }
+    }
+
+    if (g_nodetype == NodeType::Normal) {
+        for (auto& ss : nodemgr->seedServers()) {
+            CUInt128 seedID = ss->getNodeId<CUInt128>();
+            if (!nodemgr->IsNodeInKBuckets(seedID))
+                m_lstPullNode.push_back(seedID);
+        }
     }
 }
-
 
 
 void NodeUPKeepThreadPool::NodeFind()
 {
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
 
-    
 
     if (m_lstPullNode.empty())
         PreparePullList();
@@ -112,15 +113,25 @@ void NodeUPKeepThreadPool::PreparePingSet()
 {
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
 
-    
 
     string str = HCNode::generateNodeId();
-    vector<CUInt128> vecResult;
-    nodemgr->PickNeighbourNodes(CUInt128(str), 30, vecResult);
+    vector<HCNode> vecNodes;
+    nodemgr->PickNeighbourNodesEx(CUInt128(str), 30, vecNodes);
 
+    UdtThreadPool* pUdtPool = Singleton<UdtThreadPool, const char*, uint32_t>::getInstance();
+
+    string peerIP;
+    int peerPort;
     std::set<CUInt128>& addNodeSet = getAddNodeSet();
-    for (CUInt128& id : vecResult)
-        addNodeSet.insert(id);
+    for (auto & node : vecNodes) {
+        if (pUdtPool) {
+            node.getUDPAP(peerIP, peerPort);
+
+            if (!pUdtPool->peerConnected(peerIP, peerPort)) {
+                addNodeSet.insert(node.getNodeId<CUInt128>());
+            }
+        }
+    }
     m_pingSecSet = !m_pingSecSet;
 }
 
@@ -128,7 +139,6 @@ void NodeUPKeepThreadPool::PreparePingSet()
 void NodeUPKeepThreadPool::DoPing()
 {
     std::set<CUInt128>& pingNodeSet = getPingNodeSet();
-    
 
     vector<CUInt128> vNodes(20);
     int pkgNum = pingNodeSet.size() / 20 + 1;
@@ -171,7 +181,6 @@ void NodeUPKeepThreadPool::NodePing()
             break;
         }
         case pingstate::check: {
-            
 
             NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
             std::set<CUInt128>& pingNodeSet = getPingNodeSet();
@@ -179,12 +188,13 @@ void NodeUPKeepThreadPool::NodePing()
                 nodemgr->EnableNodeActive(node, false);
             pingNodeSet.clear();
 
-            
 
             m_pingstate = pingstate::prepare;
             EmitPingSignal(30);
             break;
         }
+        default:
+            break;
     }
 }
 

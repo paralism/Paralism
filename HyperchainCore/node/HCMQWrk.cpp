@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -20,14 +20,11 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 DEALINGS IN THE SOFTWARE.
 */
 
-#pragma once
 
 #include "HCMQWrk.h"
 
 
-
-#define HEARTBEAT_LIVENESS  3       
-
+#define HEARTBEAT_LIVENESS  3
 
 HCMQWrk::HCMQWrk(const char *servicename, int socktype) :
     m_broker(HC_BROKER),
@@ -51,7 +48,6 @@ void HCMQWrk::send_to_broker(char *command, std::string option, zmsg *_msg)
         msg = &emptymsg;
     }
 
-    
 
     if (option.length() != 0) {
         msg->push_front((char*)option.c_str());
@@ -72,11 +68,9 @@ void HCMQWrk::connect_to_broker()
     s_set_id(*m_worker);
     m_worker->connect(m_broker.c_str());
 
-    
 
     send_to_broker((char*)MDPW_READY, m_service, NULL);
 
-    
 
     m_liveness = HEARTBEAT_LIVENESS;
     m_heartbeat_at = s_clock() + m_heartbeat;

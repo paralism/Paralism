@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -174,7 +174,7 @@ public:
         if (vchSecret.size() != 32)
             throw key_error("CKey::SetSecret() : secret must be 32 bytes");
         BIGNUM *bn = BN_bin2bn(&vchSecret[0],32,BN_new());
-        if (bn == NULL) 
+        if (bn == NULL)
             throw key_error("CKey::SetSecret() : BN_bin2bn failed");
         if (!EC_KEY_regenerate_key(pkey,bn))
             throw key_error("CKey::SetSecret() : EC_KEY_regenerate_key failed");
@@ -192,7 +192,7 @@ public:
         if (bn == NULL)
             throw key_error("CKey::GetSecret() : EC_KEY_get0_private_key failed");
         int n=BN_bn2bin(bn,&vchRet[32 - nBytes]);
-        if (n != nBytes) 
+        if (n != nBytes)
             throw key_error("CKey::GetSecret(): BN_bn2bin failed");
         return vchRet;
     }

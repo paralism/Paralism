@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -37,7 +37,7 @@ SOFTWARE.
 class BloomFilter
 {
 public:
-    BloomFilter(size_t hash_func_count = 4);
+    BloomFilter();
 
     void insert(const std::string& object);
     void insert(const char* object, int len);
@@ -51,9 +51,12 @@ public:
 
     bool empty() const;
 
+    BloomFilter& operator =(const BloomFilter& bf);
+    BloomFilter& operator |(const BloomFilter& bf);
+
 private:
 
-    int hashtable_init();
+    void hashtable_init();
     void md5hash(const std::string& val) const
     {
         const unsigned char* const md5_input_val = reinterpret_cast<const unsigned char*>(val.data());
@@ -66,28 +69,20 @@ private:
     // Size of the MD5 hash result, always fixed to 16 bytes.
     static constexpr size_t _md5_result_size_bytes = 16;
 
-    // Size of the bloom filter state in bits (2^16).
-    static constexpr size_t _bloomfilter_store_size = 65536;
-
-    // Set to 2 bytes so all bloom filter bits can be indexed (2^16 different values).
-    static constexpr size_t _bytes_per_hash_func = 2;
-
-    static_assert(1 << (_bytes_per_hash_func * 8) >= _bloomfilter_store_size,
-        "Not all Bloom filter bits indexable, increase bytes_per_hash_function or decrease bloomfilter_store_size");
-
-    // Number of hash functions to use when hashing objects (cannot be larger than MD5_result_size_bytes/bytes_per_hash_function).
-    const size_t _hash_func_count;
+    // Size of the bloom filter state in bits (2^24).
+    static constexpr size_t _bloomfilter_store_size = 0xffffff + 1; //16,777,216, +1 avoid bitset overflow
 
     using bit_pool = std::bitset<_bloomfilter_store_size>;
 
-    bit_pool _md5_store;
+    std::bitset<256 + 1> _md5_store_front;
+    std::shared_ptr<bit_pool> _sp_md5_store;
+
     size_t _object_count;
 
     //const std::unique_ptr<unsigned char[]> _md5_hash_result;
     mutable unsigned char _md5_hash_result[_md5_result_size_bytes];
 
-    std::vector<unsigned int (*)(const char*, int len)> _hashfunctable;  
-
+    std::vector<unsigned int (*)(const char*, size_t len)> _hashfunctable;
 
     std::vector<bit_pool> _vec_bit_pool;
 

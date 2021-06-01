@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -52,10 +52,8 @@ void NodeManager::startMQHandler()
     _msghandler.registerTimer(1000 * 5 * 60, std::bind(&NodeManager::SaveLastActiveNodesToDB, this));
 
     NodeUPKeepThreadPool* nodeUpkeep = Singleton<NodeUPKeepThreadPool>::instance();
-    
 
     _msghandler.registerTimer(10 * 1000, std::bind(&NodeUPKeepThreadPool::NodeFind, nodeUpkeep), true);
-    
 
     _msghandler.registerTimer(300 * 1000, std::bind(&NodeUPKeepThreadPool::NodeFind, nodeUpkeep));
 
@@ -67,13 +65,16 @@ void NodeManager::startMQHandler()
     _msghandler.registerTaskType<PingPongTask>(TASKTYPE::PING_PONG);
     _msghandler.registerTaskType<PingPongRspTask>(TASKTYPE::PING_PONG_RSP);
 
+    m_actioncoststt.AddAction((int32_t)SERVICE::ToAllNodes, "ToAllNodes");
+    m_actioncoststt.AddAction((int32_t)SERVICE::SendTo, "SendTo");
+
     _msghandler.start();
     cout << "NodeManager MQID: " << MQID() << endl;
 }
 
-void NodeManager::DispatchService(void *wrk, zmsg *msg)
+void NodeManager::DispatchService(void* wrk, zmsg* msg)
 {
-    HCMQWrk *realwrk = reinterpret_cast<HCMQWrk*>(wrk);
+    HCMQWrk* realwrk = reinterpret_cast<HCMQWrk*>(wrk);
 
     string reply_who = msg->unwrap();
     string u = msg->pop_front();
@@ -81,13 +82,14 @@ void NodeManager::DispatchService(void *wrk, zmsg *msg)
     int service_t = 0;
     memcpy(&service_t, u.c_str(), sizeof(service_t));
 
+    auto acss = m_actioncoststt.NewStatt(service_t);
+
     switch ((SERVICE)service_t) {
     case SERVICE::ToAllNodes: {
 
         string data = msg->pop_front();
         ToAllNodes(data);
 
-        
 
         return;
     }
@@ -101,7 +103,6 @@ void NodeManager::DispatchService(void *wrk, zmsg *msg)
         CUInt128 nodeid(strnodeid);
         updateNode(nodeid, ip, port);
 
-        
 
         return;
     }
@@ -161,11 +162,13 @@ void NodeManager::DispatchService(void *wrk, zmsg *msg)
         GetNodeMapNodes(*pvecNodes);
         break;
     }
+
     case SERVICE::ToFormatString: {
         string info = toFormatString();
         MQMsgPush(msg, info);
         break;
     }
+
     case SERVICE::PickNeighbourNodes: {
         CUInt128 *pnodeid = nullptr;
         int num = 0;
@@ -174,6 +177,16 @@ void NodeManager::DispatchService(void *wrk, zmsg *msg)
         PickNeighbourNodes(*pnodeid, num, *pvnodes);
         break;
     }
+
+    case SERVICE::PickNeighbourNodesEx: {
+        CUInt128* pnodeid = nullptr;
+        int num = 0;
+        vector<HCNode>* pvnodes = nullptr;
+        MQMsgPop(msg, pnodeid, num, pvnodes);
+        PickNeighbourNodesEx(*pnodeid, num, *pvnodes);
+        break;
+    }
+
     case SERVICE::IsNodeInKBuckets: {
 
         CUInt128 *pnodeid = nullptr;
@@ -191,7 +204,7 @@ void NodeManager::DispatchService(void *wrk, zmsg *msg)
     }
     case SERVICE::PickRandomNodes: {
         int nNum;
-        std::set<CUInt128> *pnodes = nullptr;
+        std::set<HCNode> *pnodes = nullptr;
 
         MQMsgPop(msg, nNum, pnodes);
         PickRandomNodes(nNum, *pnodes);
@@ -211,12 +224,15 @@ void NodeManager::DispatchService(void *wrk, zmsg *msg)
 
         sendToHlp(targetnodeid, msgbuf);
 
-        
 
         return;
     }
+    case SERVICE::MQCostStatistics: {
+        string info = GetMQCostStatistics();
+        MQMsgPush(msg, info);
+        break;
+    }
     default:
-        
 
         return;
     }
@@ -256,10 +272,17 @@ int NodeManager::GetNodesNum()
 
 }
 
-void NodeManager::PickRandomNodes(int nNum, std::set<CUInt128> &nodes)
+void NodeManager::PickRandomNodes(int nNum, std::set<HCNode> &nodes)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
-        nodes = m_actKBuchets.PickRandomNodes(nNum);
+        set<CUInt128> nodeIDs;
+        nodeIDs = m_actKBuchets.PickRandomNodes(nNum);
+        for (auto& id : nodeIDs) {
+            HCNodeSH n = getNode(id);
+            if (n) {
+                nodes.insert(*n);
+            }
+        }
     }
     else {
         zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::PickRandomNodes, nNum, &nodes);
@@ -307,6 +330,27 @@ void NodeManager::PickNeighbourNodes(const CUInt128 &nodeid, int num, vector<CUI
     else {
         zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::PickNeighbourNodes, &nodeid, num, &vnodes);
 
+        if (rspmsg) {
+            delete rspmsg;
+        }
+    }
+}
+
+
+void NodeManager::PickNeighbourNodesEx(const CUInt128& nodeid, int num, vector<HCNode> &vnodes)
+{
+    if (_msghandler.getID() == std::this_thread::get_id()) {
+        vector<CUInt128> vnodeIDs;
+        vnodeIDs = m_actKBuchets.PickNeighbourNodes(nodeid, num);
+        for (auto &id : vnodeIDs) {
+            HCNodeSH n = getNode(id);
+            if (n) {
+                vnodes.push_back(*n);
+            }
+        }
+    }
+    else {
+        zmsg* rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::PickNeighbourNodesEx, &nodeid, num, &vnodes);
         if (rspmsg) {
             delete rspmsg;
         }
@@ -453,6 +497,24 @@ string NodeManager::toFormatString()
 }
 
 
+std::string NodeManager::GetMQCostStatistics()
+{
+    if (_msghandler.getID() == std::this_thread::get_id()) {
+
+        return m_actioncoststt.Statistics("NodeManager MQ cost statistics: ");
+    }
+    else {
+        zmsg* rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::MQCostStatistics);
+
+        string ret;
+        if (rspmsg) {
+            MQMsgPop(rspmsg, ret);
+            delete rspmsg;
+        }
+        return ret;
+    }
+}
+
 bool NodeManager::getNodeAP(const CUInt128 &nodeid, UdpAccessPoint *ap)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
@@ -502,7 +564,6 @@ bool NodeManager::parseNode(const string &node, UdpAccessPoint *ap)
         });
 
         if (ret == std::end(aplist)) {
-            
 
             return false;
         }
@@ -522,19 +583,17 @@ bool NodeManager::parseNode(const string &node, UdpAccessPoint *ap)
 }
 
 
-bool NodeManager::IsSeedServer(HCNodeSH & node)
+bool NodeManager::IsSeedServer(const HCNode & node)
 {
-    if (_seed->getNodeId<CUInt128>() == node->getNodeId<CUInt128>())
-        return true;
+    for (auto &ss : _seeds) {
+        if (ss->getNodeId<CUInt128>() == node.getNodeId<CUInt128>())
+            return true;
 
-    
 
-    string ap = _seed->serializeAP();
-    if (!ap.empty() && 0 == ap.compare(node->serializeAP()))
-    {
-        _seed = std::move(node);
-        _nodemap[_seed->getNodeId<CUInt128>()] = _seed;
-        return true;
+        string ap = ss->serializeAP();
+        if (!ap.empty() && 0 == ap.compare(node.serializeAP()))     {
+            return true;
+        }
     }
 
     return false;
@@ -554,13 +613,11 @@ void NodeManager::PushToKBuckets(const CUInt128 &nodeid)
     bool bret = m_actKBuchets.AddNode(nodeid, idRemove);
     if (!bret)
     {
-        
 
         NodeUPKeepThreadPool* nodeUpkeepThreadpool = Singleton<NodeUPKeepThreadPool>::instance();
         nodeUpkeepThreadpool->AddToPingList(idRemove);
     }
 }
-
 
 
 
@@ -586,9 +643,8 @@ void NodeManager::ParseNodeList(const string &nodes, vector<CUInt128> &vecNewNod
             auto id = n->getNodeId<CUInt128>();
             vecNewNode.push_back(id);
 
-            if (!_nodemap.count(id)) {
-                addNode(n);
-            }
+
+            addNode(n);
         }
     }
     else {
@@ -613,7 +669,6 @@ void NodeManager::AddToDeactiveNodeList(const CUInt128& nodeid)
     }
     m_lstDeactiveNode.push_back(CKBNode(nodeid));
 
-    
 
     if (m_lstDeactiveNode.size() > 100)
     {
@@ -642,7 +697,6 @@ void NodeManager::RemoveNodeFromDeactiveList(const CUInt128 &nodeid)
 
 bool NodeManager::SaveNodeToDB(const CUInt128 &nodeid, system_clock::time_point  lastActTime)
 {
-    
 
     if (!_nodemap.count(nodeid))
         return false;
@@ -653,7 +707,6 @@ bool NodeManager::SaveNodeToDB(const CUInt128 &nodeid, system_clock::time_point 
 
     std::time_t lasttime = system_clock::to_time_t(lastActTime);
 
-    
 
     DBmgr *pDb = Singleton<DBmgr>::instance();
 
@@ -681,7 +734,6 @@ bool NodeManager::SaveNodeToDB(const CUInt128 &nodeid, system_clock::time_point 
 
 void NodeManager::loadNeighbourNodes_New()
 {
-    
 
     DBmgr *pDb = Singleton<DBmgr>::instance();
 
@@ -703,8 +755,7 @@ void NodeManager::GetNodeMapNodes(vector<CUInt128>& vecNodes)
         HCNodeMap::iterator iter;
         for (iter = _nodemap.begin(); iter != _nodemap.end(); iter++) {
             CUInt128 nodeID = iter->first;
-            if (nodeID != _seed->getNodeId<CUInt128>())
-                vecNodes.push_back(nodeID);
+            vecNodes.push_back(nodeID);
         }
     }
     else {
@@ -737,12 +788,10 @@ void NodeManager::EnableNodeActive(const CUInt128 &nodeid, bool bEnable)
 
 void NodeManager::SaveLastActiveNodesToDB()
 {
-    using minutes = std::chrono::duration<double, ratio<60>>;
     system_clock::time_point curr = system_clock::now();
 
     int nMinutes = 5;
 
-    
 
     string str = HCNode::generateNodeId();
     vector<CUInt128> vecResult = m_actKBuchets.PickLastActiveNodes(CUInt128(str), 10, nMinutes);

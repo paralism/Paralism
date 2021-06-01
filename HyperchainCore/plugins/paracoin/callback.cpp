@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+#include "cryptopp/sha.h"
 #include "headers/commonstruct.h"
 #include "consensus/consensus_engine.h"
 #include "node/defer.h"
@@ -30,10 +31,11 @@ SOFTWARE.
 #include "db.h"
 #include "net.h"
 #include "init.h"
-#include "cryptopp/sha.h"
 #include "random.h"
 #include "dllmain.h"
 #include "cryptocurrency.h"
+#include "para_rpc.h"
+#include "plshared.h"
 
 
 #include <boost/any.hpp>
@@ -56,15 +58,17 @@ boost::fibers::mutex g_fibermtx;
 CAddress g_seedserver;
 
 extern CBlockCacheLocator mapBlocks;
-extern map<uint256, CBlock*> mapOrphanBlocks;
+extern map<uint256, CBlockSP> mapOrphanBlocks;
 
 
 extern MiningCondition g_miningCond;
 extern std::atomic_bool g_isBuiltInBlocksReady;
 
 
+extern const CUInt128& getMyNodeID();
 extern void ProcessOrphanBlocks(const uint256& hash);
 bool ResolveBlock(CBlock &block, const char *payload, size_t payloadlen);
+
 
 
 std::map<uint32_t, time_t> mapPullingHyperBlock;
@@ -79,6 +83,7 @@ void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "")
         }
         else {
             if (now - mapPullingHyperBlock[hid] < 20) {
+
                 return;
             }
             else {
@@ -137,6 +142,7 @@ bool UpdateAppAddress(const CBlock& genesisblock, const T_LOCALBLOCKADDRESS& add
     string currencyhash = cryptoCurrency.GetHashPrefixOfGenesis();
     string errmsg;
     if (!cryptoCurrencyFromLocal.ReadCoinFile("", currencyhash, errmsg)) {
+
         return ERROR_FL("%s", errmsg.c_str());
     }
 
@@ -187,6 +193,7 @@ bool GetNeighborNodes(list<string>& listNodes)
     return true;
 }
 
+
 bool CheckChainCb(vector<T_PAYLOADADDR>& vecPA)
 {
     return true;
@@ -215,6 +222,24 @@ bool SwitchChainTo(CBlockIndexSP pindexBlock)
     return true;
 }
 
+bool SwitchChainToHyperHeight(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() != 1) {
+        throw runtime_error("coin s <height> : only for developers");
+    }
+
+    int32 height = std::atoi(params[0].get_str().c_str());
+    auto p = pindexBest;
+    while (p->nHeight > height) {
+        p = p->pprev();
+    }
+
+    if (!p || height != p->nHeight) {
+        return false;
+    }
+    return SwitchChainTo(p);
+}
+
 bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, bool isLatest)
 {
     if (vecPA.size() == 0) {
@@ -236,7 +261,7 @@ bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, bool isLatest)
     for (size_t i = 0; i < vecBlock.size(); i++) {
         if (ProcessBlockFromAcceptedHyperBlock(&vecBlock[i], &vecPA[i].addr)) {
             uint256 hash = vecBlock[i].GetHash();
-            printf("AcceptBlocks() : (%s) %s is accepted\n\n", vecPA[i].addr.tostring().c_str(),
+            TRACE_FL("AcceptBlocks() : (%s) %s is accepted\n\n", vecPA[i].addr.tostring().c_str(),
                 hash.ToString().substr(0, 20).c_str());
         }
         else {
@@ -244,43 +269,15 @@ bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, bool isLatest)
         }
     }
 
-    auto& lastblock = vecBlock.back();
-    uint32_t hid = lastblock.nPrevHID;
-    uint256 hash = lastblock.GetHash();
-
-    CBlockIndexSP pindexLast;
-    if (!mapBlockIndex.count(hash)) {
-        return false;
-    }
-
-    pindexLast = mapBlockIndex[hash];
-
-    bool bchainSwitch = true;
-    if (pindexBest->nPrevHID > hid && !isLatest) {
-        CBlockIndexSP pfork = pindexBest;
-        if (pindexBest->nHeight >= pindexLast->nHeight) {
-            uint32 nHeight = pindexLast->nHeight;
-            while (pfork->nHeight > nHeight)
-                if (!(pfork = pfork->pprev()))
-                    break;
-
-            if (pfork == pindexLast) {
-                bchainSwitch = false;
-            }
-        }
-    }
-
-    if (bchainSwitch && g_miningCond.IsMining()) {
-        SwitchChainTo(pindexLast);
-    }
 
     return true;
 }
 
 extern HyperBlockMsgs hyperblockMsgs;
+
 bool AcceptChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t& hidFork, uint32_t& hid, T_SHA256& thhash, bool isLatest)
 {
-    CHAINCBDATA cbdata(std::move(mapPayload), hidFork, hid, thhash, isLatest);
+    CHAINCBDATA cbdata(mapPayload, hidFork, hid, thhash, isLatest);
     hyperblockMsgs.insert(std::move(cbdata));
     return true;
 }
@@ -291,6 +288,7 @@ bool ProcessChainCb(map<T_APPTYPE,vector<T_PAYLOADADDR>>& mapPayload, uint32_t& 
     //defer {
     //    cout << strprintf("Para ProcessChainCb spent million seconds : %ld\n", spentt.Elapse());
     //};
+
 
     //FIBER_SWITCH_CRITICAL_BLOCK_T_MAIN(50)
     {
@@ -304,6 +302,7 @@ bool ProcessChainCb(map<T_APPTYPE,vector<T_PAYLOADADDR>>& mapPayload, uint32_t& 
         }
 
         if (isLatest) {
+
             CBlockIndexSP pStart = pindexBest;
             while (pStart && pStart->nPrevHID >= hidFork) {
                 pStart = pStart->pprev();
@@ -317,6 +316,8 @@ bool ProcessChainCb(map<T_APPTYPE,vector<T_PAYLOADADDR>>& mapPayload, uint32_t& 
             if (!pStart) {
                 return true;
             }
+
+
 
             uint256 hhash(thhash.toHexString());
             CBlockIndexSP pEnd = pStart;
@@ -394,6 +395,8 @@ namespace boost {
     }
 }
 
+
+
 bool ValidateLedgerDataCb(T_PAYLOADADDR& payloadaddr,
                         map<boost::any,T_LOCALBLOCKADDRESS>& mapOutPt,
                         boost::any& hashPrevBlock)
@@ -409,6 +412,7 @@ bool ValidateLedgerDataCb(T_PAYLOADADDR& payloadaddr,
         return ERROR_FL("hashPrevBlock is different");
     }
 
+    // Preliminary checks
     FIBER_SWITCH_CRITICAL_BLOCK_T_MAIN(50)
     {
         if (!block.CheckBlock())
@@ -423,7 +427,8 @@ bool ValidateLedgerDataCb(T_PAYLOADADDR& payloadaddr,
                 continue;
             }
 
-            map<uint256, CTxIndex> mapUnused;
+
+            map<uint256, std::tuple<CTxIndex, CTransaction>> mapUnused;
             int64 nFees = 0;
             if (!tx.ConnectInputs(txdb, mapUnused, CDiskTxPos(1), pindexBest, nFees, false, false)) {
                 return ERROR_FL("ConnectInputs failed %s",
@@ -431,6 +436,7 @@ bool ValidateLedgerDataCb(T_PAYLOADADDR& payloadaddr,
             }
         }
     }
+
 
     for (auto tx : block.vtx) {
         if (tx.IsCoinBase()) {
@@ -452,14 +458,19 @@ bool ValidateLedgerDataCb(T_PAYLOADADDR& payloadaddr,
 }
 
 
+
 bool BlockUUIDCb(string& payload, string& uuidpayload)
 {
+
+
     uuidpayload = payload.substr(0, sizeof(int));
+
     uuidpayload += payload.substr(sizeof(int) + sizeof(uint256));
     return true;
 }
 
-bool PutParaCoinChainCb()
+
+bool PutChainCb()
 {
     deque<CBlock> deqblock;
     uint256 hhash;
@@ -468,6 +479,7 @@ bool PutParaCoinChainCb()
     CBlockIndexSP pindexValidStarting;
 
     if (mapArgs.count("-importtx")) {
+
         if (!g_isBuiltInBlocksReady) {
             return false;
         }
@@ -475,8 +487,16 @@ bool PutParaCoinChainCb()
 
     FIBER_SWITCH_CRITICAL_BLOCK_T_MAIN(50)
     {
-        if (!LatestParaBlock::IsOnChain()) {
-            CBlockIndexSimplified* pIndex = LatestParaBlock::Get();
+
+        hyperblockMsgs.process();
+
+        while (!LatestParaBlock::IsOnChain()) {
+
+            if (!LatestParaBlock::IsLackingBlock() && !LatestParaBlock::IsBestChain()) {
+                break;
+            }
+
+            CBlockIndexSSP pIndex = LatestParaBlock::Get();
             if (pIndex) {
                 WARNING_FL("Best chain is behind, cannot commit Paracoin onto chain, should be height: %u", pIndex->nHeight);
             }
@@ -488,12 +508,13 @@ bool PutParaCoinChainCb()
         CBlockIndexSP pStart = LatestBlockIndexOnChained();
         pStart = pStart->pnext();
         if (!pStart) {
+
             return false;
         }
 
+
         CBlockIndexSP pEnd = pStart;
-        while (pEnd && pEnd->nPrevHID == nHID && pEnd->hashPrevHyperBlock == hhash)
-        {
+        while (pEnd && pEnd->nPrevHID == nHID && pEnd->hashPrevHyperBlock == hhash) {
             if (!mapBlocks.contain(pEnd->GetBlockHash())) {
                 break;
             }
@@ -502,9 +523,11 @@ bool PutParaCoinChainCb()
         }
 
         if (!deqblock.size()) {
+
             isSwithBestToValid = true;
             pindexValidStarting = pStart->pprev();
         }
+
 
         if (isSwithBestToValid) {
             for (; pindexValidStarting; pindexValidStarting = pindexValidStarting->pprev()) {
@@ -515,14 +538,27 @@ bool PutParaCoinChainCb()
         }
     }
 
-    auto tail_block = deqblock.back();
-    if (!tail_block.IsMine()) {
+
+    if (deqblock.size() < 2) {
+
+        return false;
+    }
+    auto deqiter = deqblock.end();
+    auto tail_block = --deqiter;
+    auto tail_second_block = --tail_block;
+
+    const CUInt128 & mynodeid = getMyNodeID();
+
+    if (!tail_block->ownerNodeID.operator==(mynodeid) &&
+        !tail_second_block->ownerNodeID.operator==(mynodeid)) {
         return false;
     }
 
+    tail_block->ownerNodeID = mynodeid;
+
     string requestid, errmsg;
     if (!CommitChainToConsensus(deqblock, requestid, errmsg)) {
-        printf("CommitChainToConsensus() Error: %s", errmsg.c_str());
+        ERROR_FL("CommitChainToConsensus() Error: %s", errmsg.c_str());
         return false;
     }
 
@@ -539,6 +575,7 @@ bool GetVPath(T_LOCALBLOCKADDRESS& sAddr, T_LOCALBLOCKADDRESS& eAddr, vector<str
                 p = p->pprev();
                 continue;
             } else if (p->addr.hid < sAddr.hid) {
+
                 return false;
             }
             else {
@@ -567,6 +604,7 @@ std::function<void(int)> SleepFn = [](int sleepseconds) {
 #define one_hour 60 * 60
 void ThreadBlockPool(void* parg)
 {
+
     while (!fShutdown) {
 
         SleepFn(one_hour);
@@ -582,6 +620,8 @@ void ThreadBlockPool(void* parg)
             CSpentTime spentt;
             CBlockDB_Wrapper blockdb;
 
+
+
             blockdb.LoadBlockUnChained(uint256(0), [&vWillBeRemoved, &spentt](CDataStream& ssKey, CDataStream& ssValue) -> bool {
 
                 CBlock block;
@@ -589,6 +629,7 @@ void ThreadBlockPool(void* parg)
 
                 uint256 hash;
                 ssKey >> hash;
+
 
                 if (block.nHeight + 5000 < pindexBest->nHeight && mapBlockIndex.count(hash)) {
                     auto p = mapBlockIndex[hash];
@@ -601,34 +642,20 @@ void ThreadBlockPool(void* parg)
                     }
                 }
                 if (spentt.Elapse() > 10) {
+
                     return false;
                 }
                 return true;
             } );
 
+
             for (auto& elm: vWillBeRemoved) {
                 blockdb.EraseBlock(elm);
             }
-            blockdb.Close();
-
         }
         INFO_FL("Removed %d expired blocks in the block pool\n", vWillBeRemoved.size());
     }
 }
-
-typedef struct _t_block_search_pos
-{
-    T_LOCALBLOCKADDRESS startaddr;
-    T_LOCALBLOCKADDRESS endaddr;
-    bool operator == (const _t_block_search_pos& right) {
-        return startaddr == right.startaddr && endaddr == right.endaddr;
-    }
-}BLOCK_SEARCH_POS;
-
-std::mutex muxGetBlock;
-list<BLOCK_SEARCH_POS> listGetBlock;
-BLOCK_SEARCH_POS searchBlockOngoing;
-time_t tOngoingTimePoint;
 
 void UpdateMaxBlockAddr(const T_LOCALBLOCKADDRESS& addr)
 {
@@ -640,58 +667,13 @@ void UpdateMaxBlockAddr(const T_LOCALBLOCKADDRESS& addr)
         }
     }
 }
-void UpdateBlockIndex()
-{
-    CRITICAL_BLOCK_T_MAIN(cs_main)
-    {
-        if (pindexBest->addr < addrMaxChain) {
-            CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
-            T_APPTYPE app(APPTYPE::paracoin);
-            vector<T_PAYLOADADDR> vecPA;
-            T_SHA256 thhash;
-            uint64 hid = pindexBest->addr.hid + 1;
-            while (hid <= addrMaxChain.hid) {
-                if (!hyperchainspace->GetLocalBlocksByHID(hid++, app, thhash, vecPA)) {
-                    break;
-                }
-                CheckChainCb(vecPA);
-                vecPA.clear();
-            }
-        }
-    }
-}
 
-void mergeSearchPos(list<BLOCK_SEARCH_POS>& listBlock)
-{
-    BLOCK_SEARCH_POS search_pos;
-
-    if (listBlock.size() == 0) {
-        return;
-    }
-    auto itr = listBlock.begin();
-
-    search_pos = *itr;
-    for (;itr!= listBlock.end(); ++itr) {
-        if (itr->startaddr < search_pos.startaddr ) {
-            search_pos.startaddr = itr->startaddr;
-        }
-        if (search_pos.endaddr  < itr->endaddr ) {
-            search_pos.endaddr = itr->endaddr;
-        }
-    }
-    listBlock.clear();
-    listBlock.push_back(search_pos);
-}
-
-extern multimap<uint256, CBlock *> mapOrphanBlocksByPrev;
+extern multimap<uint256, CBlockSP> mapOrphanBlocksByPrev;
 
 
 void ThreadGetNeighbourChkBlockInfo(void* parg)
 {
-    T_APPTYPE app(APPTYPE::paracoin, g_cryptoCurrency.GetHID(), g_cryptoCurrency.GetChainNum(), g_cryptoCurrency.GetLocalID());
-
     time_t tbest = 0;
-
     int nRequestingNodes = 0;
 
     while (!fShutdown) {
@@ -709,9 +691,12 @@ void ThreadGetNeighbourChkBlockInfo(void* parg)
                 }
             }
         }
+
         SleepFn(60);
     }
 }
+
+
 
 void ThreadRSyncGetBlock(void* parg)
 {
@@ -741,60 +726,6 @@ void ThreadRSyncGetBlock(void* parg)
     }
 }
 
-
-void RSyncGetBlock(const T_LOCALBLOCKADDRESS& addr)
-{
-    return;
-}
-
-void showBlockIndex()
-{
-#undef printf
-    std::printf("Best chain Paracoin block addr:%s Height:%d \nPrev Block Hash:%s\n Hash:%s \n%p\n", pindexBest->addr.tostring().c_str(),
-        pindexBest->nHeight, pindexBest->hashPrev.ToString().c_str(),
-        pindexBest->GetBlockHash().ToString().c_str(),
-        pindexBest.get());
-    std::printf("Show more details: ld hid [+/-count]\n\n");
-}
-
-void showBlockIndex(uint32 startingHID, uint32 count)
-{
-    uint32 endingHID = startingHID + count;
-    uint32 sHID = std::min(startingHID, endingHID);
-    uint32 eHID = std::max(startingHID, endingHID);
-    if (count < 0) {
-        sHID++;
-        eHID++;
-    }
-
-#undef printf
-    std::list<CBlockIndexSP> listBlockIndex;
-    std::printf("Best chain block addr:%s Height:%d %p\n", pindexBest->addr.tostring().c_str(),
-        pindexBest->nHeight, pindexBest.get());
-    for (auto& idx : mapBlockIndex) {
-        if (idx.second->addr.hid < sHID || idx.second->addr.hid >= eHID) {
-            continue;
-        }
-        listBlockIndex.push_back(idx.second);
-    }
-
-    listBlockIndex.sort([](const CBlockIndexSP a, const CBlockIndexSP b) {
-        if (a->addr < b->addr) {
-            return true;
-        }
-        return false;
-    });
-
-    for(auto idx : listBlockIndex) {
-        std::printf("Address:%s %p\n", idx->addr.tostring().c_str(), idx.get());
-        std::printf("Height:%d\n", pindexBest->nHeight);
-        std::printf("PreHash:%s\n", pindexBest->hashPrev.ToString().c_str());
-        std::printf("Hash:%s\n", pindexBest->GetBlockHash().ToString().c_str());
-        std::printf("\tpnext:%s", idx->hashNext.ToPreViewString().c_str());
-        std::printf("\tpprev:%s\n", idx->hashPrev.ToPreViewString().c_str());
-    }
-    std::printf("\n");
-}
 
 
 void AppRunningArg(int& app_argc, string& app_argv)
@@ -854,6 +785,16 @@ void AppInfo(string& info)
     }
     oss << endl;
 
+    if (fGenerateBitcoins) {
+        oss << "Block generate enabled\n";
+    }
+    else {
+        oss << "Block generate disabled, use command 'coin e' to enable\n";
+    }
+
+    if (fShutdown) {
+        oss << "Paracoin module has been in shutdown state, please restart\n";
+    }
     info = oss.str();
 
     TRY_CRITICAL_BLOCK_T_MAIN(cs_main)
@@ -863,11 +804,11 @@ void AppInfo(string& info)
             info += pindexBest->ToString();
         }
         else {
-            info += "CBlockIndex: null";
+            info += "CBlockIndex: null\n";
         }
 
         info += "Latest Para block's(HyperChainSpace) ";
-        CBlockIndexSimplified* p = LatestParaBlock::Get();
+        CBlockIndexSSP p = LatestParaBlock::Get();
         if (p) {
             info += p->ToString();
         }
@@ -905,6 +846,7 @@ bool ResolveHeight(int height, string& info)
             info = strprintf("Invalid height value, which should <= Best block height: %d\n", nBestHeight);
             return false;
         }
+
 
         CTxDB_Wrapper txdb;
 
@@ -949,3 +891,517 @@ bool ResolvePayload(const string& payload, string& info)
     info = block.ToString();
     return true;
 }
+
+#define likely_mining \
+{ \
+   if (g_miningCond.IsSwitching() || g_miningCond.IsBackTracking()) { \
+       throw runtime_error("Please stop mining firstly"); \
+   } \
+}
+
+
+Value IsMyPublickey(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() < 1) {
+        throw runtime_error("coin myk <publickey> : check <publickey> if it is in my wallet or not");
+    }
+
+    const string & pubkey = params[0].get_str();
+    CBitcoinAddress paraaddr(ParseHex(pubkey));
+
+    Array ret;
+    ret.push_back(paraaddr.ToString());
+
+    if (pwalletMain->HaveKey(paraaddr)) {
+        ret.push_back("Yes");
+        return ret;
+    }
+    ret.push_back("No");
+    return ret;
+}
+
+
+
+extern void SyncWithWallets(const CTransaction& tx, const CBlock* pblock, bool fUpdate);
+
+void ScanChainForTxes(const std::vector<unsigned char>& vchPriKey)
+{
+    likely_wallet_locked
+    auto ret = CallWithLock([&vchPriKey]() ->Value {
+        {
+            string errinfo;
+            CKey keyPair;
+            //keyPair.SetPubKey(publickey);
+
+            CPrivKey privkey;
+            privkey.resize(vchPriKey.size());
+            std::copy(vchPriKey.begin(), vchPriKey.end(), privkey.begin());
+
+            if (!keyPair.SetPrivKey(privkey)) {
+                return "Incorrect private key";
+            }
+
+            CBitcoinAddress coinaddress;
+            coinaddress.SetPubKey(keyPair.GetPubKey());
+            cout << StringFormat("Coin address: %s\n", coinaddress.ToString());
+
+            CWallet tmpWallet;
+            tmpWallet.AddKey(keyPair);
+
+            auto pindex = pindexGenesisBlock;
+            while (pindex) {
+                CBlock blk;
+                if (!blk.ReadFromDisk(pindex)) {
+                    errinfo = StringFormat("Read Para block error: %s\n", pindex->ToString());
+                    goto err;
+                }
+                for (CTransaction& tx : blk.vtx) {
+
+                    if (tmpWallet.IsMine(tx)) {
+                        cout << "+: " << tx.ToString();
+                    }
+
+                    if(tmpWallet.IsFromMe(tx)) {
+                        cout << "-: " << tx.ToString();
+                    }
+                }
+                pindex = pindex->pnext();
+            }
+
+            //if (!pwalletMain->GetKey(coinaddress, keyPair)) {
+            //     errinfo = "The address doesn't exist";
+            //     goto err;
+            //}
+            return "Txes scanned successfully";
+        err:
+            //cerr << errinfo << endl;
+            return errinfo;
+        }
+    });
+
+    if (ret.type() == str_type) {
+        cout << ret.get_str();
+    }
+}
+
+void RebuildWallet()
+{
+    likely_wallet_locked
+
+    CallWithLock([]() ->Value {
+        CRITICAL_BLOCK(pwalletMain->cs_wallet)
+            {
+                string errinfo;
+
+                auto pindex = pindexGenesisBlock;
+                while (pindex) {
+                    CBlock blk;
+                    if (!blk.ReadFromDisk(pindex)) {
+                        errinfo = StringFormat("Read Para block error: %s\n", pindex->ToString());
+                        goto err;
+                    }
+                    for (CTransaction& tx : blk.vtx)
+                        SyncWithWallets(tx, &blk, true);
+                    pindex = pindex->pnext();
+                }
+            err:
+                cerr << errinfo << endl;
+                return errinfo;
+            }
+    });
+}
+
+
+string showCoinUsage()
+{
+    ostringstream oss;
+    oss << "Usage: coin ls       : list all local imported coins \n";
+    oss << "       coin ll [NO.] : display the default/specified coin details \n";
+    oss << "       coin df [NO.] : query or set the default coin, after restarting paracoin, it takes effect\n";
+    oss << "       coin iss [...]                     : issue a coin, 'coin iss' for help\n";
+    oss << "       coin imp <hid chainid localid>     : import a coin\n";
+    oss << "       coin acc                           : query account balances\n";
+    //oss << "       coin addrba [address]...           : scan wallet for addresses balances\n";
+    oss << "       coin addr [account]                : query account addresses\n";
+    oss << "       coin sendfrom <fromaccount> <toaddress> <amount> : transfer\n";
+    oss << "       coin sendtoaddr <address> <amount> : transfer\n";
+    oss << "       coin e                             : enable mining\n";
+    oss << "       coin d                             : disable mining\n";
+    oss << "       coin tx <txid>                     : get detailed information about <txid>\n";
+    oss << "       coin txs [account] [count=10] [from=0] : list transactions, '*' means default account\n";
+    oss << "       coin sfee <amount>                 : set fee for transaction\n";
+    oss << "       coin ginfo                         : query various state info\n";
+
+    oss << "       coin encw <passphrase>             : encrypts the wallet with <passphrase>\n";
+    oss << "       coin wpass <passphrase> <timeout=10>  : stores the wallet decryption key in memory for <timeout> seconds\n";
+    oss << "       coin chwpass <old> <new>           : change the wallet passphrase from <old> to <new>\n";
+
+    oss << "       coin ikp <private key>             : import a public-private key pair(support WIF, WIF-compressed and hex format)\n";
+    oss << "       coin ekp <address>                 : export the public-private key pair corresponding to <address> to console\n";
+    oss << "       coin ikpf <filename>               : import private keys from <filename>\n";
+    oss << "       coin ekpf <filename> [WIF|WIFC]    : export private keys to <filename>, default format is WIFC\n";
+    oss << "       coin dkp <address>                 : specify the key pair whose address is <address> as default key\n";
+
+    oss << "       coin sacc <address> <account>      : sets the account associated with the given address\n";
+
+    return oss.str();
+}
+
+bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand)
+{
+    if (cmdlist.size() == 1) {
+        info = showCoinUsage();
+        return true;
+    }
+
+    std::unordered_map<string, std::function<string(const list<string>&, bool)>> mapcmds = {
+            {"ls",[](const list<string>&, bool fhelp) ->string {
+                vector<CryptoCurrency> coins;
+                CryptoCurrency::GetAllCoins(coins);
+
+                uint256 currhash = g_cryptoCurrency.GetHashGenesisBlock();
+
+                ostringstream oss;
+                size_t i = 0;
+                for (auto& t : coins) {
+                    bool iscurrcoin = false;
+                    if (currhash == t.GetHashGenesisBlock()) {
+
+                        iscurrcoin = true;
+                    }
+                    oss << strprintf("%c %d\t%-26s %s\t[%u,%u,%u]\n",
+                        iscurrcoin ? '*' : ' ',
+                        i++, t.GetName().c_str(),
+                        t.GetHashPrefixOfGenesis().c_str(),
+                        t.GetHID(), t.GetChainNum(), t.GetLocalID());
+                }
+                oss << "use 'coin ll [NO.]' for coin details\n";
+                return oss.str();
+            } },
+
+            {"ll",[](const list<string>& l, bool fhelp) ->string {
+                if (l.size() < 1) {
+                    return g_cryptoCurrency.ToString();
+                }
+
+                size_t i = std::atoi(l.begin()->c_str());
+
+                vector<CryptoCurrency> coins;
+                CryptoCurrency::GetAllCoins(coins);
+                if (i >= coins.size()) {
+                    return "out of range";
+                }
+
+                auto& t = coins[i];
+                return t.ToString();
+            } },
+
+            {"df",[](const list<string>& l, bool fhelp) ->string {
+                if (l.size() < 1) {
+                    return StringFormat("current coin: %s - %s\n", g_cryptoCurrency.GetName(),
+                        g_cryptoCurrency.GetHashPrefixOfGenesis());
+                }
+
+                size_t i = std::atoi(l.begin()->c_str());
+
+                vector<CryptoCurrency> coins;
+                CryptoCurrency::GetAllCoins(coins);
+                if (i + 1 > coins.size()) {
+                    return "out of range";
+                }
+
+                auto& t = coins[i];
+
+                CApplicationSettings appini;
+                appini.WriteDefaultApp(t.GetHashPrefixOfGenesis());
+
+                return StringFormat("set '%s' as current coin, please restart paracoin\n", t.GetName());
+            } },
+
+
+            {"iss",[](const list<string>& l, bool fhelp) ->string {
+                return doAction(issuecoin, l, fhelp);
+            } },
+
+            {"imp",[](const list<string>& l, bool fhelp) ->string {
+                return doAction(importcoin, l, fhelp);
+            } },
+
+            {"acc",[](const list<string>& l, bool fhelp) ->string {
+                return doAction(listaccounts, l, fhelp);
+            } },
+
+            {"addr",[](const list<string>& l, bool fhelp) ->string {
+
+                if (l.size() < 1) {
+                    list<string> ll;
+                    ll.push_back("");
+                    return doAction(getaddressesbyaccount, ll, fhelp);
+                }
+
+                return doAction(getaddressesbyaccount, l, fhelp);
+            } },
+
+            {"sendfrom",[](const list<string>& l, bool fhelp) ->string {
+                std::function<Array(const list<string>&)> conv = [](auto& cmdlist) ->Array {
+                    Array arr;
+                    auto cmd = cmdlist.begin();
+                    do {
+                        if (cmd == cmdlist.end()) break;
+                        arr.push_back(*cmd);
+                        cmd++;
+
+                        if (cmd == cmdlist.end()) break;
+                        arr.push_back(*cmd);
+                        cmd++;
+
+                        if (cmd == cmdlist.end()) break;
+                        char* end = nullptr;
+                        double amount = std::strtod(cmd->c_str(), &end);
+                        arr.push_back(amount);
+                        break;
+                    } while (true);
+                    return arr;
+                };
+                return doAction(sendfrom, l, fhelp, conv);
+            } },
+
+            {"sendtoaddr",[](const list<string>& l, bool fhelp) ->string {
+                std::function<Array(const list<string>&)> conv = [](auto& cmdlist) ->Array {
+                    Array arr;
+                    auto cmd = cmdlist.begin();
+                    do
+                    {
+                        if (cmd == cmdlist.end()) break;
+                        arr.push_back(*cmd);
+                        cmd++;
+
+                        if (cmd == cmdlist.end()) break;
+                        char* end = nullptr;
+                        double amount = std::strtod(cmd->c_str(), &end);
+                        arr.push_back(amount);
+                        break;
+                    } while (true);
+                    return arr;
+                };
+                return doAction(sendtoaddress, l, fhelp, conv);
+            } },
+
+            { "e",[](const list<string>& l, bool fhelp) ->string {
+                Array arr;
+                arr.push_back(true);
+                Value ret = setgenerate(arr, false);
+                if (ret.is_null()) {
+                    return "Mining is started";
+                }
+                return write_string(ret, true);
+            } },
+
+            { "d",[](const list<string>& l, bool fhelp) ->string {
+                Array arr;
+                arr.push_back(false);
+                Value ret = setgenerate(arr, false);
+                if (ret.is_null()) {
+                    return "Mining is stopped";
+                }
+                return write_string(ret, true);
+            } },
+
+            { "tx",[](const list<string>& l, bool fhelp) ->string {
+                return doAction(gettransaction, l, fhelp);
+            } },
+
+            { "txs",[](const list<string>& l, bool fhelp) ->string {
+
+                std::function<Array(const list<string>&)> conv = [](auto& cmdlist) ->Array {
+                    Array arr;
+                    auto cmd = cmdlist.begin();
+                    do {
+                        if (cmd == cmdlist.end()) break;
+                        arr.push_back(*cmd);
+                        cmd++;
+
+                        if (cmd == cmdlist.end()) break;
+                        long nCount = atol(cmd->c_str());
+                        arr.push_back(nCount);
+                        cmd++;
+
+                        if (cmd == cmdlist.end()) break;
+                        long nfrom = atol(cmd->c_str());
+                        arr.push_back(nfrom);
+                        break;
+                    } while (true);
+                    return arr;
+                };
+
+               return doAction(listtransactions, l, fhelp, conv);
+            } },
+
+            { "sfee",[](const list<string>& l, bool fhelp) ->string {
+                std::function<Array(const list<string>&)> conv = [](auto& cmdlist) ->Array {
+                    Array arr;
+                    auto cmd = cmdlist.begin();
+                    do {
+                        if (cmd == cmdlist.end()) break;
+                        char* end = nullptr;
+                        double amount = std::strtod(cmd->c_str(), &end);
+                        arr.push_back(amount);
+                        break;
+                    } while (true);
+                    return arr;
+                };
+
+               return doAction(settxfee, l, fhelp, conv);
+            } },
+
+            { "ginfo",[](const list<string>& l, bool fhelp) ->string {
+               return doAction(getinfo, l, fhelp);
+            } },
+
+
+
+            { "ikp",[&savingcommand](const list<string>& l, bool fhelp) ->string {
+                return doAction([&savingcommand](const Array& params, bool fHelp) ->string {
+                    if (fHelp || params.size() != 1)
+                        throw runtime_error(
+                            "coin ikp <private key>: import a public-private key pair");
+
+                    savingcommand = "c ikp";
+                    string msg;
+                    impwalletkey(params[0].get_str(), msg);
+                    return msg;
+
+                }, l, fhelp);
+            } },
+
+
+            { "ekp",[](const list<string>& l, bool fhelp) ->string {
+                return doAction([](const Array& params, bool fHelp) ->string {
+                    if (fHelp || params.size() != 1)
+                        throw runtime_error(
+                            "coin ekp <address>: export the public-private key pair corresponding to <address> to console");
+
+                    likely_wallet_locked
+
+                    string ret;
+                    CPrivKey privkey;
+                    CKey keyPair;
+                    CRITICAL_BLOCK(pwalletMain->cs_wallet)
+                    {
+                        CBitcoinAddress coinaddress = CBitcoinAddress(params[0].get_str());
+                        if (pwalletMain->GetKey(coinaddress, keyPair)) {
+
+                            return StringFormat("Public key: %s\nPrivate key(WIF, WIF-compressed): \n\t%s\n\t%s", ToHexString(keyPair.GetPubKey()),
+                                PrKey2WIF(keyPair.GetPrivKey(), false),
+                                PrKey2WIF(keyPair.GetPrivKey(), true));
+                        }
+                    }
+                    return "Failed to export key pair, maybe address is invalid";
+                }, l, fhelp);
+            } },
+
+            { "sacc",[](const list<string>& l, bool fhelp) ->string {
+                return doAction(setaccount, l, fhelp);
+            } },
+
+
+            {"ikpf",[](const list<string>& l, bool fhelp) ->string {
+                return doAction(impwalletkeysfromfile, l, fhelp);
+            } },
+
+
+            { "ekpf",[](const list<string>& l, bool fhelp) ->string {
+                return doAction(expwalletkeystofile, l, fhelp);
+            } },
+
+
+            { "dkp",[](const list<string>& l, bool fhelp) ->string {
+                return doAction(setdefaultkey, l, fhelp);
+            } },
+
+
+            { "encw",[](const list<string>& l, bool fhelp) ->string {
+                return doAction(encryptwallet, l, fhelp);
+            } },
+
+
+            { "wpass",[&savingcommand](const list<string>& l, bool fhelp) ->string {
+
+                if (l.size() < 1) {
+                    return doAction(walletpassphrase, l, true);
+                }
+
+                savingcommand = "c wpass";
+
+                std::function<Array(const list<string>&)> conv = [](auto& cmdlist) ->Array {
+                    Array arr;
+                    auto cmd = cmdlist.begin();
+                    arr.push_back(*cmd);
+
+                    cmd++;
+                    Value v = 10; //10 seconds
+                    if (cmd != cmdlist.end()) {
+                        v = std::stol(*cmd);
+                    }
+                    arr.push_back(v);
+                    return arr;
+                };
+                return doAction(walletpassphrase, l, fhelp, conv);
+            } },
+
+
+            { "chwpass",[&savingcommand](const list<string>& l, bool fhelp) ->string {
+                if(l.size() != 0)
+                    savingcommand = "c chwpass";
+                return doAction(walletpassphrasechange, l, fhelp);
+            } },
+
+            { "qtx",[](const list<string>& l, bool fhelp) ->string {
+                 if (l.size() == 0)
+                     return "c qtx <publickey>";
+
+                 auto cmd = l.begin();
+                 std::vector<unsigned char> publickey;
+                 publickey = ParseHex(*cmd);
+                 ScanChainForTxes(publickey);
+                 return "";
+            } },
+
+            { "addrba",[](const list<string>& l, bool fhelp) ->string {
+                return doAction(listaddrbalance, l, fhelp);
+            } },
+
+
+            { "s",[](const list<string>& l, bool fhelp) ->string {
+                return doAction(SwitchChainToHyperHeight, l, fhelp);
+            } },
+
+
+            { "myk",[](const list<string>& l, bool fhelp) ->string {
+                return doAction(IsMyPublickey, l, fhelp);
+            } },
+
+            { "db",[](const list<string>& l, bool fhelp) ->string {
+                if (fhelp) {
+                    return "coin db: only for developers";
+                }
+                return getdbenv();
+            } },
+
+    };
+
+    list<string> cpycmdlist;
+    cpycmdlist = cmdlist;
+    auto cmd = ++cpycmdlist.begin();
+    string childcmd = *cmd;
+    cpycmdlist.pop_front();
+    cpycmdlist.pop_front();
+
+    if (mapcmds.count(childcmd)) {
+        info = mapcmds[childcmd](cpycmdlist, false);
+        return true;
+    }
+    info = strprintf("Child command '%s' doesn't exist\n", childcmd.c_str());
+    return true;
+}
+

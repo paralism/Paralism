@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -179,11 +179,12 @@ typedef struct _tp2pprotocolgethyperblockbynoreq
 {
     T_P2PPROTOCOLTYPE tType;
     uint64 uiBlockNum;
+    uint32_t nBlockCount;
 
     _tp2pprotocolgethyperblockbynoreq() {}
     _tp2pprotocolgethyperblockbynoreq(T_P2PPROTOCOLTYPE Type, uint64 BlockNum);
     _tp2pprotocolgethyperblockbynoreq& operator = (const _tp2pprotocolgethyperblockbynoreq& arRes);
-    void SetP2pprotocolgethyperblockbynoreq(T_P2PPROTOCOLTYPE Type, uint64 BlockNum);
+    void SetP2pprotocolgethyperblockbynoreq(T_P2PPROTOCOLTYPE Type, uint64 BlockNum, uint32_t Cnt);
     void SetType(T_P2PPROTOCOLTYPE Type);
     void SetBlockNum(uint64 BlockNum);
     T_P2PPROTOCOLTYPE GetType()const;
@@ -313,8 +314,7 @@ typedef struct _tp2pprotocolonchainrsp
     uint64 uiHyperBlockNum;
     uint64  uiBlockCount;
     T_SHA256 tHyperBlockHash;
-    int8 strHash[DEF_STR_HASH256_LEN]; 
-
+    int8 strHash[DEF_STR_HASH256_LEN];
 
     _tp2pprotocolonchainrsp& operator = (const _tp2pprotocolonchainrsp& arRes);
     void SetP2pprotocolonchainrsp(T_P2PPROTOCOLRSP Result, uint64 HyperBlockNum, uint64  BlockCount, int8 *Hash);

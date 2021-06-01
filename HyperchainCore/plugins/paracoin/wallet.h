@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -32,15 +32,18 @@ DEALINGS IN THE SOFTWARE.
 
 class CWalletTx;
 class CReserveKey;
-class CWalletDB;
+class CWalletDB_Wrapper;
 
 class CWallet : public CCryptoKeyStore
 {
 private:
-    bool SelectCoinsMinConf(int64 nTargetValue, int nConfMine, int nConfTheirs, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet) const;
-    bool SelectCoins(int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet) const;
+    bool SelectCoinsMinConf(int64 nTargetValue, int nConfMine, int nConfTheirs, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet,
+        const list<CBitcoinAddress>& fromaddrs) const;
 
-    CWalletDB *pwalletdbEncryption;
+    bool SelectCoins(int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet,
+        const list<CBitcoinAddress>& fromaddrs) const;
+
+    CWalletDB_Wrapper *pwalletdbEncryption;
 
 public:
     mutable CCriticalSection cs_wallet;
@@ -76,7 +79,8 @@ public:
     }
 
     std::map<uint256, CWalletTx> mapWallet;
-    std::vector<uint256> vWalletUpdated;
+
+    //std::vector<uint256> vWalletUpdated;
 
     std::map<uint256, int> mapRequestCount;
 
@@ -107,7 +111,7 @@ public:
     bool CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey);
     bool BroadcastTransaction(CWalletTx& wtxNew);
     std::string SendMoney(CScript scriptPubKey, int64 nValue, CWalletTx& wtxNew, bool fAskFee=false);
-    std::string SendMoneyToBitcoinAddress(const CBitcoinAddress& address, int64 nValue, CWalletTx& wtxNew, bool fAskFee=false);
+    std::string SendMoneyToBitcoinAddress(const CBitcoinAddress& address, int64 nValue, CWalletTx& wtxNew, bool fAskFee = false);
 
     bool TopUpKeyPool();
     void ReserveKeyFromKeyPool(int64& nIndex, CKeyPool& keypool);
@@ -189,7 +193,7 @@ public:
     }
     void SetBestChain(const CBlockLocator& loc)
     {
-        CWalletDB walletdb(strWalletFile);
+        CWalletDB_Wrapper walletdb(strWalletFile);
         walletdb.WriteBestBlock(loc);
     }
 
@@ -202,8 +206,8 @@ public:
 
     void UpdatedTransaction(const uint256 &hashTx)
     {
-        CRITICAL_BLOCK(cs_wallet)
-            vWalletUpdated.push_back(hashTx);
+        //CRITICAL_BLOCK(cs_wallet)
+        //    vWalletUpdated.push_back(hashTx);
     }
 
     void PrintWallet(const CBlock& block);
@@ -253,6 +257,7 @@ public:
     }
 
     void ReturnKey();
+    const std::vector<unsigned char>& GetDefaultKey();
     std::vector<unsigned char> GetReservedKey();
     void KeepKey();
 };
@@ -422,6 +427,17 @@ public:
         }
     }
 
+    void UnmarkSpent(unsigned int nOut)
+    {
+        if (nOut >= vout.size())
+            throw std::runtime_error("CWalletTx::UnmarkSpent() : nOut out of range");
+        vfSpent.resize(vout.size());
+        if (!vfSpent[nOut]) {
+            vfSpent[nOut] = false;
+            fAvailableCreditCached = false;
+        }
+    }
+
     bool IsSpent(unsigned int nOut) const
     {
         if (nOut >= vout.size())
@@ -495,6 +511,11 @@ public:
     void GetAmounts(int64& nGeneratedImmature, int64& nGeneratedMature, std::list<std::pair<CBitcoinAddress, int64> >& listReceived,
                     std::list<std::pair<CBitcoinAddress, int64> >& listSent, int64& nFee, std::string& strSentAccount) const;
 
+
+    void GetAmountsEx(int64& nGeneratedImmature, int64& nGeneratedMature, std::list<std::pair<CBitcoinAddress, int64> >& listReceived,
+        std::list<std::pair<CBitcoinAddress, int64> >& listSent, int64& nFee, std::string& strSentAccount, bool& isCoinbase) const;
+
+
     void GetAccountAmounts(const std::string& strAccount, int64& nGenerated, int64& nReceived,
                            int64& nSent, int64& nFee) const;
 
@@ -556,6 +577,10 @@ public:
 
     void RelayWalletTransaction(CTxDB_Wrapper& txdb);
     void RelayWalletTransaction();
+
+private:
+    void GetReceiveOrSent(list<pair<CBitcoinAddress, int64> >& listReceived, list<pair<CBitcoinAddress, int64> >& listSent) const;
+
 };
 
 

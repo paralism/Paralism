@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -38,7 +38,7 @@ void PingPongTask::exec()
         toServer = nodemgr->getNode(nodeID);
         if (toServer) {
             nodemgr->sendTo(toServer, datamsgbuf);
-            g_console_logger->debug("PingPongTask::exec(),targetID = {}", nodeID.ToHexString());
+            g_console_logger->trace("PingPongTask::exec(),targetID = {}", nodeID.ToHexString());
         }
    }
 }
@@ -48,7 +48,6 @@ void PingPongTask::execRespond()
     PingPongRspTask tsk(std::move(_sentnodeid), _payload);
     tsk.exec();
 }
-
 
 
 void PingPongRspTask::exec()
@@ -61,7 +60,7 @@ void PingPongRspTask::exec()
     DataBuffer<PingPongRspTask> datamsgbuf(std::move(msgbuf));
     nodemgr->sendTo(toClient, datamsgbuf);
 
-    g_console_logger->debug("PingPongRspTask::exec(),targetID = {}", _fromNodeId.ToHexString());
+    g_console_logger->trace("PingPongRspTask::exec(),targetID = {}", _fromNodeId.ToHexString());
 }
 
 void PingPongRspTask::execRespond()

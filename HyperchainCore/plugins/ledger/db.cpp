@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -29,6 +29,11 @@ SOFTWARE.
 #include "headers.h"
 #include "db.h"
 #include "net.h"
+#include "util.h"
+
+#include "latestledgerblock.h"
+
+#include <boost/make_shared.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
 
@@ -46,11 +51,34 @@ uint64 nAccountingEntryNumber = 0;
 // CDB
 //
 
-static CCriticalSection cs_db;
+static boost::shared_ptr<CCriticalSection> cs_db = boost::make_shared<CCriticalSection>();
 static bool fDbEnvInit = false;
-DbEnv* dbenv= new DbEnv(0);
+
+boost::shared_ptr<DbEnv> dbenv(new DbEnv(0));
+
 static map<string, int> mapFileUseCount;
 static map<string, Db*> mapDb;
+
+thread_local boost::shared_ptr<CTxDB> tls_txdb_instance;
+thread_local boost::shared_ptr<CWalletDB> tls_walletdb_instance;
+thread_local boost::shared_ptr<CBlockDB> tls_blkdb_instance;
+thread_local boost::shared_ptr<COrphanBlockDB> tls_orphanblkdb_instance;
+
+extern CBlockCacheLocator mapBlocks;
+
+
+extern void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "");
+extern bool SwitchChainTo(CBlockIndex *pindexBlock);
+extern bool ResolveBlock(CBlock& block, const char* payload, size_t payloadlen);
+
+CCriticalSection::~CCriticalSection()
+{
+
+    //int a = 0;
+    //if (this == cs_db.get()) {
+    //    a = 1;
+    //}
+}
 
 class CDBInit
 {
@@ -62,9 +90,7 @@ public:
     {
         if (fDbEnvInit)
         {
-            dbenv->close(0);
-            delete dbenv;
-            dbenv = nullptr;
+            //dbenv->close(0);
             fDbEnvInit = false;
         }
     }
@@ -72,7 +98,7 @@ public:
 instance_of_cdbinit;
 
 
-CDB::CDB(const char* pszFile, const char* pszMode) : pdb(NULL)
+CDB::CDB(const char* pszFile, const char* pszMode) : m_dbenv(dbenv), pdb(NULL)
 {
     int ret;
     if (pszFile == NULL)
@@ -84,7 +110,7 @@ CDB::CDB(const char* pszFile, const char* pszMode) : pdb(NULL)
     if (fCreate)
         nFlags |= DB_CREATE;
 
-    CRITICAL_BLOCK(cs_db)
+    CRITICAL_BLOCK(*cs_db)
     {
         if (!fDbEnvInit)
         {
@@ -92,17 +118,17 @@ CDB::CDB(const char* pszFile, const char* pszMode) : pdb(NULL)
                 return;
             string strDataDir = GetDataDir();
             string strLogDir = strDataDir + "/database";
-            filesystem::create_directory(strLogDir.c_str());
+            boost::filesystem::create_directory(strLogDir.c_str());
             string strErrorFile = strDataDir + "/db.log";
-            printf("dbenv.open strLogDir=%s strErrorFile=%s\n", strLogDir.c_str(), strErrorFile.c_str());
+            TRACE_FL("dbenv.open strLogDir=%s strErrorFile=%s\n", strLogDir.c_str(), strErrorFile.c_str());
 
-            dbenv->set_lg_dir(strLogDir.c_str());
-            dbenv->set_lg_max(10000000);
-            dbenv->set_lk_max_locks(10000);
-            dbenv->set_lk_max_objects(10000);
-            dbenv->set_errfile(fopen(strErrorFile.c_str(), "a")); /// debug
-            dbenv->set_flags(DB_AUTO_COMMIT, 1);
-            ret = dbenv->open(strDataDir.c_str(),
+            m_dbenv->set_lg_dir(strLogDir.c_str());
+            m_dbenv->set_lg_max(10000000);
+            m_dbenv->set_lk_max_locks(50000);
+            m_dbenv->set_lk_max_objects(50000);
+            m_dbenv->set_errfile(fopen(strErrorFile.c_str(), "a")); /// debug
+            m_dbenv->set_flags(DB_AUTO_COMMIT, 1);
+            ret = m_dbenv->open(strDataDir.c_str(),
                              DB_CREATE     |
                              DB_INIT_LOCK  |
                              DB_INIT_LOG   |
@@ -118,10 +144,11 @@ CDB::CDB(const char* pszFile, const char* pszMode) : pdb(NULL)
 
         strFile = pszFile;
         ++mapFileUseCount[strFile];
+        internal_cs_db = cs_db;
         pdb = mapDb[strFile];
         if (pdb == NULL)
         {
-            pdb = new Db(dbenv, 0);
+            pdb = new Db(m_dbenv.get(), 0);
 
             ret = pdb->open(NULL,      // Txn pointer
                             pszFile,   // Filename
@@ -134,8 +161,9 @@ CDB::CDB(const char* pszFile, const char* pszMode) : pdb(NULL)
             {
                 delete pdb;
                 pdb = NULL;
-                CRITICAL_BLOCK(cs_db)
+                CRITICAL_BLOCK(*cs_db)
                     --mapFileUseCount[strFile];
+                internal_cs_db.reset();
                 strFile = "";
                 throw runtime_error(strprintf("CDB() : can't open database file %s, error %d", pszFile, ret));
             }
@@ -170,15 +198,15 @@ void CDB::Close()
         nMinutes = 2;
     if (strFile == "blkindex.dat" && IsInitialBlockDownload() && nBestHeight % 500 != 0)
         nMinutes = 1;
-    dbenv->txn_checkpoint(0, nMinutes, 0);
+    m_dbenv->txn_checkpoint(0, nMinutes, 0);
 
-    CRITICAL_BLOCK(cs_db)
+    CRITICAL_BLOCK(*cs_db)
         --mapFileUseCount[strFile];
 }
 
 void static CloseDb(const string& strFile)
 {
-    CRITICAL_BLOCK(cs_db)
+    CRITICAL_BLOCK(*cs_db)
     {
         if (mapDb[strFile] != NULL)
         {
@@ -195,23 +223,23 @@ void DBFlush(bool fShutdown)
 {
     // Flush log data to the actual data file
     //  on all files that are not in use
-    printf("DBFlush(%s)%s\n", fShutdown ? "true" : "false", fDbEnvInit ? "" : " db not started");
+    TRACE_FL("DBFlush(%s)%s\n", fShutdown ? "true" : "false", fDbEnvInit ? "" : " db not started");
     if (!fDbEnvInit)
         return;
-    CRITICAL_BLOCK(cs_db)
+    CRITICAL_BLOCK(*cs_db)
     {
         map<string, int>::iterator mi = mapFileUseCount.begin();
         while (mi != mapFileUseCount.end())
         {
             string strFile = (*mi).first;
             int nRefCount = (*mi).second;
-            printf("%s refcount=%d\n", strFile.c_str(), nRefCount);
+            TRACE_FL("%s refcount=%d\n", strFile.c_str(), nRefCount);
             if (nRefCount == 0)
             {
                 // Move log data to the dat file
                 CloseDb(strFile);
                 dbenv->txn_checkpoint(0, 0, 0);
-                printf("%s flush\n", strFile.c_str());
+                TRACE_FL("%s flush\n", strFile.c_str());
                 dbenv->lsn_reset(strFile.c_str(), 0);
                 mapFileUseCount.erase(mi++);
             }
@@ -223,9 +251,6 @@ void DBFlush(bool fShutdown)
             char** listp;
             if (mapFileUseCount.empty())
                 dbenv->log_archive(&listp, DB_ARCH_REMOVE);
-            dbenv->close(0);
-            delete dbenv;
-            dbenv = nullptr;
             fDbEnvInit = false;
         }
     }
@@ -240,14 +265,14 @@ void DBFlush(bool fShutdown)
 // CTxDB
 //
 
-bool CTxDB::ReadTxIndex(uint256 hash, CTxIndex& txindex)
+bool CTxDB::ReadTxIndex(const uint256& hash, CTxIndex& txindex)
 {
     assert(!fClient);
     txindex.SetNull();
     return Read(make_pair(string("tx"), hash), txindex);
 }
 
-bool CTxDB::UpdateTxIndex(uint256 hash, const CTxIndex& txindex)
+bool CTxDB::UpdateTxIndex(const uint256& hash, const CTxIndex& txindex)
 {
     assert(!fClient);
     return Write(make_pair(string("tx"), hash), txindex);
@@ -271,13 +296,13 @@ bool CTxDB::EraseTxIndex(const CTransaction& tx)
     return Erase(make_pair(string("tx"), hash));
 }
 
-bool CTxDB::ContainsTx(uint256 hash)
+bool CTxDB::ContainsTx(const uint256& hash)
 {
     assert(!fClient);
     return Exists(make_pair(string("tx"), hash));
 }
 
-bool CTxDB::ReadOwnerTxes(uint160 hash160, int nMinHeight, vector<CTransaction>& vtx)
+bool CTxDB::ReadOwnerTxes(const uint160& hash160, int nMinHeight, vector<CTransaction>& vtx)
 {
     assert(!fClient);
     vtx.clear();
@@ -331,7 +356,7 @@ bool CTxDB::ReadOwnerTxes(uint160 hash160, int nMinHeight, vector<CTransaction>&
     return true;
 }
 
-bool CTxDB::ReadDiskTx(uint256 hash, CTransaction& tx, CTxIndex& txindex)
+bool CTxDB::ReadDiskTx(const uint256& hash, CTransaction& tx, CTxIndex& txindex)
 {
     assert(!fClient);
     tx.SetNull();
@@ -340,21 +365,26 @@ bool CTxDB::ReadDiskTx(uint256 hash, CTransaction& tx, CTxIndex& txindex)
     return (tx.ReadFromDisk(txindex.pos));
 }
 
-bool CTxDB::ReadDiskTx(uint256 hash, CTransaction& tx)
+bool CTxDB::ReadDiskTx(const uint256& hash, CTransaction& tx)
 {
     CTxIndex txindex;
     return ReadDiskTx(hash, tx, txindex);
 }
 
-bool CTxDB::ReadDiskTx(COutPoint outpoint, CTransaction& tx, CTxIndex& txindex)
+bool CTxDB::ReadDiskTx(COutPoint& outpoint, CTransaction& tx, CTxIndex& txindex)
 {
     return ReadDiskTx(outpoint.hash, tx, txindex);
 }
 
-bool CTxDB::ReadDiskTx(COutPoint outpoint, CTransaction& tx)
+bool CTxDB::ReadDiskTx(COutPoint& outpoint, CTransaction& tx)
 {
     CTxIndex txindex;
     return ReadDiskTx(outpoint.hash, tx, txindex);
+}
+
+bool CTxDB::ReadBlockIndex(const uint256& hash, CDiskBlockIndex& blockindex)
+{
+    return Read(make_pair(string("blockindex"), hash), blockindex);
 }
 
 bool CTxDB::WriteBlockIndex(const CDiskBlockIndex& blockindex)
@@ -378,7 +408,6 @@ bool CTxDB::WriteHashBestChain(uint256 hashBestChain)
 }
 
 
-
 bool CTxDB::ReadAddrMaxChain(T_LOCALBLOCKADDRESS& addrMax)
 {
     string strAddrMax;
@@ -388,7 +417,6 @@ bool CTxDB::ReadAddrMaxChain(T_LOCALBLOCKADDRESS& addrMax)
     }
     return ret;
 }
-
 
 
 bool CTxDB::WriteAddrMaxChain(const T_LOCALBLOCKADDRESS& addrMax)
@@ -427,6 +455,19 @@ CBlockIndex static * InsertBlockIndex(uint256 hash)
     return pindexNew;
 }
 
+bool CTxDB::CheckBestBlockIndex()
+{
+    if (!pindexBest) {
+        pindexBest = pindexGenesisBlock;
+    }
+    hashBestChain = pindexBest->GetBlockHash();
+    nBestHeight = pindexBest->Height();
+    //bnBestChainWork = pindexBest->bnChainWork;
+
+    TRACE_FL("CheckBestBlockIndex(): hashBestChain=%s  height=%d\n", hashBestChain.ToString().substr(0, 20).c_str(), nBestHeight);
+    return true;
+}
+
 bool CTxDB::LoadBlockIndex()
 {
     // Get database cursor
@@ -462,20 +503,17 @@ bool CTxDB::LoadBlockIndex()
             CBlockIndex* pindexNew = InsertBlockIndex(diskindex.GetBlockHash());
             pindexNew->pprev          = InsertBlockIndex(diskindex.hashPrev);
             pindexNew->pnext          = InsertBlockIndex(diskindex.hashNext);
-            pindexNew->pprevSibling   = InsertBlockIndex(diskindex.hashPrevSibling);
-            pindexNew->pnextSibling   = InsertBlockIndex(diskindex.hashNextSibling);
-            
-
-            //pindexNew->nHeight        = diskindex.nHeight;
-            
+            pindexNew->nHeight        = diskindex.nHeight;
 
             pindexNew->addr           = diskindex.addr;
             pindexNew->nVersion       = diskindex.nVersion;
             pindexNew->hashMerkleRoot = diskindex.hashMerkleRoot;
             pindexNew->nTime          = diskindex.nTime;
+            pindexNew->nPrevHID       = diskindex.nPrevHID;
+            pindexNew->hashPrevHyperBlock = diskindex.hashPrevHyperBlock;
 
             // Watch for genesis block
-            if (pindexGenesisBlock == NULL && diskindex.GetBlockHash() == hashGenesisBlock)
+            if (pindexGenesisBlock == NULL && pindexNew->GetBlockHash() == hashGenesisBlock)
                 pindexGenesisBlock = pindexNew;
 
             if (!pindexNew->CheckIndex())
@@ -489,7 +527,6 @@ bool CTxDB::LoadBlockIndex()
     pcursor->close();
 
     // Calculate bnChainWork
-    
 
     //vector<pair<int, CBlockIndex*> > vSortedByHeight;
     //vSortedByHeight.reserve(mapBlockIndex.size());
@@ -506,71 +543,184 @@ bool CTxDB::LoadBlockIndex()
     //}
 
 
-    
 
     // Load hashBestChain pointer to end of best chain
     if (!ReadHashBestChain(hashBestChain))
     {
-        if (pindexGenesisBlock == NULL)
+        if (pindexGenesisBlock == NULL) {
             return true;
-        return ERROR_FL("hashBestChain not loaded");
+        }
+        hashBestChain = pindexGenesisBlock->GetBlockHash();
     }
-    if (!mapBlockIndex.count(hashBestChain))
-        return ERROR_FL("hashBestChain not found in the block index");
+    if (!mapBlockIndex.count(hashBestChain)) {
+        ERROR_FL("hashBestChain not found in the block index");
+        hashBestChain = hashGenesisBlock;
+    }
 
     pindexBest = mapBlockIndex[hashBestChain];
 
-    
 
     //auto maxindex = std::max_element(mapBlockIndex.begin(), mapBlockIndex.end());
-    if (pindexBest) {
-        nBestHeight = pindexBest->Height();
-        printf("LoadBlockIndex(): hashBestChain=%s  height=%d\n", hashBestChain.ToString().substr(0, 20).c_str(), nBestHeight);
-    }
+    CheckBestBlockIndex();
 
-    
 
     if (!ReadAddrMaxChain(addrMaxChain)) {
         addrMaxChain = pindexBest ? pindexBest->addr : T_LOCALBLOCKADDRESS();
     }
 
     // Load bnBestInvalidWork, OK if it doesn't exist
-    
 
     //ReadBestInvalidWork(bnBestInvalidWork);
 
-    //Verify blocks in the best chain
-    CBlockIndex* pindexFork = NULL;
-    for (CBlockIndex* pindex = pindexBest; pindex && pindex->pprev; pindex = pindex->pprev)
-    {
-        if (pindex->Height() < nBestHeight-2500 && !mapArgs.count("-checkblocks"))
+    cout << "Ledger: verifying blocks in the best chain...\n";
+
+
+    int nCurrHeight = nBestHeight - 1;
+    CBlockIndex *pindexFork = nullptr;
+    CBlockIndex *pindex = pindexBest->pprev;
+    CBlockIndex *pprevindex;
+    if(pindex)
+        pprevindex = pindex->pprev;
+    for (; pindex && pprevindex; pindex = pprevindex, pprevindex = pindex->pprev, nCurrHeight--) {
+
+        if (pindex->nTime == 0) {
+            WARNING_FL("LoadBlockIndex() : *** error block at %d, hash=%s\n", pindex->Height(), pindex->GetBlockHash().ToString().c_str());
+            pindexFork = pprevindex;
+            continue;
+        }
+
+        if (pindex->Height() < nBestHeight - 20 && !mapArgs.count("-checkblocks"))
             break;
+
+        if (!pindex->addr.isValid() && !mapBlocks.contain(pindex->GetBlockHash())) {
+            continue;
+        }
+
         CBlock block;
-        if (!block.ReadFromDisk(pindex))
-            return ERROR_FL("block.ReadFromDisk failed");
-        if (!block.CheckBlock())
-        {
-            printf("LoadBlockIndex() : *** found bad block at %d, hash=%s\n", pindex->Height(), pindex->GetBlockHash().ToString().c_str());
-            pindexFork = pindex->pprev;
+        if (!block.ReadFromDisk(pindex)) {
+            WARNING_FL("LoadBlockIndex() : *** cannot read block at %d, hash=%s\n", pindex->Height(), pindex->GetBlockHash().ToString().c_str());
+            pindexFork = pprevindex;
+            continue;
+        }
+
+        if (!block.CheckBlock()) {
+            WARNING_FL("LoadBlockIndex() : *** found bad block at %d, hash=%s\n", pindex->Height(), pindex->GetBlockHash().ToString().c_str());
+            pindexFork = pprevindex;
         }
     }
-    if (pindexFork)
-    {
+
+    if (pindex && !pindex->pprev && nCurrHeight > 0) {
+        return ERROR_FL("LoadBlockIndex(): block index is bad, To rebuild, please remove blkindex.dat and restart the program\n");
+        //pindexBest = pindexGenesisBlock;
+        //while (pindexBest && pindexBest->pnext) {
+        //    pindexBest = pindexBest->pnext;
+        //}
+        //CheckBestBlockIndex(pindexBest);
+    }
+
+    if (pindexFork) {
         // Reorg back to the fork
-        printf("LoadBlockIndex() : *** moving best chain pointer back to block %d\n", pindexFork->Height());
-        CBlock block;
-        if (!block.ReadFromDisk(pindexFork))
+        ERROR_FL("LoadBlockIndex() : *** moving best chain pointer back to block %d\n", pindexFork->Height());
+        if (!SwitchChainTo(pindexFork)) {
             return ERROR_FL("block.ReadFromDisk failed");
-        CTxDB txdb;
-        block.SetBestChain(txdb, pindexFork);
+        }
     }
 
     return true;
+}
 
+//
+//CBlockDB
+//
+
+
+bool CBlockDB::LoadBlockUnChained(CBlockBloomFilter &filterBlk)
+{
+
+    bool ret = Load("block", [&](CDataStream& ssKey, CDataStream& ssValue) -> bool {
+
+        //CBlock block;
+        //ssValue >> block;
+
+        uint256 hash;
+        ssKey >> hash;
+
+        //assert(hash == block.GetHash());
+        filterBlk.insert(hash);
+
+        return true;
+    });
+    return ret;
 }
 
 
 
+bool CBlockDB::LoadBlockUnChained(const uint256& hash, std::function<bool(CDataStream&, CDataStream&)> f)
+{
+    return Load("block",hash, f);
+}
+
+bool CBlockDB::ReadBlock(const uint256& hash, CBlock& block)
+{
+    return Read(make_pair(string("block"), hash), block);
+}
+
+bool CBlockDB::WriteBlock(const CBlock& block)
+{
+    return Write(make_pair(string("block"), block.GetHash()), block);
+}
+
+bool CBlockDB::WriteBlock(const uint256& hash, const CBlock& block)
+{
+    return Write(make_pair(string("block"), hash), block);
+}
+
+bool CBlockDB::EraseBlock(uint256 hash)
+{
+    return Erase(make_pair(string("block"), hash));
+}
+
+//
+//CBlockTripleAddressDB
+//
+bool CBlockTripleAddressDB::LoadBlockTripleAddress()
+{
+    Load("triaddr", [](CDataStream& ssKey, CDataStream& ssValue) -> bool {
+
+        BLOCKTRIPLEADDRESS blocktripleaddr;
+        ssValue >> blocktripleaddr;
+        uint256 hash;
+        ssKey >> hash;
+        LatestLedgerBlock::AddBlockTripleAddress(hash, blocktripleaddr);
+        return true;
+    });
+    return true;
+}
+
+bool CBlockTripleAddressDB::ReadMaxHID(uint32& maxhid)
+{
+    return Read(string("maxhid"), maxhid);
+}
+
+bool CBlockTripleAddressDB::WriteMaxHID(uint32 hid)
+{
+    return Write(string("maxhid"), hid);
+}
+
+bool CBlockTripleAddressDB::ReadBlockTripleAddress(const uint256& hash, BLOCKTRIPLEADDRESS& addr)
+{
+    return Read(make_pair(string("triaddr"), hash), addr);
+}
+
+bool CBlockTripleAddressDB::WriteBlockTripleAddress(const uint256& hash, const BLOCKTRIPLEADDRESS& addr)
+{
+    return Write(make_pair(string("triaddr"), hash), addr);
+}
+
+bool CBlockTripleAddressDB::EraseBlockTripleAddress(const uint256& hash)
+{
+    return Erase(make_pair(string("triaddr"), hash));
+}
 
 
 //
@@ -637,7 +787,7 @@ bool CAddrDB::LoadAddresses()
         }
         pcursor->close();
 
-        printf("Loaded %d addresses\n", mapAddresses.size());
+        TRACE_FL("Loaded %d addresses\n", mapAddresses.size());
     }
 
     return true;
@@ -793,7 +943,7 @@ int CWalletDB::LoadWallet(CWallet* pwallet)
                 wtx.pwallet = pwallet;
 
                 if (wtx.GetHash() != hash)
-                    printf("Error in wallet.dat, hash mismatch\n");
+                    ERROR_FL("Error in wallet.dat, hash mismatch\n");
 
                 // Undo serialize changes in 31600
                 if (31404 <= wtx.fTimeReceivedIsTxTime && wtx.fTimeReceivedIsTxTime <= 31703)
@@ -803,20 +953,20 @@ int CWalletDB::LoadWallet(CWallet* pwallet)
                         char fTmp;
                         char fUnused;
                         ssValue >> fTmp >> fUnused >> wtx.strFromAccount;
-                        printf("LoadWallet() upgrading tx ver=%d %d '%s' %s\n", wtx.fTimeReceivedIsTxTime, fTmp, wtx.strFromAccount.c_str(), hash.ToString().c_str());
+                        TRACE_FL("LoadWallet() upgrading tx ver=%d %d '%s' %s\n", wtx.fTimeReceivedIsTxTime, fTmp, wtx.strFromAccount.c_str(), hash.ToString().c_str());
                         wtx.fTimeReceivedIsTxTime = fTmp;
                     }
                     else
                     {
-                        printf("LoadWallet() repairing tx ver=%d %s\n", wtx.fTimeReceivedIsTxTime, hash.ToString().c_str());
+                        TRACE_FL("LoadWallet() repairing tx ver=%d %s\n", wtx.fTimeReceivedIsTxTime, hash.ToString().c_str());
                         wtx.fTimeReceivedIsTxTime = 0;
                     }
                     vWalletUpgrade.push_back(hash);
                 }
 
                 //// debug print
-                //printf("LoadWallet  %s\n", wtx.GetHash().ToString().c_str());
-                //printf(" %12I64d  %s  %s  %s\n",
+                //DEBUG_FL("LoadWallet  %s\n", wtx.GetHash().ToString().c_str());
+                //DEBUG_FL(" %12I64d  %s  %s  %s\n",
                 //    wtx.vout[0].nValue,
                 //    DateTimeStrFormat("%x %H:%M:%S", wtx.GetBlockTime()).c_str(),
                 //    wtx.hashBlock.ToString().substr(0,20).c_str(),
@@ -920,15 +1070,15 @@ int CWalletDB::LoadWallet(CWallet* pwallet)
     BOOST_FOREACH(uint256 hash, vWalletUpgrade)
         WriteTx(hash, pwallet->mapWallet[hash]);
 
-    printf("nFileVersion = %d\n", nFileVersion);
-    printf("fGenerateBitcoins = %d\n", fGenerateBitcoins);
-    printf("nTransactionFee = %" PRI64d "\n", nTransactionFee);
-    printf("fMinimizeToTray = %d\n", fMinimizeToTray);
-    printf("fMinimizeOnClose = %d\n", fMinimizeOnClose);
-    printf("fUseProxy = %d\n", fUseProxy);
-    printf("addrProxy = %s\n", addrProxy.ToString().c_str());
+    TRACE_FL("nFileVersion = %d\n", nFileVersion);
+    TRACE_FL("fGenerateBitcoins = %d\n", fGenerateBitcoins);
+    TRACE_FL("nTransactionFee = %" PRI64d "\n", nTransactionFee);
+    TRACE_FL("fMinimizeToTray = %d\n", fMinimizeToTray);
+    TRACE_FL("fMinimizeOnClose = %d\n", fMinimizeOnClose);
+    TRACE_FL("fUseProxy = %d\n", fUseProxy);
+    TRACE_FL("addrProxy = %s\n", addrProxy.ToString().c_str());
     if (fHaveUPnP)
-        printf("fUseUPnP = %d\n", fUseUPnP);
+        TRACE_FL("fUseUPnP = %d\n", fUseUPnP);
 
 
     // Upgrade
@@ -960,6 +1110,8 @@ void ThreadFlushWalletDB(void* parg)
     int64 nLastWalletUpdate = GetTime();
     while (!fShutdown)
     {
+        Sleep(500);
+
         if (nLastSeen != nWalletDBUpdated)
         {
             nLastSeen = nWalletDBUpdated;
@@ -968,7 +1120,7 @@ void ThreadFlushWalletDB(void* parg)
 
         if (nLastFlushed != nWalletDBUpdated && GetTime() - nLastWalletUpdate >= 2)
         {
-            TRY_CRITICAL_BLOCK(cs_db)
+            TRY_CRITICAL_BLOCK(*cs_db)
             {
                 // Don't do this if any databases are in use
                 int nRefCount = 0;
@@ -984,8 +1136,8 @@ void ThreadFlushWalletDB(void* parg)
                     map<string, int>::iterator mi = mapFileUseCount.find(strFile);
                     if (mi != mapFileUseCount.end())
                     {
-                        printf("%s ", DateTimeStrFormat("%x %H:%M:%S", GetTime()).c_str());
-                        printf("Flushing wallet.dat\n");
+                        TRACE_FL("%s ", DateTimeStrFormat("%x %H:%M:%S", GetTime()).c_str());
+                        TRACE_FL("Flushing wallet.dat\n");
                         nLastFlushed = nWalletDBUpdated;
                         int64 nStart = GetTimeMillis();
 
@@ -995,22 +1147,29 @@ void ThreadFlushWalletDB(void* parg)
                         dbenv->lsn_reset(strFile.c_str(), 0);
 
                         mapFileUseCount.erase(mi++);
-                        printf("Flushed wallet.dat %" PRI64d "ms\n", GetTimeMillis() - nStart);
+                        TRACE_FL("Flushed wallet.dat %" PRI64d "ms\n", GetTimeMillis() - nStart);
                     }
                 }
             }
         }
-        Sleep(500);
     }
 }
 
-bool BackupWallet(const CWallet& wallet, const string& strDest)
+bool BackupWallet(const CWallet& wallet, const string& strDest, string &errmsg)
 {
-    if (!wallet.fFileBacked)
+    if (!wallet.fFileBacked) {
+        errmsg = "wallet object error";
         return false;
+    }
+
+    int nCount = 0;
     while (!fShutdown)
     {
-        CRITICAL_BLOCK(cs_db)
+        if (nCount > 10) {
+            errmsg = "wallet file is opened, now cannot backup";
+            break;
+        }
+        CRITICAL_BLOCK(*cs_db)
         {
             if (!mapFileUseCount.count(wallet.strWalletFile) || mapFileUseCount[wallet.strWalletFile] == 0)
             {
@@ -1021,21 +1180,23 @@ bool BackupWallet(const CWallet& wallet, const string& strDest)
                 mapFileUseCount.erase(wallet.strWalletFile);
 
                 // Copy wallet.dat
-                filesystem::path pathSrc(GetDataDir() + "/" + wallet.strWalletFile);
-                filesystem::path pathDest(strDest);
-                if (filesystem::is_directory(pathDest))
+                boost::filesystem::path pathSrc(GetDataDir() + "/" + wallet.strWalletFile);
+                boost::filesystem::path pathDest(strDest);
+                if (boost::filesystem::is_directory(pathDest))
                     pathDest = pathDest / wallet.strWalletFile;
 #if BOOST_VERSION >= 104000
-                filesystem::copy_file(pathSrc, pathDest, filesystem::copy_option::overwrite_if_exists);
+                boost::filesystem::copy_file(pathSrc, pathDest, boost::filesystem::copy_option::overwrite_if_exists);
 #else
-                filesystem::copy_file(pathSrc, pathDest);
+                boost::filesystem::copy_file(pathSrc, pathDest);
 #endif
-                printf("copied wallet.dat to %s\n", pathDest.string().c_str());
+                TRACE_FL("copied wallet.dat to %s\n", pathDest.string().c_str());
 
                 return true;
             }
         }
         Sleep(100);
+        nCount++;
     }
     return false;
 }
+

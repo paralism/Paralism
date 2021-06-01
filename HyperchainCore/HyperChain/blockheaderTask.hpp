@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -74,7 +74,6 @@ public:
         NodeManager *nodemgr = Singleton<NodeManager>::getInstance();
 
         if (!sp->GetHyperBlockHeader(m_startHid, m_range, hyperBlockHeaderList)) {
-            
 
             DataBuffer<NoBlockHeaderRspTask> msgbuf(std::move(to_string(m_startHid)));
             nodemgr->sendTo(_sentnodeid, msgbuf);
@@ -82,12 +81,17 @@ public:
             return;
         }
 
-        
 
         stringstream ssBuf;
         boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
+        try {
+            putStream(oa, hyperBlockHeaderList);
+        }
+        catch (boost::archive::archive_exception& e) {
+            g_console_logger->error("{} {}", __FUNCTION__, e.what());
+            return;
+        }
 
-        putStream(oa, hyperBlockHeaderList);
         DataBuffer<GetBlockHeaderRspTask> datamsg(std::move(ssBuf.str()));
 
         nodemgr->sendTo(_sentnodeid, datamsg);
@@ -109,13 +113,13 @@ public:
                 hyperBlockHeaderList.push_back(std::move(blockheader));
             }
         }
-        catch (runtime_error& e) {
-            g_consensus_console_logger->warn("{}", e.what());
+        catch (boost::archive::archive_exception& e) {
+            g_console_logger->error("{} {}", __FUNCTION__, e.what());
             return;
         }
 
         CHyperChainSpace * sp = Singleton<CHyperChainSpace, string>::getInstance();
-        sp->PutHyperBlockHeader(hyperBlockHeaderList, _sentnodeid.ToHexString());
+        sp->PutHyperBlockHeaderList(hyperBlockHeaderList, _sentnodeid.ToHexString());
     }
 
     uint64_t m_startHid;
@@ -142,7 +146,6 @@ public:
         string msgbuf(_payload, _payloadlen);
         string::size_type ns = msgbuf.find(":");
         if ((ns == string::npos) || (ns == 0)) {
-            
 
             return;
         }

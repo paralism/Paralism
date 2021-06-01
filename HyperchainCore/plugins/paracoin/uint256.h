@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -44,7 +44,6 @@ typedef uint64_t			uint64;
 #define for  if (false) ; else for
 #endif
 
-typedef unsigned char byte;
 
 inline int Testuint256AdHoc(std::vector<std::string> vArg);
 
@@ -622,19 +621,19 @@ public:
             *this = 0;
     }
 
-    const byte operator[](byte i) const
+    const uint8_t operator[](uint8_t i) const
     {
         if (i >= WIDTH * 4)
         {
             throw std::runtime_error("uint256 operator[] : index out of range");
         }
-        byte* p = (byte*)(pn);
+        uint8_t* p = (uint8_t*)(pn);
         return *(p + i);
     }
 
     uint64_t GetUint64(int pos) const
     {
-        const uint8_t* ptr = (byte*)pn + pos * 8;
+        const uint8_t* ptr = (uint8_t*)pn + pos * 8;
         return ((uint64_t)ptr[0]) | \
             ((uint64_t)ptr[1]) << 8 | \
             ((uint64_t)ptr[2]) << 16 | \

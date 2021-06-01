@@ -70,7 +70,6 @@
 
 /* Define to 1 if you have the <byteswap.h> header file. */
 
-
 //#define HAVE_BYTESWAP_H 1
 
 /* Define this symbol if the consensus lib has been built */
@@ -94,12 +93,10 @@
 /* Define to 1 if you have the declaration of `bswap_16', and to 0 if you
    don't. */
 
-
 #define HAVE_DECL_BSWAP_16 0
 
 /* Define to 1 if you have the declaration of `bswap_32', and to 0 if you
    don't. */
-
 
 #define HAVE_DECL_BSWAP_32 0
 
@@ -117,7 +114,6 @@
 
 /* Define to 1 if you have the declaration of `htobe16', and to 0 if you
    don't. */
-
 
 #define HAVE_DECL_HTOBE16 0
 
@@ -177,7 +173,6 @@
 #define HAVE_DLFCN_H 1
 
 /* Define to 1 if you have the <endian.h> header file. */
-
 
 #ifndef WIN32
 #define HAVE_ENDIAN_H 1
@@ -329,8 +324,7 @@
 /* #undef HAVE_SYS_ENDIAN_H */
 
 /* Define this symbol if the Linux getrandom system call is available */
-
-
+//HC
 //#define HAVE_SYS_GETRANDOM 1
 
 /* Define to 1 if you have the <sys/prctl.h> header file. */
@@ -414,7 +408,6 @@
 
 /* UPnP support not compiled if undefined, otherwise value (0 or 1) determines
    default state */
-
 
 //#define USE_UPNP 0
 

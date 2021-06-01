@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -48,7 +48,6 @@ int CHyperchainDB::saveHyperBlocksToDB(const vector<T_HYPERBLOCK> &vHyperblock)
 
 int CHyperchainDB::cleanTmp(HyperchainDB &hyperchainDB)
 {
-    
 
     if (hyperchainDB.size() > 0)
     {
@@ -71,15 +70,15 @@ int CHyperchainDB::cleanTmp(HyperchainDB &hyperchainDB)
     return 0;
 }
 
-bool CHyperchainDB::getHyperBlockbyHeaderHash(T_HYPERBLOCK &h, const T_SHA256 &headerhash)
+bool CHyperchainDB::getHyperBlockbyHeaderHash(T_HYPERBLOCK &h, uint64 hid, const T_SHA256 &headerhash)
 {
-    int ret = Singleton<DBmgr>::instance()->getHyperBlockbyHeaderHash(h, headerhash);
+    int ret = Singleton<DBmgr>::instance()->getHyperBlockbyHeaderHash(h, hid, headerhash);
     if (ret != 0) {
         return false;
     }
     addLocalBlocksbyhhash(h);
     if (!h.verify()) {
-        std::printf("Invalid hyper block: %llu in my storage\n", h.GetID());
+        std::printf("Warning: invalid hyper block:%" PRIu64 " in my storage calling %s\n", h.GetID(), __FUNCTION__);
         return false;
     }
     return true;
@@ -93,7 +92,7 @@ bool CHyperchainDB::getHyperBlock(T_HYPERBLOCK &h, const T_SHA256 &hhash)
     }
     addLocalBlocks(h);
     if (!h.verify()) {
-        std::printf("Invalid hyper block: %llu in my storage\n", h.GetID());
+        std::printf("Warning: invalid hyper block:%" PRIu64 " in my storage calling %s\n", h.GetID(), __FUNCTION__);
         return false;
     }
     return true;
@@ -110,7 +109,7 @@ bool CHyperchainDB::getHyperBlock(T_HYPERBLOCK &h, uint64 hid)
     addLocalBlocks(h);
 
     if (!h.verify()) {
-        std::printf("Invalid hyper block: %llu in my storage\n", hid);
+        std::printf("Warning: invalid hyper block:%" PRIu64 " in my storage calling %s\n", hid, __FUNCTION__);
         return false;
     }
     return true;
@@ -120,15 +119,14 @@ void CHyperchainDB::addLocalBlocks(T_HYPERBLOCK &h)
 {
     LIST_T_LOCALBLOCK localblocklist;
     LIST_T_LOCALBLOCK childchain;
-    int chainnum = -1;
+    uint16 chainnum = UINT16_MAX;
     Singleton<DBmgr>::instance()->getLocalBlocks(localblocklist, h.GetID());
     for (auto & l : localblocklist) {
 
-        if (chainnum == -1) {
+        if (chainnum == UINT16_MAX) {
             chainnum = l.GetChainNum();
         }
         if (chainnum != l.GetChainNum()) {
-            
 
             h.AddChildChain(std::move(childchain));
             childchain.clear();
@@ -145,15 +143,14 @@ void CHyperchainDB::addLocalBlocksbyhhash(T_HYPERBLOCK &h)
 {
     LIST_T_LOCALBLOCK localblocklist;
     LIST_T_LOCALBLOCK childchain;
-    int chainnum = -1;
+    uint16 chainnum = UINT16_MAX;
     Singleton<DBmgr>::instance()->getLocalBlocks(localblocklist, h.GetHashSelf());
     for (auto & l : localblocklist) {
 
-        if (chainnum == -1) {
+        if (chainnum == UINT16_MAX) {
             chainnum = l.GetChainNum();
         }
         if (chainnum != l.GetChainNum()) {
-            
 
             h.AddChildChain(std::move(childchain));
             childchain.clear();
@@ -165,7 +162,6 @@ void CHyperchainDB::addLocalBlocksbyhhash(T_HYPERBLOCK &h)
         h.AddChildChain(std::move(childchain));
     }
 }
-
 
 
 

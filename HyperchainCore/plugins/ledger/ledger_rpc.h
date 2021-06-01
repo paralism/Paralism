@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -24,5 +24,36 @@ DEALINGS IN THE SOFTWARE.
 // Distributed under the MIT/X11 software license, see the accompanying
 // file license.txt or http://www.opensource.org/licenses/mit-license.php.
 
+#include "json/json_spirit_reader_template.h"
+#include "json/json_spirit_writer_template.h"
+#include "json/json_spirit_utils.h"
+
+
 void ThreadRPCServer(void* parg);
 int CommandLineRPC(int argc, char *argv[]);
+
+using namespace json_spirit;
+
+Value issuetoken(const Array& params, bool fHelp);
+Value importtoken(const Array& params, bool fHelp);
+Value listaccounts(const Array& params, bool fHelp);
+Value getaddressesbyaccount(const Array& params, bool fHelp);
+
+Value sendfrom(const Array& params, bool fHelp);
+Value sendtoaddress(const Array& params, bool fHelp);
+
+Value setgenerate(const Array& params, bool fHelp);
+
+Value gettransaction(const Array& params, bool fHelp);
+Value listtransactions(const Array& params, bool fHelp);
+Value gettransaction(const Array& params, bool fHelp);
+
+Value encryptwallet(const Array& params, bool fHelp);
+Value walletpassphrase(const Array& params, bool fHelp);
+Value walletpassphrasechange(const Array& params, bool fHelp);
+
+Value setaccount(const Array& params, bool fHelp);
+Value settxfee(const Array& params, bool fHelp);
+
+Value getinfo(const Array& params, bool fHelp);
+

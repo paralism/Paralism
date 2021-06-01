@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -24,9 +24,8 @@ DEALINGS IN THE SOFTWARE.
 #include <random>
 
 
-
-int KBUCKRT_NUM = 256;
-int KNODE_NUM = 10;
+uint32_t KBUCKRT_NUM = 256;
+uint32_t KNODE_NUM = 10;
 
 
 CKBNode::CKBNode(const CUInt128& id)
@@ -53,7 +52,6 @@ void CKBuckets::InitKbuckets(CUInt128 myID)
 bool CKBuckets::AddNode(CUInt128 nID, CUInt128& nRemoveID)
 {
     int kBK = LocateKBucket(nID);
-    
 
     for (auto iter = m_vecBuckets[kBK].begin(); iter != m_vecBuckets[kBK].end(); iter++) {
         if (iter->m_id == nID) {
@@ -118,7 +116,6 @@ vector<CUInt128> CKBuckets::PickNeighbourNodes(CUInt128 targetID, int nNum)
 
     int nKBucket = m_vecBuckets.size();
     while ((rk < KBUCKRT_NUM || lk > 0) && nActNum < nNum) {
-        
 
         if (nKBucket > rk && rk < KBUCKRT_NUM) {
             for (auto Riter = m_vecBuckets[rk].begin(); Riter != m_vecBuckets[rk].end() && nActNum < nNum; Riter++, nActNum++)
@@ -126,7 +123,6 @@ vector<CUInt128> CKBuckets::PickNeighbourNodes(CUInt128 targetID, int nNum)
         }
         rk++;
 
-        
 
         if (nKBucket > lk && lk > 0) {
             lk--;
@@ -153,7 +149,6 @@ vector<CUInt128> CKBuckets::PickLastActiveNodes(CUInt128 targetID, int nNum, int
 
     int nKBucket = m_vecBuckets.size();
     while ((rk < KBUCKRT_NUM || lk > 0) && nActNum < nNum) {
-        
 
         if (nKBucket > rk && rk < KBUCKRT_NUM) {
             for (auto Riter = m_vecBuckets[rk].begin(); Riter != m_vecBuckets[rk].end() && nActNum < nNum; Riter++) {
@@ -167,7 +162,6 @@ vector<CUInt128> CKBuckets::PickLastActiveNodes(CUInt128 targetID, int nNum, int
         }
         rk++;
 
-        
 
         if (nKBucket > lk && lk > 0) {
             lk--;

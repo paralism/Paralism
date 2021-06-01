@@ -11,5 +11,6 @@ global:
 	 ResolvePayload;
 	 TurnOnOffDebugOutput;
 	 GetGenesisBlock;
+	 ConsoleCmd;
 local:*; 
 };

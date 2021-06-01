@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -29,6 +29,8 @@ DEALINGS IN THE SOFTWARE.
 #include "node/MsgHandler.h"
 #include "consensus_engine.h"
 #include "../HyperChain/HyperChainSpace.h"
+
+#include <boost/fiber/all.hpp>
 
 
 uint64 _tBuddyInfo::GetCurBuddyNo()const
@@ -75,6 +77,7 @@ void _tOnChainHashInfo::Set(uint64 t, string h)
 void _tp2pmanagerstatus::ClearStatus()
 {
     bStartGlobalFlag = false;
+    bGlobalChainChangeFlag = false;
     bHaveOnChainReq = false;
     uiNodeState = DEFAULT_REGISREQ_STATE;
     listLocalBuddyChainInfo.clear();
@@ -82,6 +85,9 @@ void _tp2pmanagerstatus::ClearStatus()
     tBuddyInfo.eBuddyState = IDLE;
     tBuddyInfo.usBlockNum = 0;
     tBuddyInfo.usChainNum = 0;
+
+    bHyperBlockCreated = false;
+    tHyperBlock = T_HYPERBLOCK();
 }
 
 bool _tp2pmanagerstatus::StartGlobalFlag()const
@@ -117,22 +123,24 @@ uint16 _tp2pmanagerstatus::GetNodeState()const
 uint64 _tp2pmanagerstatus::GettTimeOfConsensus()
 {
     time_t now = time(nullptr);
-    uint32 pos = now % NEXTBUDDYTIME;
-    return (now - pos + NEXTBUDDYTIME);
+    if (now < latestHyperblockCTime) {
+        return latestHyperblockCTime + _NEXTBUDDYTIME;
+    }
+    return now;
 }
 
 CONSENSUS_PHASE _tp2pmanagerstatus::GetCurrentConsensusPhase() const
 {
     time_t now = time(nullptr);
-    uint32 pos = now % NEXTBUDDYTIME;
-    if (pos <= LOCALBUDDYTIME) {
+    uint32 pos = now % _NEXTBUDDYTIME;
+    if (pos <= _LOCALBUDDYTIME) {
         return CONSENSUS_PHASE::LOCALBUDDY_PHASE;
     }
-    if (pos <= GLOBALBUDDYTIME) {
+    if (pos <= _GLOBALBUDDYTIME) {
         return CONSENSUS_PHASE::GLOBALBUDDY_PHASE;
     }
 
-    if (pos < NEXTBUDDYTIME - 8) {
+    if (pos < _NEXTBUDDYTIME - 8) {
         return CONSENSUS_PHASE::PERSISTENCE_CHAINDATA_PHASE;
     }
     return CONSENSUS_PHASE::PREPARE_LOCALBUDDY_PHASE;
@@ -198,9 +206,6 @@ void _tp2pmanagerstatus::RequestOnChain(const T_LOCALCONSENSUS& LocalConsensusIn
         listOnChainReq.push_back(LocalConsensusInfo);
     }
     else {
-        //stringstream ssBuf;
-        //boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
-        //oa << LocalConsensusInfo;
         zmsg *rspmsg = MQRequest(CONSENSUS_SERVICE, (int)T_P2PMANAGERSTATUS::SERVICE::RequestOnChain, &LocalConsensusInfo);
         if (rspmsg) {
             delete rspmsg;
@@ -280,6 +285,7 @@ bool _tp2pmanagerstatus::ApplicationCheck(T_HYPERBLOCK &hyperblock)
     map<T_APPTYPE, vector<T_PAYLOADADDR>> mapPayload;
     ToAppPayloads(hyperblock, mapPayload);
 
+
     for (auto& a : mapPayload) {
         CBRET ret = AppCallback<cbindex::VALIDATECHAINIDX>(a.first, a.second);
         if (ret == CBRET::REGISTERED_FALSE) {
@@ -293,6 +299,7 @@ bool _tp2pmanagerstatus::ApplicationAccept(uint32_t hidFork, T_HYPERBLOCK &hyper
 {
     map<T_APPTYPE, vector<T_PAYLOADADDR>> mapPayload;
     ToAppPayloads(hyperblock, mapPayload);
+
 
     T_APPTYPE genesisledger(APPTYPE::ledger, 0, 0, 0);
     if (mapPayload.count(genesisledger)) {
@@ -309,6 +316,7 @@ bool _tp2pmanagerstatus::ApplicationAccept(uint32_t hidFork, T_HYPERBLOCK &hyper
     T_SHA256 thash = hyperblock.GetHashSelf();
     uint32_t hid = hyperblock.GetID();
 
+
     AllAppCallback<cbindex::ACCEPTCHAINIDX>(mapPayload, hidFork, hid, thash, isLatest);
     return true;
 }
@@ -317,23 +325,28 @@ bool _tp2pmanagerstatus::ApplicationAccept(uint32_t hidFork, T_HYPERBLOCK &hyper
 void _tp2pmanagerstatus::UpdateOnChainingState(const T_HYPERBLOCK &hyperblock)
 {
     bool isfound = false;
-    uint32 uiChainNum = 1;
+    uint32 uiChainNum = 0;
     auto childchainlist = hyperblock.GetChildChains();
     for (auto &childchain : childchainlist) {
+        uiChainNum++;
+        if (childchain.begin()->isAppTxType()) {
+            continue;
+        }
+
+
         std::find_if(childchain.begin(), childchain.end(), [this, &isfound, &hyperblock, uiChainNum](const T_LOCALBLOCK & elem) {
+
+            T_SEARCHINFO searchInfo;
+            searchInfo.addr.set(hyperblock.GetID(), uiChainNum, elem.GetID());
+
             LB_UUID uuid = elem.GetUUID();
             if (mapSearchOnChain.count(uuid) > 0) {
-                isfound = true;
-                T_SEARCHINFO searchInfo;
-                searchInfo.addr.set(hyperblock.GetID(), uiChainNum, elem.GetID());
                 mapSearchOnChain[uuid] = searchInfo;
-
-                Singleton<DBmgr>::instance()->updateOnChainState(uuid, searchInfo.addr);
-                return true;
             }
-            return false;
+            isfound = (Singleton<DBmgr>::instance()->updateOnChainState(uuid, searchInfo.addr) > 0);
+            return isfound;
         });
-        uiChainNum++;
+
         if (isfound) {
             break;
         }
@@ -343,6 +356,7 @@ void _tp2pmanagerstatus::UpdateOnChainingState(const T_HYPERBLOCK &hyperblock)
 void _tp2pmanagerstatus::UpdateLocalBuddyBlockToLatest(uint64 prehyperblockid, const T_SHA256& preHyperBlockHash)
 {
     if (listLocalBuddyChainInfo.size() == ONE_LOCAL_BLOCK) {
+
 
         auto itr = listLocalBuddyChainInfo.begin();
         T_LOCALBLOCK& localblock = itr->GetLocalBlock();
@@ -354,9 +368,11 @@ void _tp2pmanagerstatus::UpdateLocalBuddyBlockToLatest(uint64 prehyperblockid, c
             localblock.CalculateHashSelf();
         }
 
+
         localblock.updatePreHyperBlockInfo(prehyperblockid, preHyperBlockHash);
     }
 }
+
 
 void _tp2pmanagerstatus::CleanConsensusEnv()
 {
@@ -394,12 +410,19 @@ void _tp2pmanagerstatus::RehandleOnChainingState(uint64 hid)
 
 void _tp2pmanagerstatus::SetAppCallback(const T_APPTYPE &app, const CONSENSUSNOTIFY &notify)
 {
-    _mapcbfn[app] = notify;
+    _mapcbfn[app] = std::make_shared<CONSENSUSNOTIFYSTATE>(CONSENSUSNOTIFYSTATE(notify));
 }
 
 void _tp2pmanagerstatus::RemoveAppCallback(const T_APPTYPE & app)
 {
     if (_mapcbfn.count(app)) {
+        auto &app_cb_noti = _mapcbfn[app];
+        app_cb_noti->unreging = true;
+        int n = app_cb_noti.use_count();
+        if (n > 1) {
+
+            boost::this_fiber::sleep_for(std::chrono::milliseconds(300));
+        }
         _mapcbfn.erase(app);
     }
 }
@@ -433,7 +456,8 @@ void _tp2pmanagerstatus::GetMulticastNodes(vector<CUInt128> &MulticastNodes)
 
     itrList = (*itr).begin();
     T_APPTYPE localapptype = (*itrList).GetLocalBlock().GetAppType();
-    if (localapptype.isParaCoin() == true) {
+    if (localapptype.isParaCoin() || localapptype.isLedger()) {
+
         std::list<string> nodelist;
         CBRET ret = AppCallback<cbindex::GETNEIGHBORNODESIDX>(localapptype, nodelist);
         if (ret == CBRET::REGISTERED_TRUE) {
@@ -454,9 +478,14 @@ void _tp2pmanagerstatus::GetMulticastNodes(vector<CUInt128> &MulticastNodes)
     g_consensus_console_logger->info("GetMulticastNodes() MulticastNodes.size: [{}]", MulticastNodes.size());
 }
 
-void _tp2pmanagerstatus::SetLatestHyperBlock(uint64 hyperid, const T_SHA256 &hhash)
+void _tp2pmanagerstatus::SetLatestHyperBlock(uint64 hyperid, const T_SHA256 &hhash, uint64 hyperctime)
 {
     latestHyperblockId = hyperid;
     latestHyperBlockHash = hhash;
+    latestHyperblockCTime = hyperctime;
+
+    bHyperBlockCreated = false;
+    bGlobalChainChangeFlag = true;
+
 }
 

@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -53,8 +53,7 @@ static size_t get_file_size(FILE* fp)
 {
     int fd = fileno(fp);
     struct stat file_info;
-    if(fstat(fd, &file_info)<0)
-	{
+    if (fstat(fd, &file_info) < 0) {
         return 0;
     }
     return file_info.st_size;
@@ -67,139 +66,128 @@ static size_t get_file_size(FILE* fp)
 
 void renamelogfile(LOG_HELPER* log_helper)
 {
-//    assert(NULL == log_helper);
-	char tmp[FILENAME_MAX] = {0};
-    char fullname[FILENAMESIZE] = {0};
+    //    assert(NULL == log_helper);
+    char tmp[FILENAME_MAX] = { 0 };
+    char fullname[FILENAMESIZE * 4] = { 0 };
     time_t t;
-    char *pos1, *pos2;
+    char* pos1, * pos2;
     time(&t);
 
     //strftime(tmp, FILENAME_MAX, "%m%d%H%M%S", localtime(&t));
-	strftime(tmp, MAX_STR_SIZE, "_%Y%m%d_%H%M%S", localtime(&t));
+    strftime(tmp, MAX_STR_SIZE, "_%Y%m%d_%H%M%S", localtime(&t));
 #ifdef WIN32
-	pos1 = strrchr(log_helper->file_name, '\\');
+    pos1 = strrchr(log_helper->file_name, '\\');
 #else
-	pos1 = strrchr(log_helper->file_name, '/');
+    pos1 = strrchr(log_helper->file_name, '/');
 #endif
 
-    if (NULL == pos1)
-	{
+    if (NULL == pos1) {
         pos1 = log_helper->file_name;
     }
     pos2 = strrchr(pos1, '.');
-    if (pos2)
-	{
+    if (pos2) {
         strncpy(fullname, log_helper->file_name, pos2 - log_helper->file_name);
         //snprintf(fullname, FILENAMESIZE - 1, "%s%s", tmp, pos2);
         strcat(fullname, tmp);
         strcat(fullname, pos2);
     }
-    else
-	{
+    else {
 #ifdef WIN32
-		sprintf_s(fullname, FILENAMESIZE - 1, "%s%s", log_helper->file_name,tmp);
+        sprintf_s(fullname, FILENAMESIZE - 1, "%s%s", log_helper->file_name, tmp);
 #else
-		snprintf(fullname, FILENAMESIZE - 1, "%s%s", log_helper->file_name,tmp);
+        snprintf(fullname, FILENAMESIZE - 1, "%s%s", log_helper->file_name, tmp);
 #endif
 
     }
     rename(log_helper->file_name, fullname);
 }
 
-static void log_level( LOG_HELPER* log_helper, int level, const char *fmt, va_list ap)
+static void log_level(LOG_HELPER* log_helper, int level, const char* fmt, va_list ap)
 {
 
-		CAutoMutexLock automux(g_muxIniFile);
+    CAutoMutexLock automux(g_muxIniFile);
 
-    char buff[1024*5] = "";
-    strcpy(buff,"[");
-	if (log_helper)
-	{
-		switch(level)
-		{
-	    case LOG_INFO:
-    	    if (!(log_helper->level & PRF_LOG_INFO))
-        	    return;
-	        strcat(buff,"info");
-    	    break;
-	    case LOG_WARNING:
-    	    if (!(log_helper->level & PRF_LOG_WARNING))
-        	    return;
-	        strcat(buff,"warning");
-    	    break;
-	    case LOG_NOTICE:
-    	    if (!(log_helper->level & PRF_LOG_NOTICE))
-        	    return;
-	        strcat(buff,"notice");
-    	    break;
-	    case LOG_ERROR:
-    	    if (!(log_helper->level & PRF_LOG_ERROR))
-        	    return;
-	        strcat(buff,"err");
-    	    break;
-		}
+    char buff[1024 * 5] = "";
+    strcpy(buff, "[");
+    if (log_helper) {
+        switch (level) {
+        case LOG_INFO:
+            if (!(log_helper->level & PRF_LOG_INFO))
+                return;
+            strcat(buff, "info");
+            break;
+        case LOG_WARNING:
+            if (!(log_helper->level & PRF_LOG_WARNING))
+                return;
+            strcat(buff, "warning");
+            break;
+        case LOG_NOTICE:
+            if (!(log_helper->level & PRF_LOG_NOTICE))
+                return;
+            strcat(buff, "notice");
+            break;
+        case LOG_ERROR:
+            if (!(log_helper->level & PRF_LOG_ERROR))
+                return;
+            strcat(buff, "err");
+            break;
+        }
     }
     FILE* log_fp = NULL;
-    char tmp[1024*5] = "";
-    strcat(buff,"]");
-    char temp_pid[24] = {0};
+    char tmp[1024 * 5] = "";
+    strcat(buff, "]");
+    char temp_pid[24] = { 0 };
 #ifdef WIN32
     sprintf(temp_pid, "%d", ::GetCurrentThreadId());
 #else
-	sprintf(temp_pid, "%d", pthread_self());
+    sprintf(temp_pid, "%u", pthread_self());
 #endif
-	strcat(buff, temp_pid);
-    strcat(buff," ");
-	/*strcat(buff, (const char*)GetCurrentThread());
-	strcat(buf, __FUCTION__)
-	strcat(buf, __LINE__)*/
-	time_t t;
+    strcat(buff, temp_pid);
+    strcat(buff, " ");
+    /*strcat(buff, (const char*)GetCurrentThread());
+    strcat(buf, __FUCTION__)
+    strcat(buf, __LINE__)*/
+    time_t t;
     time(&t);
     strftime(tmp, MAX_STR_SIZE, "%Y-%m-%d %H:%M:%S", localtime(&t));
-    strcat(buff,tmp);
-    strcat(buff,"--");
-  //wlj//  pthread_mutex_lock(&mutex);
+    strcat(buff, tmp);
+    strcat(buff, "--");
+    //wlj//  pthread_mutex_lock(&mutex);
 
-    if( log_helper != NULL )
-	{
-    	log_fp = log_helper->fp;
-        if( log_fp == NULL )
-		{
+    if (log_helper != NULL) {
+        log_fp = log_helper->fp;
+        if (log_fp == NULL) {
             log_fp = stdout;
         }
-		else
-		{
+        else {
             int file_size = get_file_size(log_fp);
-            if( file_size > log_helper->file_max_size )
-			{
+            if (file_size > log_helper->file_max_size) {
                 fclose(log_fp);
                 renamelogfile(log_helper);
-                log_fp = fopen(log_helper->file_name,"a");
-                if( log_fp == NULL )
-				{
+                log_fp = fopen(log_helper->file_name, "a");
+                if (log_fp == NULL) {
                     log_helper->fp = NULL;
-                   //wlj// pthread_mutex_unlock(&mutex);
+                    //wlj// pthread_mutex_unlock(&mutex);
                     return;
                 }
                 log_helper->fp = log_fp;
             }
         }
     }
-	else
-	{
-    	log_fp = stdout;
+    else {
+        log_fp = stdout;
     }
     //vsprintf(tmp, fmt, ap);
-    vsnprintf(tmp, 1024*5-1, fmt, ap);
-    int buff_left_length = 1024*5-strlen(buff);
-    strncat(buff,tmp, buff_left_length-1);
+    vsnprintf(tmp, 1024 * 5 - 1, fmt, ap);
+    int buff_left_length = 1024 * 5 - strlen(buff);
+    strncat(buff, tmp, buff_left_length - 1);
     //fprintf(log_helper->fp, "%s\n", buff);
     fprintf(log_fp, "%s\n", buff);
     fflush(log_fp);
- //wlj//   pthread_mutex_unlock(&mutex);
+    //wlj//   pthread_mutex_unlock(&mutex);
 }
 
-void log_info(LOG_HELPER* log_helper, const char *fmt0, ...)
+void log_info(LOG_HELPER* log_helper, const char* fmt0, ...)
 {
     va_list ap;
     va_start(ap, fmt0);
@@ -207,7 +195,7 @@ void log_info(LOG_HELPER* log_helper, const char *fmt0, ...)
     va_end(ap);
 }
 
-void log_warning(LOG_HELPER* log_helper, char *fmt0, ...)
+void log_warning(LOG_HELPER* log_helper, char* fmt0, ...)
 {
     va_list ap;
     va_start(ap, fmt0);
@@ -215,7 +203,7 @@ void log_warning(LOG_HELPER* log_helper, char *fmt0, ...)
     va_end(ap);
 }
 
-void log_notice(LOG_HELPER* log_helper, char *fmt0, ...)
+void log_notice(LOG_HELPER* log_helper, char* fmt0, ...)
 {
     va_list ap;
     va_start(ap, fmt0);
@@ -223,7 +211,7 @@ void log_notice(LOG_HELPER* log_helper, char *fmt0, ...)
     va_end(ap);
 }
 
-void log_err(LOG_HELPER* log_helper, const char *fmt0, ...)
+void log_err(LOG_HELPER* log_helper, const char* fmt0, ...)
 {
     va_list ap;
     va_start(ap, fmt0);
@@ -241,11 +229,10 @@ void set_logfile_time_span(LOG_HELPER* log_helper, int span)
     log_helper->file_time_span = span;
 }
 
-LOG_HELPER* open_logfile_r(FILE * fp)
+LOG_HELPER* open_logfile_r(FILE* fp)
 {
     LOG_HELPER* log_helper = NULL;
-    if( fp == NULL )
-	{
+    if (fp == NULL) {
         return NULL;
     }
     log_helper = (LOG_HELPER*)calloc(1, sizeof(LOG_HELPER));
@@ -259,17 +246,15 @@ LOG_HELPER* open_logfile(const char* file_name)
 
     LOG_HELPER* log_helper = NULL;
 
-    if( file_name != NULL )
-	{
-		//string strTemp = "G:\\code\\svn\\log\\hyperchain_p2p.log";
-	//	g_uufile.ReparePath(strTemp);
-        FILE* fp = fopen(file_name,"a");
-		//FILE* fp = fopen(strTemp.c_str(), "a");
-		if( fp == NULL )
-		{
+    if (file_name != NULL) {
+        //string strTemp = "G:\\code\\svn\\log\\hyperchain_p2p.log";
+    //	g_uufile.ReparePath(strTemp);
+        FILE* fp = fopen(file_name, "a");
+        //FILE* fp = fopen(strTemp.c_str(), "a");
+        if (fp == NULL) {
             return NULL;
         }
-	//	int strErr = GetLastError();
+        //	int strErr = GetLastError();
         log_helper = (LOG_HELPER*)calloc(1, sizeof(LOG_HELPER));
         log_helper->fp = fp;
         strcpy(log_helper->file_name, file_name);
@@ -284,8 +269,7 @@ LOG_HELPER* open_logfile(const char* file_name)
 
 void close_logfile_r(LOG_HELPER* log_helper)
 {
-    if( log_helper == NULL )
-	{
+    if (log_helper == NULL) {
         return;
     }
     free(log_helper);
@@ -293,41 +277,38 @@ void close_logfile_r(LOG_HELPER* log_helper)
 
 void close_logfile(LOG_HELPER* log_helper)
 {
-    if( log_helper == NULL )
-	{
+    if (log_helper == NULL) {
         return;
     }
-    if( log_helper->fp != NULL )
-	{
+    if (log_helper->fp != NULL) {
         fclose(log_helper->fp);
     }
     free(log_helper);
 }
 
 
-void log_write(LOG_HELPER* log_helper, const char* file, int line, int level, char *fmt0, ...)
+void log_write(LOG_HELPER* log_helper, const char* file, int line, int level, char* fmt0, ...)
 {
     if (!log_helper || !file || !fmt0)
         return;
 
-    char buf[MAX_STR_SIZE] = {0};
+    char buf[MAX_STR_SIZE] = { 0 };
 
 #ifdef WIN32
-	sprintf_s(buf, MAX_STR_SIZE - 1, "file:[%s]line:[%d]%s", file, line, fmt0);
+    sprintf_s(buf, MAX_STR_SIZE - 1, "file:[%s]line:[%d]%s", file, line, fmt0);
 #else
-	snprintf(buf, MAX_STR_SIZE - 1, "file:[%s]line:[%d]%s", file, line, fmt0);
+    snprintf(buf, MAX_STR_SIZE - 1, "file:[%s]line:[%d]%s", file, line, fmt0);
 #endif
 
     va_list ap;
     va_start(ap, fmt0);
-    log_level(log_helper, level,buf, ap);
+    log_level(log_helper, level, buf, ap);
     va_end(ap);
 }
 
 void set_log_level(LOG_HELPER* log_helper, int level)
 {
-    if (log_helper)
-	{
-        log_helper->level =  level;
+    if (log_helper) {
+        log_helper->level = level;
     }
 }

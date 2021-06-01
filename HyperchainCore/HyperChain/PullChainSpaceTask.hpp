@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -39,21 +39,9 @@ public:
         CHyperChainSpace * sp = Singleton<CHyperChainSpace, string>::getInstance();
         NodeManager *nodemgr = Singleton<NodeManager>::getInstance();
 
-        vector<string> localHIDsection;
-        sp->GetLocalHIDsection(localHIDsection);
-        if (localHIDsection.empty())
+        string msgbuf;
+        if (!sp->GetLocalChainSpaceData(msgbuf))
             return;
-
-        string msgbuf = "BlockID=";
-        for (auto &li : localHIDsection) {
-            msgbuf += li;
-            msgbuf += ";";
-        }
-
-        uint64 headerID = sp->GetHeaderHashCacheLatestHID();
-
-        msgbuf += "HeaderID=";
-        msgbuf += to_string(headerID);
 
         DataBuffer<PullChainSpaceRspTask> datamsg(std::move(msgbuf));
         nodemgr->sendTo(_sentnodeid, datamsg);
@@ -64,7 +52,6 @@ public:
         string msgbuf(_payload, _payloadlen);
         CHyperChainSpace * sp = Singleton<CHyperChainSpace, string>::getInstance();
         sp->AnalyzeChainSpaceData(msgbuf, _sentnodeid.ToHexString());
-        //sp->SyncLatestHyperBlock();
     }
 };
 

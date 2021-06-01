@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -27,6 +27,7 @@ DEALINGS IN THE SOFTWARE.
 #define BITCOIN_UTIL_H
 
 #include "uint256.h"
+#include "plcommon.h"
 
 #ifndef __WXMSW__
 #include <sys/types.h>
@@ -144,6 +145,7 @@ inline void Sleep(int64 n)
 }
 #endif
 
+
 inline int myclosesocket(SOCKET& hSocket)
 {
     if (hSocket == INVALID_SOCKET)
@@ -194,12 +196,10 @@ void RandAddSeedPerfmon();
 
 
 int OutputDebugStringF(const char* pszFormat, ...);
-std::string strprintf(const char* format, ...);
 
 void LogBacktracking(const char* format, ...);
 void LogBacktrackingFromNode(const string &fromnode, const char* format, ...);
 
-#define __format(fmt) "(%s:%d) " fmt
 
 void LogException(std::exception* pex, const char* pszThread);
 void PrintException(std::exception* pex, const char* pszThread);
@@ -219,37 +219,9 @@ void GetDataDir(char* pszDirRet);
 std::string GetConfigFile();
 
 std::string GetPidFile();
-void log_output_nowrap(const char* format, ...);
-
-template<const char* C, bool R>
-bool log_output(const char* format, ...)
-{
-    char buffer[50000];
-    int limit = sizeof(buffer);
-    va_list arg_ptr;
-    va_start(arg_ptr, format);
-    int ret = _vsnprintf(buffer, limit, format, arg_ptr);
-    va_end(arg_ptr);
-    if (ret < 0 || ret >= limit)
-    {
-        ret = limit - 1;
-        buffer[limit - 1] = 0;
-    }
-    //fprintf(stdout, "%s: %s\n", C, buffer);
-    printf("%s: %s\n", C, buffer);
-    return R;
-}
+std::string& replace_all(std::string& str, const std::string& old_value, const std::string& new_value);
 
 
-
-extern char log_prefix_i[];
-extern char log_prefix_e[];
-extern char log_prefix_w[];
-
-#define INFO_NOWRAP(fmt, ...) log_output_nowrap((fmt), ##__VA_ARGS__)
-#define INFO_FL(fmt, ...) log_output<log_prefix_i, true>(__format(fmt), __FUNCTION__, __LINE__, ##__VA_ARGS__)
-#define WARNING_FL(fmt, ...) log_output<log_prefix_w, false>(__format(fmt), __FUNCTION__, __LINE__, ##__VA_ARGS__)
-#define ERROR_FL(fmt, ...) log_output<log_prefix_e, false>(__format(fmt), __FUNCTION__, __LINE__, ##__VA_ARGS__)
 
 
 #ifndef __WXMSW__
@@ -272,19 +244,6 @@ std::string FormatFullVersion();
 
 extern string GetHyperChainDataDir();
 
-template<class Container>
-std::string ToHexString(const Container& container)
-{
-    string rs;
-    rs.resize(container.size() * 2);
-
-    char* p = &rs[0];
-    for (unsigned char c : container) {
-        sprintf(p, "%02x", c);
-        p += 2;
-    }
-    return  rs;
-}
 
 class CApplicationSettings{
 public:
@@ -320,7 +279,7 @@ protected:
     boost::interprocess::interprocess_recursive_mutex mutex;
 public:
     explicit CCriticalSection() { }
-    ~CCriticalSection() { }
+    ~CCriticalSection();
     void Enter(const char* pszName, const char* pszFile, int nLine);
     void Leave();
     bool TryEnter(const char* pszName, const char* pszFile, int nLine);

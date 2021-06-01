@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -39,8 +39,6 @@ SOFTWARE.
 #include "HyperChain/HyperChainSpace.h"
 #include "headers/inter_public.h"
 
-#include "bloomfilter.h"
-
 #include "cryptocurrency.h"
 
 #include <list>
@@ -79,7 +77,7 @@ static const int fHaveUPnP = false;
 
 extern CCriticalSection cs_main;
 extern CCacheLocator<CBlockIndex, CTxDB_Wrapper> mapBlockIndex;
-extern map<uint256, CBlock*> mapOrphanBlocks;
+extern map<uint256, CBlockSP> mapOrphanBlocks;
 extern uint256 hashGenesisBlock;
 extern CBlockIndexSP pindexGenesisBlock;
 extern int nBestHeight;
@@ -112,6 +110,8 @@ extern std::atomic<uint256> g_hashCheckPoint;
 
 class CBlockCacheLocator;
 extern CBlockCacheLocator mapBlocks;
+
+extern HyperBlockMsgs hyperblockMsgs;
 
 
 
@@ -169,15 +169,6 @@ bool WriteSetting(const std::string& strKey, const T& value)
 }
 
 
-class CSpentTime
-{
-public:
-    CSpentTime();
-    uint64 Elapse();
-    void Reset();
-private:
-    std::chrono::system_clock::time_point  _StartTimePoint;
-};
 
 
 /**
@@ -214,21 +205,27 @@ public:
 
 };
 
-class CBlockIndexSimplified
+class CBlockIndexSimplified;
+
+using CBlockIndexSSP = std::shared_ptr<CBlockIndexSimplified>;
+
+class CBlockIndexSimplified: public std::enable_shared_from_this<CBlockIndexSimplified>
 {
 public:
-    const uint256* phashBlock = nullptr;  
-    CBlockIndexSimplified* pprev = nullptr;
-    CBlockIndexSimplified* pnext = nullptr;
-    int nHeight = -1;
+    const uint256* phashBlock = nullptr;
+    CBlockIndexSSP pprev = nullptr;
+    CBlockIndexSSP pnext = nullptr;
+    uint32_t nHeight = -1;
 
     T_LOCALBLOCKADDRESS addr;
+    CBigNum blkwrk;
 
 public:
     void Set(const T_LOCALBLOCKADDRESS& addrIn, const CBlock& block)
     {
         addr = addrIn;
         nHeight = block.nHeight;
+        blkwrk = CBlockIndex::GetBlockWork(block.nBits);
     }
 
     uint256 GetBlockHash() const
@@ -251,12 +248,15 @@ public:
             pnext ? (pnext->GetBlockHash().ToString().c_str()) : "null");
     }
 
-   };
+};
+
 
 
 //
 // Used to marshal pointers into hashes for db storage.
 //
+
+
 class CDiskBlockIndex
 {
 public:
@@ -265,10 +265,16 @@ public:
     {
     }
 
+    explicit CDiskBlockIndex() : _pblkindex(nullptr)
+    {
+    }
+
+
     CBlockIndex *GetBlockIndex()
     {
         return _pblkindex;
     }
+
 
     IMPLEMENT_SERIALIZE
     (
@@ -276,10 +282,8 @@ public:
             READWRITE(_pblkindex->nVersion);
 
         READWRITE(_pblkindex->hashNext);
-
         READWRITE(_pblkindex->nHeight);
         READWRITE(_pblkindex->bnChainWork);
-
 
         uint32_t* hid = (uint32_t*)(&_pblkindex->addr.hid);
         READWRITE(*hid);
@@ -289,7 +293,7 @@ public:
         READWRITE(_pblkindex->addr.ns);
 
         // block header
-        READWRITE(_pblkindex->nVersion);
+
         READWRITE(_pblkindex->hashPrev);
         READWRITE(_pblkindex->hashMerkleRoot);
 
@@ -303,7 +307,6 @@ public:
 
         READWRITE(_pblkindex->ownerNodeID.Lower64());
         READWRITE(_pblkindex->ownerNodeID.High64());
-
     )
 
     uint256 GetBlockHash() const
@@ -402,6 +405,7 @@ public:
                 pindex = pindex->pprev();
             if (vHave.size() > 10)
                 nStep *= 2;
+
 
             if (ttSpent.Elapse() > 30) {
                 break;
@@ -661,7 +665,9 @@ public:
         CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
         uint64 hid;
         T_SHA256 thhash;
-        hyperchainspace->GetLatestHyperBlockIDAndHash(hid, thhash);
+        uint64 ctm;
+        hyperchainspace->GetLatestHyperBlockIDAndHash(hid, thhash, ctm);
+
         CRITICAL_BLOCK(_cs_latestHyperBlock)
         {
             _hid = hid;
@@ -700,7 +706,7 @@ private:
 class BLOCKTRIPLEADDRESS
 {
 public:
-    uint32 hid = 0;            
+    uint32 hid = 0;
     uint16 chainnum = 0;
     uint16 id = 0;
 
@@ -757,7 +763,7 @@ public:
     static void Load();
     static void CompareAndUpdate(const vector<BLOCKTRIPLEADDRESS>& vecAddrIn, const vector<CBlock>& vecBlockIn, bool isLatest);
 
-    static CBlockIndexSimplified* Get()
+    static CBlockIndexSSP Get()
     {
         return _pindexLatest;
     }
@@ -770,6 +776,8 @@ public:
     static uint256 GetBackSearchHash()
     {
         if (_pindexLatestRoot) {
+            if(*_pindexLatestRoot->phashBlock == 0)
+                return *_pindexLatest->pnext->phashBlock;
             return *_pindexLatestRoot->phashBlock;
         }
         return 0;
@@ -785,39 +793,66 @@ public:
 
     static string GetMemoryInfo();
 
+    static CBlockIndexSSP ForwardLatestRootIndex()
+    {
+        if (_pindexLatestRoot) {
+            if (_pindexLatestRoot->pnext == _pindexLatest) {
+                return _pindexLatest;
+            }
+            _reversechainwrk -= _pindexLatestRoot->blkwrk;
+            _pindexLatestRoot = _pindexLatestRoot->pnext;
+            return _pindexLatestRoot;
+        }
+        return nullptr;
+    }
+
+    static void ExtendChainReversely(const T_LOCALBLOCKADDRESS& addrIn, const CBlock& block)
+    {
+        _pindexLatestRoot = InsertBlockIndex(block.hashPrevBlock);
+        CBlockIndexSSP pIndex = AddBlockIndex(addrIn, block);
+
+        _reversechainwrk += pIndex->blkwrk;
+    }
+
+
     static void Switch();
     static bool IsOnChain();
+    static bool IsLackingBlock();
     static bool IsLackingBlock(std::function<void(const BackTrackingProgress &)> notiprogress);
+    static bool IsBestChain();
 
     static bool Count(const uint256& hastblock);
 
     static void AddBlockTripleAddress(const uint256& hastblock, const BLOCKTRIPLEADDRESS& tripleaddr);
 
+    static bool GetBlockTripleAddr(const uint256& hashblock, T_LOCALBLOCKADDRESS& tripleaddr);
     static bool GetBlock(const uint256& hastblock, CBlock& block, BLOCKTRIPLEADDRESS& tripleaddr);
 
 private:
+    LatestParaBlock(const LatestParaBlock&) = delete;
+    LatestParaBlock & operator=(const LatestParaBlock&) = delete;
 
-    static bool LoadLatestBlock();
-    static void SetBestIndex(CBlockIndexSimplified* pIndex)
-    {
-        _pindexLatest = pIndex;
-        _nLatestParaHeight =  _pindexLatest->nHeight;
-    }
+    static bool LoadLatestBlock(uint32 &maxhid);
 
-    static CBlockIndexSimplified* AddBlockIndex(const T_LOCALBLOCKADDRESS& addrIn, const CBlock& block);
-    static CBlockIndexSimplified* InsertBlockIndex(uint256 hash);
+    static CBlockIndexSSP AddBlockIndex(const T_LOCALBLOCKADDRESS& addrIn, const CBlock& block);
+    static CBlockIndexSSP InsertBlockIndex(uint256 hash);
+
+    static void HandleBlock(const T_LOCALBLOCKADDRESS& addrIn, const CBlock& block);
 
     static void PullingPrevBlocks();
 
 private:
-    static CBlockIndexSimplified* _pindexLatest;
+
+    static CBlockIndexSSP _pindexLatest;
     static int  _nLatestParaHeight;
 
 
-    static map<uint256, CBlockIndexSimplified*> _mapBlockIndexLatest;
+
+    static CBigNum _reversechainwrk;
+    static map<uint256, CBlockIndexSSP> _mapBlockIndexLatest;
     static CBlockDiskLocator _mapBlockAddressOnDisk;
 
-    static CBlockIndexSimplified* _pindexLatestRoot;
+    static CBlockIndexSSP _pindexLatestRoot;
 };
 
 
@@ -846,10 +881,6 @@ public:
                     _eStatusCode = miningstatuscode::HyperBlockNotReady;
                     return false;
                 }
-                else if (NeighborIsMust && vNodes.empty()) {
-                    _eStatusCode = miningstatuscode::NoAnyNeighbor;
-                    return false;
-                }
                 //else if (IsInitialBlockDownload()) {
                 //    _reason += "Initial Block is downloading";
                 //    return false;
@@ -858,17 +889,28 @@ public:
                     _eStatusCode = miningstatuscode::InvalidGenesisBlock;
                     return false;
                 }
-                else if (!g_cryptoCurrency.AllowMining()) {
-                    _eStatusCode = miningstatuscode::MiningSettingClosed;
-                    return false;
-                }
 
-                if (!LatestParaBlock::IsOnChain()) {
+
+                hyperblockMsgs.process();
+
+                while(!LatestParaBlock::IsOnChain()) {
                     auto f = std::bind(&MiningCondition::ProgressChanged, this, std::placeholders::_1);
                     if (!LatestParaBlock::IsLackingBlock(f)) {
+
+                        if (!LatestParaBlock::IsBestChain()) {
+
+                            break;
+                        }
+
+
                         _eStatusCode = miningstatuscode::Switching;
                         LatestParaBlock::Switch();
                     }
+                    return false;
+                }
+
+                if (NeighborIsMust && vNodes.empty()) {
+                    _eStatusCode = miningstatuscode::NoAnyNeighbor;
                     return false;
                 }
 
@@ -876,6 +918,12 @@ public:
                 if (IsTooFar(reason)) {
                     return false;
                 }
+
+                if (!fGenerateBitcoins) {
+                    _eStatusCode = miningstatuscode::GenDisabled;
+                    return false;
+                }
+
                 _eStatusCode = miningstatuscode::Mining;
             }
 
@@ -884,6 +932,10 @@ public:
 
     bool IsMining()
     {
+        if (vnThreadsRunning[3] <= 0) {
+            _eStatusCode = miningstatuscode::MiningThreadExit;
+            return false;
+        }
         return  _eStatusCode > miningstatuscode::Switching;
     }
 
@@ -906,11 +958,9 @@ private:
     {
         uint32_t ncount = 0;
 
-        char szReason[1024] = { 0 };
-
         CRITICAL_BLOCK_T_MAIN(cs_main)
         {
-            CBlockIndexSimplified* pIndex = LatestParaBlock::Get();
+            CBlockIndexSSP pIndex = LatestParaBlock::Get();
             uint256 hash = pIndex->GetBlockHash();
 
             CBlockIndexSP p = pindexBest;
@@ -919,11 +969,12 @@ private:
                 p = p->pprev();
             }
 
+#ifndef MinDiff
             if (ncount > 40) {
                 _eStatusCode = miningstatuscode::ManyBlocksNonChained;
                 return true;
             }
-
+#endif
             if (g_seedserver.IsValid()) {
 
                 CBlockIndexSP p = pindexBest;
@@ -931,11 +982,14 @@ private:
                 uint256 hash;
                 g_blockChckPnt.Get(height, hash);
                 if (height == 0) {
+
                     _eStatusCode = miningstatuscode::MiningWithWarning1;
                     return false;
                 }
+
                 if (height > 0) {
                     if (p->nHeight < height) {
+
                         _eStatusCode = miningstatuscode::MiningWithWarning2;
                         return false;
                     }
@@ -945,6 +999,7 @@ private:
                     }
 
                     if (p->GetBlockHash() != hash) {
+
                         _eStatusCode = miningstatuscode::MiningWithWarning3;
                         return false;
                     }
@@ -989,6 +1044,7 @@ private:
         MiningSettingClosed= -5,
         ManyBlocksNonChained= -6,
         ChainIncomplete = -7,
+        MiningThreadExit = -8,
     };
 
     miningstatuscode _eStatusCode = miningstatuscode::GenDisabled;
@@ -999,73 +1055,18 @@ private:
         {miningstatuscode::MiningWithWarning2,  "Warning: Block height less than seed server's"},
         {miningstatuscode::MiningWithWarning3,  "Warning: Block hash different from seed server's"},
         {miningstatuscode::Switching,           "Switching to the best chain"},
-        {miningstatuscode::GenDisabled,         "Stopped or disabled, Specify \"-gen\" option to enable"},
+        {miningstatuscode::GenDisabled,         "Mining disabled, use command 'coin e' to enable"},
         {miningstatuscode::HyperBlockNotReady,  "My latest hyper block isn't ready"},
         {miningstatuscode::NoAnyNeighbor,       "No neighbor found"},
         {miningstatuscode::InvalidGenesisBlock, "Genesis block error"},
-        {miningstatuscode::MiningSettingClosed, "Coin's mining setting is closed"},
         {miningstatuscode::ManyBlocksNonChained, "More than 40 blocks is non-chained"},
         {miningstatuscode::ChainIncomplete,     "The chain is incomplete"},
+        {miningstatuscode::MiningThreadExit,     "Mining thread has exited"},
     };
 
     BackTrackingProgress _backTrackingProgress;
 };
 
-
-class CBlockBloomFilter
-{
-public:
-    CBlockBloomFilter();
-    virtual ~CBlockBloomFilter() {};
-
-    bool contain(const uint256& hashBlock)
-    {
-        return _filter.contain((char*)hashBlock.begin(), 32);
-    }
-
-    bool insert(const uint256& hashBlock)
-    {
-        _filter.insert((char*)hashBlock.begin(), 32);
-        return true;
-    }
-
-    void clear()
-    {
-        _filter.clear();
-    }
-
-protected:
-    BloomFilter _filter;
-};
-
-class CBlockCacheLocator
-{
-public:
-    CBlockCacheLocator() {}
-    ~CBlockCacheLocator() {}
-
-    bool contain(const uint256& hashBlock);
-
-    bool insert(const uint256& hashBlock)
-    {
-        return _filterBlock.insert(hashBlock);
-    }
-
-    bool insert(const uint256& hashBlock, const CBlock& blk);
-
-    void clear();
-
-    bool erase(const uint256& hashBlock);
-
-    const CBlock& operator[](const uint256& hashBlock);
-
-private:
-    const size_t _capacity = 200;
-    CBlockBloomFilter _filterBlock;
-
-    std::map<uint256, CBlock> _mapBlock;
-    std::map<int64, uint256> _mapTmJoined;
-};
 
 class CBlockDiskLocator
 {
@@ -1075,11 +1076,6 @@ public:
 
     bool contain(const uint256& hashBlock);
 
-    bool insert(const uint256& hashBlock)
-    {
-        return _filterBlock.insert(hashBlock);
-    }
-
     size_t size()
     {
         return _sizeInserted;
@@ -1087,7 +1083,10 @@ public:
 
     bool insert(CBlockTripleAddressDB& btadb, const uint256& hashBlock, const BLOCKTRIPLEADDRESS& addr);
     bool insert(const uint256& hashBlock, const BLOCKTRIPLEADDRESS& addr);
+    bool insertBloomFilter(const uint256& hashBlock);
+
     void clear();
+
 
     bool erase(const uint256& hashBlock);
 
@@ -1136,12 +1135,13 @@ public:
 
     size_t count(const key_type& hashT)
     {
-        if (!_filterT.contain(hashT))
+        if (hashT == 0 || !_filterT.contain(hashT))
             return 0;
 
         if (_mapT.count(hashT)) {
             return 1;
         }
+
 
         Storage db;
         v_value_type t;
@@ -1206,9 +1206,8 @@ public:
         Storage db;
         v_value_type t;
 
-        if(!db.ReadSP(hashT, t)) {
-            ERROR_FL("Failed to Read : %s", hashT.ToPreViewString().c_str());
-            return t;
+        if(hashT != 0 && !db.ReadSP(hashT, t)) {
+            WARNING_FL("Failed to Read : %s", hashT.ToPreViewString().c_str());
         }
         return t;
     }
@@ -1221,9 +1220,8 @@ public:
 
         v_value_type t;
 
-        if (!db.ReadSP(hashT, t)) {
-            ERROR_FL("Failed to Read : %s", hashT.ToPreViewString().c_str());
-            return t;
+        if(hashT != 0 && !db.ReadSP(hashT, t)) {
+            WARNING_FL("Failed to Read : %s", hashT.ToPreViewString().c_str());
         }
         return t;
     }

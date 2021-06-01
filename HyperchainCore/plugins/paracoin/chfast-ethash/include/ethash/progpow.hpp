@@ -29,7 +29,6 @@ result hash(const epoch_context_full& context, int block_number, const hash256& 
     uint64_t nonce) noexcept;
 
 
-
 hash256 verify_final_hash(
     const hash256& header_hash, const hash256& mix_hash, uint64_t nonce) noexcept;
 

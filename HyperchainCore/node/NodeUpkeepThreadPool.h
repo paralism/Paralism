@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -30,7 +30,6 @@ using namespace std;
 using std::chrono::system_clock;
 
 
-
 class NodeUPKeepThreadPool
 {
 public:
@@ -40,8 +39,7 @@ public:
     void start();
     void stop();
     void AddToPingList(const CUInt128 nodeid);
-    void AddToPingList(vector<CUInt128>& vecNewNode);
-
+    void AddToPingList(vector<CUInt128>& vecNewNode);//HC：K桶里被挤走的节点进入Ping列表
     void RemoveNodeFromPingList(const CUInt128 &nodeid);
 
     void NodePing();
@@ -61,7 +59,6 @@ private:
 
     std::list<CUInt128> m_lstPullNode;
 
-    
 
     bool                m_pingSecSet;
     std::set<CUInt128> m_setPingNode1;

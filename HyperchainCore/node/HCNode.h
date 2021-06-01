@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -47,6 +47,12 @@ public:
 
     HCNode& operator=(const HCNode& node);
 
+    bool operator<(const HCNode & other) const
+    {
+        return _nodeid < other._nodeid;
+    }
+
+
     static string generateNodeId();
 
     template<typename T, typename = typename std::enable_if<std::is_same<T, std::string>::value>::type>
@@ -81,14 +87,14 @@ public:
         _nodeid.SetHexString(id);
     }
 
-    bool getUDPAP(string& ip, int& nport);
+    bool getUDPAP(string& ip, int& nport) const;
 
     int send(const string& msgbuf) const;
 
     string serialize();
     static void parse(const string& nodeinfo, HCNode& node);
 
-    string serializeAP();
+    string serializeAP() const;
     void parseAP(const string& aps);
 
     void addAP(std::shared_ptr<IAccessPoint> ap) {

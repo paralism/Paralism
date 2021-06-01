@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -152,6 +152,8 @@ string MsgHandler::details()
 
 void MsgHandler::dispatchMQEvent()
 {
+
+
     boost::fibers::use_scheduling_algorithm<priority_scheduler>();
     _my_scheduler_algo = new priority_scheduler();
     boost::fibers::context::active()->get_scheduler()->set_algo(_my_scheduler_algo);
@@ -192,6 +194,7 @@ void MsgHandler::dispatchMQEvent_fb()
                 continue;
             }
 
+
             for (auto &w : _wrks) {
                 w->idle();
             }
@@ -205,9 +208,11 @@ void MsgHandler::dispatchMQEvent_fb()
                     size_t j = i - wrkcount;
                     zmsg recvmsg(*_socks[j]);
 
+
                     co_create_start(this, _socks[j], std::move(recvmsg), _poll_funcs_s[j]);
                 }
                 else {
+
                     zmsg recvmsg(*_wrks[i]->getsocket());
                     msg = &recvmsg;
 
@@ -221,6 +226,7 @@ void MsgHandler::dispatchMQEvent_fb()
 
                     std::string command = msg->pop_front();
                     if (command.compare(MDPW_REQUEST) == 0) {
+
                         co_create_start(this, _wrks[i], std::move(recvmsg), _poll_funcs[i]);
                     }
                     else {
@@ -230,23 +236,27 @@ void MsgHandler::dispatchMQEvent_fb()
                 }
             }
         }
+
+
         auto now = s_clock();
         for (auto &t : _poll_func_timers) {
-            if (t.when < now) {
+            if (t.when < now && !_isstop) {
                 co_create_start(this, t.func);
                 t.when += t.delay;
             }
         }
 
+
         now = s_clock();
         auto a_ticket = _poll_func_tickets.begin();
         for (; a_ticket != _poll_func_tickets.end(); ) {
-            if (a_ticket->when < now) {
+            if (a_ticket->when < now && !_isstop) {
                 timer t = *a_ticket;
 
                 a_ticket = _poll_func_tickets.erase(a_ticket);
 
                 co_create_start(this, t.func);
+
 
                 break;
             }
@@ -268,6 +278,8 @@ void MsgHandler::handleTask(void *wrk, zmsg *msg)
 
     std::shared_ptr<ITask> task = _taskFactory.CreateShared<ITask>(static_cast<uint32_t>(tt), std::move(taskbuf));
     if (!task) {
+
+
         return;
     }
 

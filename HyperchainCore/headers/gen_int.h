@@ -1,4 +1,4 @@
-﻿/*copyright 2016-2020 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.

@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -74,7 +74,7 @@ public:
 
     int GetReward() { return std::stoul(mapSettings["reward"]); }
     uint256 GetHashGenesisBlock() { return uint256S(mapSettings["hashgenesisblock"]); }
-    string GetHashPrefixOfGenesis() { return mapSettings["hashgenesisblock"].substr(0,10); }
+    string GetHashPrefixOfGenesis() { return mapSettings["hashgenesisblock"]; }
 
     static string GetHashPrefixOfSysGenesis();
     static string GetNameOfSysGenesis();
@@ -103,24 +103,14 @@ public:
 
     static bool IsSysParaCoin(const string& shorthash);
 
-    bool AllowMining() { return "1" == mapSettings["mining"]; }
-
-    bool StartMining() {
-        mapSettings["mining"] = "1";
-        return WriteCoinFile();
-    }
-    bool StopMining() {
-        mapSettings["mining"] = "0";
-        return WriteCoinFile();
-    }
-
     bool IsCurrencySame(uint32_t hid, uint16_t chainnum, uint16_t localid) {
         return GetHID() == hid && GetChainNum() == chainnum && GetLocalID() == localid;
     }
 
-    
 
     bool ReadCoinFile(const string& name, string& shorthash, string& errormsg);
+
+    static bool GetAllCoins(vector<CryptoCurrency>& coins);
 
     static bool SearchCoinByName(const string& coinname, string& coinshorthash, string& errormsg);
     static bool SearchCoinByTriple(uint32_t hid, uint16 chainnum, uint16 localid, string& coinname, string& coinshorthash);
@@ -146,7 +136,7 @@ public:
         mapSettings["hid"] = "0";
         mapSettings["chainnum"] = "0";
         mapSettings["localid"] = "0";
-        mapSettings["mining"] = "1";
+        mapSettings["maxcoinbaseblkheight"] = "0";
     }
 
     void SetDefaultParas();
@@ -159,6 +149,8 @@ public:
     static string GetCurrencyConfigFile(const string& shorthash);
     static string GetRequestID(const string& uuid);
 
+    std::string ToString();
+
 private:
 
     bool ParseTimestamp(const CBlock& genesis);
@@ -166,13 +158,9 @@ private:
     std::map<std::string, std::string> GetPanGuSettings();
 
 private:
-    
 
-    
 
-    
 
-    
 
 
     std::map<std::string, std::string> mapSettings;

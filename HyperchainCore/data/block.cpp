@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -38,13 +38,11 @@ void _tlocalblock::updatePreHyperBlockInfo(uint64_t preHID, const T_SHA256 &preH
     if (preHHash == header.tPreHHash) {
         return;
     }
-    
 
 
     header.tPreHHash = preHHash;
     _prehid = preHID;
 
-    
 
     CalculateHashSelf();
 }

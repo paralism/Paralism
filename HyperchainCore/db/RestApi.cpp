@@ -1,7 +1,7 @@
-﻿/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
-file COPYING or https://opensource.org/licenses/MIT.
+file COPYING or https://opensource.org/licenses/MIT.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this
 software and associated documentation files (the "Software"), to deal in the Software
@@ -31,11 +31,15 @@ DEALINGS IN THE SOFTWARE.
 #include "../HyperChain/HyperChainSpace.h"
 #include "../headers/commonstruct.h"
 #include "../headers/inter_public.h"
-#include "../headers/UUFile.h"
+//#include "../headers/UUFile.h"
 #include "../HttpUnit/HttpUnit.h"
 #include "../wnd/common.h"
 #include "../consensus/buddyinfo.h"
 #include "../consensus/consensus_engine.h"
+#include "../node/defer.h"
+#include "vm/vm.h"
+
+
 
 
 #ifdef WIN32
@@ -48,6 +52,7 @@ DEALINGS IN THE SOFTWARE.
 #include <string>
 #include <locale>
 #include <sstream>
+#include <regex>
 using namespace std;
 using std::chrono::system_clock;
 
@@ -74,9 +79,11 @@ bool _isstop = false;
 string tstringToUtf8(const utility::string_t& str)
 {
 #ifdef _UTF16_STRINGS
+
     wstring_convert<codecvt_utf8<wchar_t> > strCnv;
     return strCnv.to_bytes(str);
 #else
+
     return str;
 #endif
 }
@@ -84,9 +91,11 @@ string tstringToUtf8(const utility::string_t& str)
 utility::string_t stringToTstring(const string& str)
 {
 #ifdef _UTF16_STRINGS
+
     std::wstring_convert<std::codecvt<wchar_t, char, std::mbstate_t>> strCnv;
     return strCnv.from_bytes(str);
 #else
+
     return str;
 #endif
 }
@@ -142,7 +151,7 @@ std::vector<utility::string_t> requestPath(const http_request& message) {
     return uri::split_path(relativePath);
 }
 
-UUFile			m_uufiletest;
+//UUFile m_uufiletest;
 
 utility::string_t resource_type(const utility::string_t& strSuffix)
 {
@@ -210,7 +219,10 @@ void CommandHandler::handle_get(http_request message)
                 string strdata = tstringToUtf8(data->second);
 
                 RestApi api;
-                vRet = api.MakeRegistration(strdata);
+                SubmitData data;
+                data.payload = strdata;
+                http::status_code code;
+                vRet = api.MakeRegistration(data, code);
             }
         }
 
@@ -259,6 +271,7 @@ void CommandHandler::handle_get(http_request message)
                     system_clock::time_point curr = system_clock::now();
                     seconds timespan = std::chrono::duration_cast<seconds>(curr - it->second);
                     if (timespan.count() < 30) {
+
                         vRet = json::value::string(_XPLATSTR("downloading"));
                         goto REPLY;
                     }
@@ -786,43 +799,271 @@ void CommandHandler::handle_get(http_request message)
 }
 
 
+void HttpMsgReply(const http_request& message, const http::status_code &code, const json::value &vRet)
+{
+    http_response response(code);
+    response.set_body(vRet);
+    response.headers().add(_XPLATSTR("Access-Control-Allow-Origin"), _XPLATSTR("*"));
+    message.reply(response).wait();
+}
+
+
+template<class... Args>
+void RequestReplyFmt(const http_request& message, http::status_code code, const char * fmt, Args&&... args)
+{
+    json::value vRet;
+    std::string buf = StringFormat(fmt, std::forward<Args>(args)...);
+
+    vRet[_XPLATSTR("returnValue")] = json::value::string(s2t(string(buf.c_str())));
+    HttpMsgReply(message, code, vRet);
+}
+
+inline
+void BadRequestEmptyData(const http_request& message)
+{
+    RequestReplyFmt(message, status_codes::BadRequest, "%s", "try to submit empty data");
+}
+
+inline
+void BadRequestDetails(const http_request& message, const std::string &errdesc)
+{
+    RequestReplyFmt(message, status_codes::BadRequest, "%s", errdesc);
+}
+
+inline
+void BadRequestDetails(const http_request& message, const char *errdesc)
+{
+    RequestReplyFmt(message, status_codes::BadRequest, "%s", errdesc);
+}
+
+
+//for example:
+//POST /cgi/XXX.pl HTTP/1.0
+    //Accept: text/html
+    //Connection: Keep-Alive
+    //User-Agent: XXX/8.0.15
+    //Content-type: multipart/form-data, boundary=XXXxyxy
+    //Content-Length: 682
+    //
+    //----------------------------530432112422221965635283
+    //content-disposition: form-data; name="payload"
+    //
+    //xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    //----------------------------530432112422221965635283
+    //content-disposition: form-data; name="smartscript"
+    //
+    //yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+    //----------------------------530432112422221965635283--
+    //
+void SubmitRegistrationEx(http_request &message)
+{
+    json::value vRet;
+    SubmitData data;
+    try {
+        Concurrency::streams::istream inStream = message.body();
+        std::string line;
+        std::string content;
+        std::smatch match_boundary;
+        std::regex regex_boundary("([-]{10,}[0-9]{10,}[^-])");
+        bool is_boundary_starting = false;
+
+        while (!inStream.is_eof()) {
+            concurrency::streams::container_buffer<std::string> inStringBuffer;
+            inStream.read_line(inStringBuffer).then([&](std::size_t bytesRead) {
+                line = std::move(inStringBuffer.collection());
+                if (std::regex_search(line, match_boundary, regex_boundary)) {
+                    is_boundary_starting = true;
+
+
+                    if (!content.empty()) {
+                        std::string action;
+                        std::smatch match_action;
+                        std::regex regex_action("\\b(name)=\"(payload|script)\"(.*)");
+
+                        if (std::regex_search(content, match_action, regex_action)) {
+                            action = match_action[2];
+
+                            if (match_action[3].length() > MAX_USER_DEFINED_DATA) {
+                                RequestReplyFmt(message, status_codes::BadRequest,
+                                         "%s size(%d) is larger than %dMB",
+                                         action,
+                                         match_action[3].length(), MAX_USER_DEFINED_DATA / 1024 / 1024);
+                                return;
+                            }
+
+                            if (action == "payload") {
+                                data.payload = match_action[3];
+                            }
+                            else if (action == "script") {
+                                data.jssourcecode = match_action[3];
+
+                                string excp_desc;
+                                qjs::VM vm;
+                                if (!vm.compileModule(data.jssourcecode, data.jsbytecode, excp_desc)) {
+                                    throw runtime_error(StringFormat("script error when compiling: %s", excp_desc));
+                                }
+                            }
+                        }
+                    }
+                    content = "";
+                    return;
+                }
+
+                if (is_boundary_starting) {
+                    content += line;
+                }
+            }).wait();
+        }
+    }
+    catch (std::exception& e) {
+        BadRequestDetails(message, e.what());
+        std::cout << e.what();
+        return ;
+    }
+
+    if (data.payload.empty() && data.jssourcecode.empty()) {
+        BadRequestEmptyData(message);
+        return;
+    }
+
+    RestApi api;
+    http::status_code code;
+    data.app = T_APPTYPE(APPTYPE::smartcontract);
+    vRet = api.MakeRegistration(data, code);
+    HttpMsgReply(message, code, vRet);
+}
+
+void RunJsScriptFromRequest(http_request& message, string &jssourcecode, string &jsbytecode, string &jscoderesult)
+{
+    Concurrency::streams::istream inStream = message.body();
+    ostringstream oss;
+    message.extract_string(true).then([&](const pplx::task<utility::string_t>& task) {
+        jssourcecode = t2s(task.get());
+
+        if (!jssourcecode.empty() && jssourcecode.length() <= MAX_USER_DEFINED_DATA) {
+            RestApi api;
+
+            string excp_desc;
+
+            qjs::VM vm;
+
+            if (!vm.compile(jssourcecode, jsbytecode, excp_desc)) {
+                throw runtime_error(StringFormat("compile error: %s", excp_desc));
+            }
+
+            if (!vm.execute(jsbytecode, jscoderesult, excp_desc)) {
+                throw runtime_error(StringFormat("execution error: %s", excp_desc));
+            }
+
+            if (jscoderesult.empty()) {
+                throw runtime_error("result of script execution is empty");
+            }
+        }
+        else if (jssourcecode.length() > MAX_USER_DEFINED_DATA) {
+            throw runtime_error(StringFormat("script size(%d) is larger than %dMB",
+                                jssourcecode.length(), MAX_USER_DEFINED_DATA / 1024 / 1024));
+        }
+        else {
+            throw runtime_error("try to submit empty data");
+        }
+    }).wait();
+}
+
+void SubmitScriptExecutedResult(http_request& message)
+{
+    string jssourcecode;
+    string jsbytecode;
+    string jscoderesult;
+    try {
+        RunJsScriptFromRequest(message, jssourcecode, jsbytecode, jscoderesult);
+
+        RestApi api;
+        http::status_code code;
+
+        SubmitData data;
+        data.app = T_APPTYPE(APPTYPE::smartcontractwithresult);
+        data.jssourcecode = jssourcecode;
+        data.jsbytecode = jsbytecode;
+        data.payload = jscoderesult;
+
+        json::value vRet = api.MakeRegistration(data, code);
+        HttpMsgReply(message, code, vRet);
+    }
+    catch (std::exception& e) {
+        BadRequestDetails(message, e.what());
+        std::cout << e.what();
+    }
+}
+
+void EstimateScript(http_request& message)
+{
+    string jssourcecode;
+    string jsbytecode;
+    string jscoderesult;
+
+    try {
+        RunJsScriptFromRequest(message, jssourcecode, jsbytecode, jscoderesult);
+
+        json::value vRet;
+        vRet[_XPLATSTR("returnValue")] = json::value::string(s2t(jscoderesult));
+        vRet[_XPLATSTR("bytecode")] = json::value::string(s2t_ign(jsbytecode));
+        HttpMsgReply(message, status_codes::OK, vRet);
+    }
+    catch (std::exception& e) {
+        BadRequestDetails(message, e.what());
+        std::cout << e.what();
+    }
+}
+
+
 void CommandHandler::handle_post(http_request message)
 {
-    g_basic_logger->debug("RestApi Method: {}, URI: {}, Query: {})", "POST", tstringToUtf8(uri::decode(message.relative_uri().path())), tstringToUtf8(uri::decode(message.relative_uri().query())));
+    g_basic_logger->debug("RestApi Method: {}, URI: {}, Query: {})", "POST",
+                          tstringToUtf8(uri::decode(message.relative_uri().path())),
+                          tstringToUtf8(uri::decode(message.relative_uri().query())));
 
     auto path = requestPath(message);
     if (!path.empty() && path.size() == 1) {
-        if (path[0] == _XPLATSTR("SubmitRegistration")) {
+
+        if (path[0] == _XPLATSTR("SubmitRegistrationEx")) {
+
+            SubmitRegistrationEx(message);
+            return;
+        }
+        else if (path[0] == _XPLATSTR("SubmitScriptResult")) {
+
+
+            SubmitScriptExecutedResult(message);
+            return;
+        }
+        else if (path[0] == _XPLATSTR("EstimateScript")) {
+            EstimateScript(message);
+            return;
+        }
+        else if (path[0] == _XPLATSTR("SubmitRegistration")) {
             Concurrency::streams::istream inStream = message.body();
             concurrency::streams::container_buffer<std::string> inStringBuffer;
 
-            inStream.read_line(inStringBuffer).then([=](std::size_t bytesRead)
-            {
+            inStream.read_line(inStringBuffer).then([=](std::size_t bytesRead) {
                 string struserdefined = inStringBuffer.collection();
                 json::value vRet;
+                http::status_code code = status_codes::OK;
 
                 if (!struserdefined.empty() && struserdefined.length() <= MAX_USER_DEFINED_DATA) {
                     RestApi api;
-                    vRet = api.MakeRegistration(struserdefined);
+                    SubmitData data;
+                    data.payload = struserdefined;
+                    vRet = api.MakeRegistration(data, code);
+                    HttpMsgReply(message, code, vRet);
                 }
                 else if (struserdefined.length() > MAX_USER_DEFINED_DATA) {
-                    vRet[_XPLATSTR("returnValue")] = json::value::string(stringToTstring("SubmitRegistration data length >= 2MB"));
+                    RequestReplyFmt(message, status_codes::BadRequest, "data size(%d) is larger than %dMB",
+                                    struserdefined.length(),
+                                    MAX_USER_DEFINED_DATA / 1024 / 1024);
                 }
                 else {
-                    vRet[_XPLATSTR("returnValue")] = json::value::string(stringToTstring("SubmitRegistration data length empty"));
+                    BadRequestEmptyData(message);
                 }
-
-                http_response response(status_codes::OK);
-                response.set_body(vRet);
-                response.headers().add(_XPLATSTR("Access-Control-Allow-Origin"), _XPLATSTR("*"));
-                message.reply(response).then([](pplx::task<void> t)
-                {
-                    try {
-                        t.get();
-                    }
-                    catch (...) {
-                    }
-                });
             }).then([=](pplx::task<void>t) {
                 try {
                     t.get();
@@ -838,8 +1079,7 @@ void CommandHandler::handle_post(http_request message)
             Concurrency::streams::istream inStream = message.body();
             concurrency::streams::container_buffer<std::string> inStringBuffer;
 
-            inStream.read_line(inStringBuffer).then([=](std::size_t bytesRead)
-            {
+            inStream.read_line(inStringBuffer).then([=](std::size_t bytesRead) {
                 string struserdefined = inStringBuffer.collection();
                 json::value vRet;
 
@@ -854,17 +1094,7 @@ void CommandHandler::handle_post(http_request message)
                     vRet[_XPLATSTR("returnValue")] = json::value::string(stringToTstring("BatchRegistration data length empty"));
                 }
 
-                http_response response(status_codes::OK);
-                response.set_body(vRet);
-                response.headers().add(_XPLATSTR("Access-Control-Allow-Origin"), _XPLATSTR("*"));
-                message.reply(response).then([](pplx::task<void> t)
-                {
-                    try {
-                        t.get();
-                    }
-                    catch (...) {
-                    }
-                });
+                HttpMsgReply(message, status_codes::OK, vRet);
             }).then([=](pplx::task<void>t) {
                 try {
                     t.get();
@@ -879,83 +1109,13 @@ void CommandHandler::handle_post(http_request message)
     }
 
     message.reply(status_codes::OK, json::value(_XPLATSTR("unknow error")));
-
-    /*
-
-        utility::string_t key = uri::decode(message.request_uri().query());
-        json::value vRet;
-
-
-        if (key == _XPLATSTR("SubmitRegistration"))
-        {
-
-            Concurrency::streams::istream inStream = message.body();
-            concurrency::streams::container_buffer<std::string> inStringBuffer;
-
-            inStream.read_line(inStringBuffer).then([=](std::size_t bytesRead)
-            {
-                string struserdefined = inStringBuffer.collection();
-                json::value vRet;
-
-                if (!struserdefined.empty() && struserdefined.length() <= MAX_USER_DEFINED_DATA)
-                {
-                    string strfilename = "Default data";
-                    string strfilehash = "Default data";
-                    string strcustomInfo = "Default data";
-                    string strrightowner = "Default data";
-
-                    RestApi* api = new RestApi;
-                    vRet = api->MakeRegistration(struserdefined);
-                    delete api;
-                    api = NULL;
-                }
-                else if (struserdefined.length() > MAX_USER_DEFINED_DATA)
-                {
-                    vRet[_XPLATSTR("returnValue")] = json::value::string(stringToTstring("SubmitRegistration data length >= 16KB"));
-                }
-                else
-                {
-                    vRet[_XPLATSTR("returnValue")] = json::value::string(stringToTstring("SubmitRegistration data length empty"));
-                }
-
-                http_response response(status_codes::OK);
-                response.set_body(vRet);
-                response.headers().add(_XPLATSTR("Access-Control-Allow-Origin"), _XPLATSTR("*"));
-                message.reply(response).then([](pplx::task<void> t)
-                {
-                    try {
-                        t.get();
-                    }
-                    catch (...) {
-                    }
-                });
-            }).then([=](pplx::task<void>t)
-            {
-                try
-                {
-                    t.get();
-                }
-                catch (...)
-                {
-                    message.reply(status_codes::InternalError, _XPLATSTR("INTERNAL ERROR "));
-                }
-            });
-
-        }
-        else
-        {
-            vRet[_XPLATSTR("returnValue")] = json::value::string(stringToTstring("unknow error"));
-            http_response response(status_codes::OK);
-            response.set_body(vRet);
-            response.headers().add(_XPLATSTR("Access-Control-Allow-Origin"), _XPLATSTR("*"));
-            message.reply(response);
-        }*/
 }
-
 
 void CommandHandler::handle_put(http_request message)
 {
-    g_basic_logger->error("RestApi Method: {}, URI: {}, Query: {})", "PUT", tstringToUtf8(uri::decode(message.relative_uri().path())), tstringToUtf8(uri::decode(message.relative_uri().query())));
+    g_basic_logger->error("RestApi Method: {}, URI: {}, Query: {})", "PUT",
+        tstringToUtf8(uri::decode(message.relative_uri().path())),
+        tstringToUtf8(uri::decode(message.relative_uri().query())));
     message.reply(status_codes::OK, "PUT");
 }
 
@@ -989,6 +1149,7 @@ void RestApi::blockHeadToJsonValue(const T_LOCALBLOCK& localblock, json::value& 
 
     val[_XPLATSTR("root_block_body_hash")] = json::value::string(stringToTstring(localblock.GetRootHash().toHexString()));
     val[_XPLATSTR("script_hash")] = json::value::string(stringToTstring(localblock.GetScriptHash().toHexString()));
+
 
     val[_XPLATSTR("payload_size")] = json::value::number(localblock.GetPayload().size());
     val[_XPLATSTR("block_size")] = json::value::number(localblock.GetSize());
@@ -1029,7 +1190,7 @@ void RestApi::blockHeadToJsonValue(const T_HYPERBLOCK& hyperblock, size_t hyperB
     for (uint16 i = 0; i < hyperblock.GetChildChainsCount(); i++) {
         obj[i] = json::value::number(hyperblock.GetChildChainBlockCount(i));
     }
-    val[_XPLATSTR("childchain_blockscount")] = obj;     
+    val[_XPLATSTR("childchain_blockscount")] = obj;
 
     obj = json::value::array();
     const list<T_SHA256>& tailhashlist = hyperblock.GetChildTailHashList();
@@ -1037,7 +1198,7 @@ void RestApi::blockHeadToJsonValue(const T_HYPERBLOCK& hyperblock, size_t hyperB
     for (auto tailhash : tailhashlist) {
         obj[i++] = json::value::string(stringToTstring(tailhash.toHexString()));
     }
-    val[_XPLATSTR("tailblockshash")] = obj;       
+    val[_XPLATSTR("tailblockshash")] = obj;
 
     //val[_XPLATSTR("hyperBlockHashVersion")] = json::value::number(1);
     val[_XPLATSTR("hyperBlockSize")] = json::value::number(hyperBlockSize);
@@ -1058,7 +1219,7 @@ void RestApi::blockBodyToJsonValue(const T_HYPERBLOCK& hyperblock, json::value& 
 
         vObj[j++] = lObj;
     }
-    val[_XPLATSTR("local_blocks_header_hash")] = vObj;     
+    val[_XPLATSTR("local_blocks_header_hash")] = vObj;
 
     int k = 0;
     json::value obj = json::value::array();
@@ -1204,11 +1365,11 @@ json::value RestApi::getLocalchain(uint64_t hid, uint64_t chain_num)
     json::value LocalChain;
     int nRet = Singleton<DBmgr>::instance()->getLocalchain(hid, chain_num, blocks, chain_difficulty);
     if (nRet == 0) {
-        LocalChain[_XPLATSTR("chain_num")] = json::value::number(chain_num);	
-        LocalChain[_XPLATSTR("blocks")] = json::value::number(blocks);			
-        LocalChain[_XPLATSTR("block_chain")] = json::value::string(_XPLATSTR("unknown")); 
-        LocalChain[_XPLATSTR("difficulty")] = json::value::number(chain_difficulty);	  
-        LocalChain[_XPLATSTR("consensus")] = json::value::string(_XPLATSTR("buddy"));	  
+        LocalChain[_XPLATSTR("chain_num")] = json::value::number(chain_num);
+        LocalChain[_XPLATSTR("blocks")] = json::value::number(blocks);
+        LocalChain[_XPLATSTR("block_chain")] = json::value::string(_XPLATSTR("unknown"));
+        LocalChain[_XPLATSTR("difficulty")] = json::value::number(chain_difficulty);
+        LocalChain[_XPLATSTR("consensus")] = json::value::string(_XPLATSTR("buddy"));
     }
 
     return LocalChain;
@@ -1252,6 +1413,7 @@ json::value RestApi::getOnchainState(const string& requestID)
         status = consensuseng->GetOnChainState(requestID, queuenum);
 
         if (status == ONCHAINSTATUS::unknown) {
+
             if (consensuseng->CheckSearchOnChainedPool(requestID, addr)) {
                 status = ONCHAINSTATUS::failed;
                 if (addr.isValid()) {
@@ -1259,6 +1421,7 @@ json::value RestApi::getOnchainState(const string& requestID)
                 }
             }
             else {
+
                 bool isfound = Singleton<DBmgr>::instance()->getOnChainStateFromRequestID(requestID, addr);
                 if (!isfound) {
                     status = ONCHAINSTATUS::nonexistent;
@@ -1286,19 +1449,30 @@ json::value RestApi::getOnchainState(const string& requestID)
     return vHyperBlocks;
 }
 
-string RestApi::GetOnchainState(const string& requestID)
+string RestApi::getOnchainState(const string& requestID, T_LOCALBLOCKADDRESS *pblockaddr)
 {
     T_LOCALBLOCKADDRESS addr;
     size_t queuenum;
     ONCHAINSTATUS status = ONCHAINSTATUS::unknown;
 
+    defer{
+        if (pblockaddr) {
+            *pblockaddr = addr;
+        }
+    };
+
     ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::getInstance();
     if (!consensuseng)
-        return mapstatus[status];
+        return "consensus engine doesn't run";
 
     status = consensuseng->GetOnChainState(requestID, queuenum);
-    if (status != ONCHAINSTATUS::unknown)
+    if (status != ONCHAINSTATUS::unknown) {
+        if (status == ONCHAINSTATUS::queueing) {
+            return StringFormat("%s, No. : %d", mapstatus[status], queuenum);
+        }
         return mapstatus[status];
+    }
+
 
     if (consensuseng->CheckSearchOnChainedPool(requestID, addr)) {
         status = ONCHAINSTATUS::failed;
@@ -1307,6 +1481,7 @@ string RestApi::GetOnchainState(const string& requestID)
         }
         return mapstatus[status];
     }
+
 
     bool isfound = Singleton<DBmgr>::instance()->getOnChainStateFromRequestID(requestID, addr);
     if (!isfound) {
@@ -1328,6 +1503,7 @@ json::value RestApi::getBatchOnchainState(const string& batchID)
     json::value vHyperBlocks;
     ONCHAINSTATUS status = ONCHAINSTATUS::unknown;
 
+
     CAutoMutexLock muxAuto(m_MuxBatchBufferList);
     for (auto it = m_BatchBufferList.begin(); it != m_BatchBufferList.end(); it++) {
         if (0 == batchID.compare((it->id).c_str())) {
@@ -1337,6 +1513,7 @@ json::value RestApi::getBatchOnchainState(const string& batchID)
     }
 
     if (status == ONCHAINSTATUS::unknown) {
+
         bool isfound = Singleton<DBmgr>::instance()->getRequestID(batchID, requestID);
         if (!isfound) {
             status = ONCHAINSTATUS::nonexistent;
@@ -1347,6 +1524,7 @@ json::value RestApi::getBatchOnchainState(const string& batchID)
         vHyperBlocks[_XPLATSTR("onChainState")] = json::value::string(stringToTstring(mapstatus[status]));
         return vHyperBlocks;
     }
+
 
     return getOnchainState(requestID);
 }
@@ -1363,6 +1541,7 @@ json::value RestApi::MakeBatchRegistration(string strdata)
 
     if (input == nullptr || input->full == true) {
         if (m_BatchBufferList.size() >= BATCH_BUFFER_MAXIMUM) {
+
             valQueueID[_XPLATSTR("batchid")] = json::value::string(stringToTstring(""));
             valQueueID[_XPLATSTR("state")] = json::value::string(stringToTstring("failed"));
 
@@ -1378,8 +1557,8 @@ json::value RestApi::MakeBatchRegistration(string strdata)
     input->data.append(strdata.c_str());
     input->len += strdata.length();
 
-    size_t n = m_BatchBufferList.size();
-    valQueueID[_XPLATSTR("batchid")] = json::value::string(stringToTstring((input->id).c_str()));
+    m_BatchBufferList.size();
+    valQueueID[_XPLATSTR("batchid")] = json::value::string(stringToTstring(input->id));
     valQueueID[_XPLATSTR("state")] = json::value::string(stringToTstring("submitted"));
 
     return valQueueID;
@@ -1399,6 +1578,7 @@ void RestApi::SubmitBatchRegistration()
 
         seconds timespan = std::chrono::duration_cast<seconds>(curr - it->ctime);
         if (!it->full && timespan.count() < 180) {
+
             return;
         }
 
@@ -1408,7 +1588,9 @@ void RestApi::SubmitBatchRegistration()
 
         vcdata.clear();
 
-        if (Upqueue(it->data, vcdata)) {
+        SubmitData smdata;
+        smdata.payload = it->data;
+        if (Upqueue(smdata, vcdata)) {
             Singleton<DBmgr>::instance()->updateBatchOnChainState(it->id, vcdata[0], it->data);
             m_BatchBufferList.erase(it++);
         }
@@ -1452,7 +1634,9 @@ void RestApi::RetrySubmit()
         return;
 
     for (auto &requestid : requestidvec) {
-        string status = GetOnchainState(requestid);
+        json::value vRet;
+        vRet = getOnchainState(requestid);
+        string status = t2s(vRet[_XPLATSTR("onChainState")].as_string());
         if (status.compare("matured") == 0) {
             succeedvec.push_back(requestid);
             continue;
@@ -1487,8 +1671,9 @@ void RestApi::RetrySubmit()
             }
 
             vcdata.clear();
-
-            if (Upqueue(data, vcdata)) {
+            SubmitData smdata;
+            smdata.payload = data;
+            if (Upqueue(smdata, vcdata)) {
                 Singleton<DBmgr>::instance()->updateBatchOnChainState(failedid, vcdata[0]);
             }
             else {
@@ -1521,40 +1706,48 @@ void RestApi::RetrySubmitThread()
     }
 }
 
-json::value RestApi::MakeRegistration(string strdata)
+json::value RestApi::MakeRegistration(const SubmitData& data, http::status_code& code)
 {
     vector<string> vcdata;
     vcdata.clear();
 
     json::value valQueueID;
-    if (Upqueue(strdata, vcdata)) {
+    if (Upqueue(data, vcdata)) {
         valQueueID[_XPLATSTR("state")] = json::value::string(stringToTstring("queueing"));
-        valQueueID[_XPLATSTR("requestid")] = json::value::string(stringToTstring(vcdata[0].c_str()));
-        valQueueID[_XPLATSTR("queuenum")] = json::value::string(stringToTstring(vcdata[1].c_str()));
+        valQueueID[_XPLATSTR("requestid")] = json::value::string(stringToTstring(vcdata[0]));
+        valQueueID[_XPLATSTR("queuenum")] = json::value::string(stringToTstring(vcdata[1]));
+        code = status_codes::OK;
     }
     else {
         valQueueID[_XPLATSTR("requestid")] = json::value::string(stringToTstring(""));
         valQueueID[_XPLATSTR("state")] = json::value::string(stringToTstring("failed"));
+        valQueueID[_XPLATSTR("cause")] = json::value::string(stringToTstring(vcdata[0]));
+        code = status_codes::BadRequest;
     }
 
     return valQueueID;
 }
 
-bool RestApi::Upqueue(string strdata, vector<string>& out_vc)
+bool RestApi::Upqueue(const SubmitData& data, vector<string>& out_vc)
 {
     string requestid;
     ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::getInstance();
     if (consensuseng == nullptr) {
+        out_vc.push_back("ConsensusEngine is stopped");
         g_daily_logger->error("RestApi::Upqueue(), ConsensusEngine is stopped");
         g_console_logger->error("ConsensusEngine is stopped");
         return false;
     }
+    uint32 nOrder;
+    string excp_desc;
 
-    uint32 pos = consensuseng->AddNewBlockEx(T_APPTYPE(), "", strdata, requestid);
-    out_vc.push_back(requestid);
-    out_vc.push_back(std::to_string(pos));
-
-    return true;
+    if (consensuseng->AddNewBlockEx(data, requestid, nOrder, excp_desc)) {
+        out_vc.push_back(requestid);
+        out_vc.push_back(std::to_string(nOrder));
+        return true;
+    }
+    out_vc.push_back(excp_desc);
+    return false;
 }
 
 int RestApi::startRest(int nport)
@@ -1582,7 +1775,6 @@ int RestApi::startRest(int nport)
         g_daily_logger->error("Start RestServer error");
         g_console_logger->error("Start RestServer error");
         cout << "RestServer exception:" << __FUNCTION__ << " " << ex.what() << endl;
-        g_spRestHandler->close().wait();
     }
 
     _isstop = false;

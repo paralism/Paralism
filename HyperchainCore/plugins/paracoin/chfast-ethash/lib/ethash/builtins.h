@@ -21,7 +21,8 @@ extern "C" {
  * Returns the number of leading 0-bits in `x`, starting at the most significant bit position.
  * If `x` is 0, the result is undefined.
  */
-static inline int __builtin_clz(unsigned int x)
+//static inline int __builtin_clz(unsigned int x)
+inline int __builtin_clz(unsigned int x)
 {
     unsigned long most_significant_bit;
     _BitScanReverse(&most_significant_bit, x);
@@ -31,7 +32,8 @@ static inline int __builtin_clz(unsigned int x)
 /**
  * Returns the number of 1-bits in `x`.
  */
-static inline int __builtin_popcount(unsigned int x)
+//static inline int __builtin_popcount(unsigned int x)
+inline int __builtin_popcount(unsigned int x)
 {
     return (int)__popcnt(x);
 }

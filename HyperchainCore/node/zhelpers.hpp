@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -21,7 +21,6 @@ DEALINGS IN THE SOFTWARE.
 */
 
 #pragma once
-
 
 
 
@@ -49,7 +48,6 @@ DEALINGS IN THE SOFTWARE.
 using namespace std;
 
 
-
 #if (defined (WIN32))
 typedef unsigned long ulong;
 typedef unsigned int  uint;
@@ -58,15 +56,11 @@ typedef __int64 int64_t;
 
 
 
-
-
 //
 #if (defined (WIN32))
 #   define srandom srand
 #   define random rand
 #endif
-
-
 
 
 
@@ -102,10 +96,7 @@ inline int c99_snprintf(char *outBuf, size_t size, const char *format, ...)
 #endif
 
 
-
 #define within(num) (int) ((float)((num) * random ()) / (RAND_MAX + 1.0))
-
-
 
 
 
@@ -118,8 +109,7 @@ s_recv(void *socket, int flags = 0)
     int rc = zmq_msg_recv(&message, socket, flags);
 
     if (rc < 0)
-        return nullptr;           
-
+        return nullptr;
 
     size_t size = zmq_msg_size(&message);
     char *string = (char*)malloc(size + 1);
@@ -128,7 +118,6 @@ s_recv(void *socket, int flags = 0)
     string[size] = 0;
     return (string);
 }
-
 
 
 inline static std::string
@@ -154,7 +143,6 @@ inline static bool s_recv(zmq::socket_t & socket, std::string & ostring, int fla
 }
 
 
-
 inline static int
 s_send(void *socket, const char *string, int flags = 0)
 {
@@ -167,7 +155,6 @@ s_send(void *socket, const char *string, int flags = 0)
     zmq_msg_close(&message);
     return (rc);
 }
-
 
 
 inline static bool
@@ -184,7 +171,6 @@ s_send(zmq::socket_t & socket, const std::string & string, int flags = 0)
 }
 
 
-
 inline static int
 s_sendmore(void *socket, char *string)
 {
@@ -197,7 +183,6 @@ s_sendmore(void *socket, char *string)
     zmq_msg_close(&message);
     return (rc);
 }
-
 
 
 inline static bool
@@ -213,19 +198,16 @@ s_sendmore(zmq::socket_t & socket, const std::string & string)
 }
 
 
-
 inline static void
 s_dump(zmq::socket_t & socket)
 {
     std::cout << "----------------------------------------" << std::endl;
 
     while (1) {
-        
 
         zmq::message_t message;
         socket.recv(message);
 
-        
 
         size_t size = message.size();
         std::string data(static_cast<char*>(message.data()), size);
@@ -249,16 +231,13 @@ s_dump(zmq::socket_t & socket)
         }
         std::cout << std::endl;
 
-        int more = 0;           
-
+        int more = 0;
         size_t more_size = sizeof(more);
         socket.getsockopt(ZMQ_RCVMORE, &more, &more_size);
         if (!more)
-            break;              
-
+            break;
     }
 }
-
 
 
 inline static int64_t
@@ -290,7 +269,6 @@ s_set_id(zmq::socket_t & socket)
 }
 
 
-
 //
 inline static void
 s_version(void)
@@ -313,7 +291,6 @@ s_version_assert(int want_major, int want_minor)
         exit(EXIT_FAILURE);
     }
 }
-
 
 
 
@@ -383,11 +360,9 @@ BOOL WINAPI HandlerRoutine(_In_ DWORD dwCtrlType)
     case CTRL_C_EVENT:
         printf("[Ctrl]+C\n");
         s_interrupted = 1;
-        
 
         return TRUE;
     default:
-        
 
         return FALSE;
     }

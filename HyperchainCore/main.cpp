@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -20,8 +20,8 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 DEALINGS IN THE SOFTWARE.
 */
 
+#include "globalconfig.h"
 #include "newLog.h"
-#include "config.h"
 
 #ifdef WIN32
 #include <windows.h>
@@ -44,6 +44,9 @@ DEALINGS IN THE SOFTWARE.
 #include <fcntl.h>
 #include <pthread.h>
 
+#include <netdb.h> /* struct hostent */
+#include <arpa/inet.h> /* inet_ntop */
+#include <ifaddrs.h> /* getifaddrs */
 #endif
 
 #include <iostream>
@@ -54,10 +57,12 @@ DEALINGS IN THE SOFTWARE.
 #include "db/RestApi.h"
 #include "db/dbmgr.h"
 
+#include "node/defer.h"
 #include "node/Singleton.h"
 #include "node/NodeManager.h"
 #include "node/UdpAccessPoint.hpp"
 #include "node/UdpRecvDataHandler.hpp"
+#include "node/NetworkFunctions.h"
 #include "node/HCMQBroker.h"
 
 #include "HyperChain/HyperChainSpace.h"
@@ -72,6 +77,7 @@ DEALINGS IN THE SOFTWARE.
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
+#include <boost/program_options/detail/config_file.hpp>
 using namespace boost::program_options;
 
 #ifdef WIN32
@@ -82,22 +88,30 @@ using namespace boost::program_options;
 
 string GetHyperChainDataDir()
 {
-	string datapath;
-	boost::filesystem::path pathDataDir;
-	if (mapHCArgs.count("-datadir") && boost::filesystem::is_directory(boost::filesystem::system_complete(mapHCArgs["-datadir"])))
-		pathDataDir = boost::filesystem::system_complete(mapHCArgs["-datadir"]);
-	else
-		pathDataDir = boost::filesystem::system_complete(".");
+    boost::filesystem::path pathDataDir;
+    if (mapHCArgs.count("-datadir")) {
+        pathDataDir = boost::filesystem::system_complete(mapHCArgs["-datadir"]);
+        if (!boost::filesystem::exists(pathDataDir))
+            if (!boost::filesystem::create_directories(pathDataDir)) {
+                cerr << "can not create directory: " << pathDataDir << endl;
+                pathDataDir = boost::filesystem::system_complete(".");
+            }
+    }
+    else
+        pathDataDir = boost::filesystem::system_complete(".");
 
-	if (mapHCArgs.count("-model") && mapHCArgs["-model"] == "informal")
-		pathDataDir /= "informal";
-	else
-		pathDataDir /= "sandbox";
+    if (mapHCArgs.count("-model") && mapHCArgs["-model"] == "informal")
+        pathDataDir /= "informal";
+    else if (mapHCArgs.count("-model") && mapHCArgs["-model"] == "formal")
+        pathDataDir /= "formal";
+    else {
+        pathDataDir /= "sandbox";
+    }
 
-	if (!boost::filesystem::exists(pathDataDir))
-		boost::filesystem::create_directories(pathDataDir);
+    if (!boost::filesystem::exists(pathDataDir))
+        boost::filesystem::create_directories(pathDataDir);
 
-	return pathDataDir.string();
+    return pathDataDir.string();
 }
 
 string CreateChildDir(const string& childdir)
@@ -121,26 +135,167 @@ static std::string make_db_path()
     return CreateChildDir("hp");
 }
 
-void makeSeedServer(const string & seedserver)
+extern NodeType g_nodetype;
+string g_localip;
+
+bool GetLocalHostInfo()
 {
-    string nodeid("123456789012345678901234567890ab", CUInt128::value * 2);
-    HCNodeSH seed = std::make_shared<HCNode>(std::move(CUInt128(nodeid)));
+    char name[256];
+    int ret = gethostname(name, sizeof(name));
+    if (ret != 0) {
+#ifdef WIN32
+        g_daily_logger->error("gethostname() failed! [{}]", WSAGetLastError());
+#else
+        g_daily_logger->error("gethostname() failed! [{}]", strerror(errno));
+#endif
+        return false;
+    }
 
-    string server;
-    int port = 8116;
-    size_t found = seedserver.find_first_of(':');
+    struct hostent* host = gethostbyname(name);
+    if (NULL == host) {
+#ifdef WIN32
+        g_daily_logger->error("gethostbyname() failed! [{}]", WSAGetLastError());
+#else
+        g_daily_logger->error("gethostbyname() failed! [{}]", strerror(h_errno));
+#endif
+        return false;
+    }
+
+    for (int i = 0; host->h_addr_list[i] != NULL; ++i) {
+        char ipStr[32];
+        const char* ret = inet_ntop(host->h_addrtype, host->h_addr_list[i], ipStr, sizeof(ipStr));
+        if (NULL == ret) {
+#ifdef WIN32
+            g_daily_logger->error("inet_ntop() failed! [{}]", WSAGetLastError());
+#else
+            g_daily_logger->error("inet_ntop() failed! [{}]", strerror(errno));
+#endif
+            return false;
+        }
+
+        g_daily_logger->debug("GetLocalHostInfo(), ipStr: [{}]", ipStr);
+
+        uint32 ip = StringIPtoUint32(ipStr);
+        if (ip == 0) {
+            g_daily_logger->error("StringIPtoUint32() failed! ipStr: [{}]", ipStr);
+            return false;
+        }
+
+        if (IsLanIP(ip)) {
+            g_localip = ipStr;
+            return true;
+        }
+    }
+
+
+#ifndef WIN32
+    struct ifaddrs* myaddrs;
+    if (getifaddrs(&myaddrs) == 0) {
+        for (struct ifaddrs* ifa = myaddrs; ifa != NULL; ifa = ifa->ifa_next) {
+            if (ifa->ifa_addr == NULL) continue;
+            if ((ifa->ifa_flags & IFF_UP) == 0) continue;
+            if (strcmp(ifa->ifa_name, "lo") == 0) continue;
+            if (strcmp(ifa->ifa_name, "lo0") == 0) continue;
+
+            char pszIP[100];
+            if (ifa->ifa_addr->sa_family == AF_INET) {
+                struct sockaddr_in* s4 = (struct sockaddr_in*)(ifa->ifa_addr);
+                if (inet_ntop(ifa->ifa_addr->sa_family, (void*)&(s4->sin_addr), pszIP, sizeof(pszIP)) != NULL) {
+
+                    g_daily_logger->debug("GetLocalHostInfo(), ipStr: [{}]", pszIP);
+
+                    uint32 ip = StringIPtoUint32(pszIP);
+                    if (ip == 0) {
+                        g_daily_logger->error("StringIPtoUint32() failed! ipStr: [{}]", pszIP);
+                        return false;
+                    }
+
+                    if (IsLanIP(ip)) {
+                        g_localip = pszIP;
+                        return true;
+                    }
+                }
+            }
+        }
+
+        freeifaddrs(myaddrs);
+    }
+#endif
+
+    return false;
+
+}
+
+void GenerateNodeslist()
+{
+    size_t found = g_localip.find_last_of('.');
     if (found == std::string::npos) {
-        server = seedserver;
+        cout << "My Local IP error:" << g_localip << endl;
+        return;
     }
-    else {
-        server = seedserver.substr(0, found);
-        port = std::stoi(seedserver.substr(found + 1));
-    }
-
-    seed->addAP(std::make_shared<UdpAccessPoint>(server, port));
 
     NodeManager *nodemgr = Singleton<NodeManager>::instance();
-    nodemgr->seedServer(seed);
+
+    int port = 8115;
+    char str[4] = { 0 };
+    string lip = g_localip.substr(0, found + 1);
+    int myip = std::stoi(g_localip.substr(found + 1));
+
+    for (int i = 1; i < 255; i++) {
+
+        if (i == myip)
+            continue;
+
+        string ip = lip;
+        ip += to_string(i);
+        sprintf(str, "%03d", i);
+
+        string nid;
+        nid.assign(29, '0');
+        nid.append(str, 3);
+
+        string nodeid(nid.c_str(), CUInt128::value * 2);
+        HCNodeSH tmp = std::make_shared<HCNode>(std::move(CUInt128(nodeid)));
+        //string str = HCNode::generateNodeId();
+        //HCNodeSH tmp = std::make_shared<HCNode>(CUInt128(str));
+        tmp->addAP(std::make_shared<UdpAccessPoint>(ip, port));
+
+        nodemgr->addNode(tmp);
+    }
+}
+
+void parseNetAddress(const string &netaddress, string &ip, int &port)
+{
+    size_t found = netaddress.find_first_of(':');
+    if (found == std::string::npos) {
+        ip = netaddress;
+    }
+    else {
+        ip = netaddress.substr(0, found);
+        port = std::stoi(netaddress.substr(found + 1));
+    }
+}
+
+static char vNodeID[] = "0123456789abcdef";
+
+void makeSeedServer(const vector<string> & seedservers)
+{
+    NodeManager *nodemgr = Singleton<NodeManager>::instance();
+    int i = 0;
+    for (auto &ss : seedservers) {
+        if (i > 15) {
+
+            break;
+        }
+        string nodeid(CUInt128::value * 2, vNodeID[i++]);
+        HCNodeSH seed = std::make_shared<HCNode>(std::move(CUInt128(nodeid)));
+
+        string server;
+        int port = 8116;
+        parseNetAddress(ss, server, port);
+        seed->addAP(std::make_shared<UdpAccessPoint>(server, port));
+        nodemgr->seedServer(seed);
+    }
 }
 
 void initNode(const map<string, string>& vm, string& udpip, int& udpport)
@@ -150,8 +305,7 @@ void initNode(const map<string, string>& vm, string& udpip, int& udpport)
 
     string mynodeid;
     HCNodeSH me = nodemgr->myself();
-    try
-    {
+    try {
         if (!me->isValid()) {
             cout << "The machine is a new node, generating nodeid..." << endl;
             string str = HCNode::generateNodeId();
@@ -175,17 +329,16 @@ void initNode(const map<string, string>& vm, string& udpip, int& udpport)
         string strMe = vm.at(string("-me"));
         cout << "My IP and port is " << strMe << endl;
 
-        size_t found = strMe.find_first_of(':');
-        if (found == std::string::npos) {
-            udpip = strMe;
-        }
-        else {
-            udpip = strMe.substr(0, found);
-            udpport = std::stoi(strMe.substr(found + 1));
-        }
+        parseNetAddress(strMe, udpip, udpport);
 
         me->removeAPs();
         me->addAP(std::make_shared<UdpAccessPoint>(udpip, udpport));
+    }
+    else if (g_nodetype == NodeType::Autonomous) {
+        cout << "My IP and port is " << g_localip << ":" << udpport << endl;
+
+        me->removeAPs();
+        me->addAP(std::make_shared<UdpAccessPoint>(g_localip, udpport));
     }
 
     nodemgr->myself(me);
@@ -201,13 +354,11 @@ public:
         std::string dlog = logpath + "/hyperchain.log";
         std::string flog = logpath + "/hyperchain_basic.log";
         std::string rlog = logpath + "/hyperchain_rotating.log";
-        spdlog::set_level(spdlog::level::err); 
-
+        spdlog::set_level(spdlog::level::err);
         spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] [thread %t] %v");
         g_daily_logger = spdlog::daily_logger_mt("daily_logger", dlog.c_str(), 0, 30);
         g_daily_logger->set_level(spdlog::level::info);
         g_basic_logger = spdlog::basic_logger_mt("file_logger", flog.c_str());
-        
 
         g_rotating_logger = spdlog::rotating_logger_mt("rotating_logger", rlog.c_str(), 1048576 * 100, 3);
         g_console_logger = spdlog::stdout_color_mt("console");
@@ -229,21 +380,19 @@ public:
 };
 
 
-extern NodeType g_nodetype;
 //NodeType g_nodetype = NodeType::Bootstrap;
-int g_argc = 0;
-char **g_argv;
+extern int g_argc;
+extern char **g_argv;
 bool g_isChild = false;
 
 void stopAll()
 {
-    g_sys_interrupted = 1; 
-
     if (g_appPlugin) {
         cout << "Stopping Applications..." << endl;
         g_appPlugin->StopAllApp();
     }
 
+    g_sys_interrupted = 1;
     auto datahandler = Singleton<UdpRecvDataHandler>::getInstance();
     if (datahandler) {
         cout << "Stopping UdpRecvDataHandler..." << endl;
@@ -274,9 +423,8 @@ void stopAll()
     }
 
     UdtThreadPool *udpthreadpool = Singleton<UdtThreadPool, const char*, uint32_t>::getInstance();
-    //UdpThreadPool *udpthreadpool = Singleton<UdpThreadPool, const char*, uint32_t>::getInstance();
     if (udpthreadpool) {
-        cout << "Stopping UDP..." << endl;
+        cout << "Stopping UDT..." << endl;
         udpthreadpool->stop();
     }
 
@@ -323,7 +471,6 @@ bool dumpCallback(const google_breakpad::MinidumpDescriptor& descriptor, void* c
     stopAll();
     cout << "Rebooting..." << endl;
 
-    
 
     std::shared_ptr<char*> hc_argv(new char*[g_argc + 2]);
 
@@ -378,6 +525,15 @@ bool dumpCallback(const google_breakpad::MinidumpDescriptor& descriptor, void* c
 
 #endif
 
+void signalHandler(int sig)
+{
+    ConsoleCommandHandler* console =
+        Singleton<ConsoleCommandHandler, std::streambuf*, std::streambuf*>::getInstance();
+    if (console) {
+        console->stop();
+    }
+}
+
 string getMyCommandLine(int argc, char *argv[])
 {
     string commandline;
@@ -392,13 +548,11 @@ void ParseParameters(int argc, char* argv[])
 {
     mapHCArgs.clear();
     mapHCMultiArgs.clear();
-    for (int i = 1; i < argc; i++)
-    {
-        char psz[10000] = {0};
+    for (int i = 1; i < argc; i++) {
+        char psz[10000] = { 0 };
         strlcpy(psz, argv[i], sizeof(psz));
         char* pszValue = (char*)"";
-        if (strchr(psz, '='))
-        {
+        if (strchr(psz, '=')) {
             pszValue = strchr(psz, '=');
             *pszValue++ = '\0';
         }
@@ -408,7 +562,64 @@ void ParseParameters(int argc, char* argv[])
         mapHCArgs[psz] = pszValue;
         mapHCMultiArgs[psz].push_back(pszValue);
     }
+
+    for (int i = 1; i < argc; i++) {
+        if (argv[i][0] == '-')
+            continue;
+        vHCCommands.push_back(argv[i]);
+    }
 }
+
+class CloneArgs
+{
+public:
+    CloneArgs(int argc, char* argv[]) {
+        nArgc = 1 + vHCCommands.size();
+        for (auto& elm : mapHCMultiArgs) {
+            nArgc += elm.second.size();
+        }
+
+        ppArgv = new char* [nArgc];
+
+        int len = strlen(argv[0]) + 1;
+        ppArgv[0] = new char[len];
+        strlcpy(ppArgv[0], argv[0], len);
+
+        int i = 1;
+        for (auto& key : mapHCArgs) {
+            for (string& value : mapHCMultiArgs[key.first]) {
+                string kv;
+                if (value.empty()) {
+                    kv = key.first;
+                }
+                else {
+                    kv = StringFormat("%s=%s", key.first, value);
+                }
+                int len = kv.size() + 1;
+                ppArgv[i] = new char[len];
+                strlcpy(ppArgv[i++], kv.c_str(), len);
+            }
+        }
+        for (auto& cmmd : vHCCommands) {
+            int len = cmmd.size() + 1;
+            ppArgv[i] = new char[len];
+            strlcpy(ppArgv[i++], cmmd.c_str(), len);
+        }
+    }
+
+    ~CloneArgs() {
+        if (ppArgv) {
+            int i = 0;
+            for (; i < nArgc; i++) {
+                delete[] ppArgv[i];
+            }
+            delete[] ppArgv;
+        }
+    }
+
+    int nArgc = 0;
+    char** ppArgv = nullptr;
+};
 
 inline const char* _(const char* psz)
 {
@@ -420,29 +631,29 @@ static google_breakpad::ExceptionHandler* exceptionhandler = nullptr;
 
 int main(int argc, char *argv[])
 {
-    cout << "Copyright 2016-2020 hyperchain.net (Hyperchain)." << endl << endl;
+    SoftwareInfo();
     ParseParameters(argc, argv);
+    ProgramConfigFile::LoadSettings();
 
     string strUsage = string() +
-        _("Hyperchain version") + " " + VERSION_STRING + "\n\n" +
         _("Usage:") + "\t\t\t\t\t\t\t\t\t\t\n" +
         "  hc [options]                   \t  " + "\n" +
-        "  hc [options] <command> [params]\t  " + _("Execute command\n") +
-        "  hc [options] help              \t\t  " + _("List commands\n") +
-        "  hc [options] help <command>    \t\t  " + _("Get help for a command\n") +
+        "  hc [options] <command> [params]\t  " + _("Execute a JSON-RPC command, only when run as JSON-RPC Client\n") +
+        "  hc [options] help              \t\t  " + _("List JSON-RPC commands, only when run as JSON-RPC Client\n") +
+        "  hc [options] help <command>    \t\t  " + _("Get help for a JSON-RPC command, only when run as JSON-RPC Client\n") +
         _("Options:\n") +
         "  -? or --help     \t\t  " + _("Print help message\n") +
         "  -v               \t\t  " + _("Print version message\n") +
-        //"  -bg              \t\t  " + _("Run as a background server,only for *nux\n") +
-        "  -child           \t\t  " + _("Run as a child process,only inner use for *nux\n") +
+        "  -daemon          \t\t  " + _("Run as a background node, only for *nux\n") +
+        "  -child           \t\t  " + _("Run as a child process, only inner use for *nux\n") +
         "  -me=<ip:port>    \t\t  " + _("Listen for connections from other nodes,for example:10.0.0.1:8116\n") +
         "  -seedserver=<ip:port> \t\t  " + _("Specify a seed server,for example:127.0.0.1:8116\n") +
         "  -restport=<port> \t\t  " + _("Listen for RESTful connections on <port> (default: 8080)\n") +
+        "  -model=<type>   \t\t   " + _("which network node will be connected to, type can be sandbox, informal or formal (default: sandbox)\n") +
         "  -datadir=<dir>   \t\t  " + _("Specify data directory\n") +
-        
+        "  -conf[=file]     \t\t  " + _("Specify configuration file (default: <datadir>/<model>/hc.cfg)\n") +
 
         "  -with=<app>      \t\t  " + _("Start with application, for example:-with=ledger, -with=paracoin\n") +
-        //"  -conf=<file>     \t\t  " + _("Specify configuration file (default: ledger.conf)\n") +
         //"  -pid=<file>      \t\t  " + _("Specify pid file (default: bitcoind.pid)\n") +
         //"  -gen             \t\t  " + _("Generate coins\n") +
         //"  -gen=0           \t\t  " + _("Don't generate coins\n") +
@@ -451,7 +662,8 @@ int main(int argc, char *argv[])
         //"  -proxy=<ip:port> \t  " + _("Connect through socks4 proxy\n") +
         //"  -dns             \t  " + _("Allow DNS lookups for addnode and connect\n") +
         //"  -addnode=<ip>    \t  " + _("Add a node to connect to\n") +
-        //"  -connect=<ip>    \t\t  " + _("Connect only to the specified node\n") +
+
+        "  -connect=<ip:port> \t  " + _("Connect only to the specified node\n") +
         //"  -nolisten        \t  " + _("Don't accept connections from outside\n") +
 #ifdef USE_UPNP
 #if USE_UPNP
@@ -461,13 +673,12 @@ int main(int argc, char *argv[])
 #endif
 #endif
         //"  -paytxfee=<amt>  \t  " + _("Fee per KB to add to transactions you send\n") +
-#ifdef GUI
-        "  -server          \t\t  " + _("Accept command line and JSON-RPC commands\n") +
-#endif
+        "  -server=<port>   \t\t  " + _("Listen and accept command line from outside on <port>\n") +
 #ifndef __WXMSW__
         //"  -daemon          \t\t  " + _("Run in the background as a daemon and accept commands\n") +
 #endif
         //"  -testnet         \t\t  " + _("Use the test network\n") +
+        "  -rpcclient       \t\t  " + _("Run as a Ledger/Paracoin JSON-RPC Client\n") +
         "  -rpcuser=<user>  \t  " + _("Username for JSON-RPC connections\n") +
         "  -rpcpassword=<pw>\t  " + _("Password for JSON-RPC connections\n") +
         "  -rpcallowip=<ip> \t\t  " + _("Allow JSON-RPC connections from specified IP address\n") +
@@ -499,7 +710,7 @@ int main(int argc, char *argv[])
         cout << VERSION_STRING << endl;
         return 0;
     }
-    if (mapHCArgs.count("-bg")) {
+    if (mapHCArgs.count("-daemon")) {
         foreground = false;
     }
 
@@ -526,7 +737,6 @@ int main(int argc, char *argv[])
     }
 #else
 
-    
 
     umask(0);
     while (!foreground) {
@@ -536,14 +746,32 @@ int main(int argc, char *argv[])
             exit(-1);
         }
         if (pid > 0) {
-            fprintf(stdout, "parent process exit");
             exit(0);
         }
-        setsid();
-        close(0);
-        close(1);
-        close(2);
+
+        if (-1 == setsid()) {
+            fprintf(stderr, "child process setsid error\n");
+            exit(1);
+        }
+
+        pid = fork();
+        if (pid == -1) {
+            fprintf(stderr, "fork error\n");
+            exit(1);
+        }
+        else if (pid) {
+            exit(0);
+        }
+
+
+        int fd = open("/dev/null", O_RDWR);
+        dup2(fd, 0);
+        dup2(fd, 1);
+        if (fd > 2) {
+            close(fd);
+        }
         signal(SIGCHLD, SIG_IGN);
+        signal(SIGQUIT, signalHandler);
         break;
     }
 
@@ -555,6 +783,21 @@ int main(int argc, char *argv[])
 
 #endif
 
+    if (mapHCArgs.count("-connect")) {
+
+        string strServer = mapHCArgs.at(string("-connect"));
+
+        int port = 8115;
+        string serverIP;
+        parseNetAddress(strServer, serverIP, port);
+
+        SocketClientStreamBuf sockbuf(serverIP, port);
+        ConsoleCommandHandler console(cin.rdbuf(), &sockbuf);
+        console.run_as_client();
+
+        return 0;
+    }
+
     hclogger log;
 
     HCMQBroker *brk = Singleton<HCMQBroker>::instance();
@@ -562,15 +805,22 @@ int main(int argc, char *argv[])
     brk->start();
     cout << "HCBroker::Start..." << endl;
 
-    string seedserver = "127.0.0.1:8116";
-    if (mapHCArgs.count("-seedserver")) {
-        seedserver = mapHCArgs["-seedserver"];
-        cout << "Run as a normal node, bootstrap server is " << seedserver << endl;
+    if (mapHCArgs.count("-rpcclient")) {
+        g_nodetype = NodeType::LedgerRPCClient;
+    }
+    else if (mapHCArgs.count("-seedserver")) {
+        string seedserver = "127.0.0.1:8116";
+        auto &seedservers = mapHCMultiArgs["-seedserver"];
+        cout << "Run as a normal node, bootstrap servers are: " << endl;
+        for (auto &ss : seedservers) {
+            cout << "\t" << ss << endl;
+        }
         g_nodetype = NodeType::Normal;
-        makeSeedServer(seedserver);
+        makeSeedServer(seedservers);
     }
     else if (!mapHCArgs.count("-me")) {
-        g_nodetype = NodeType::LedgerRPCClient;
+        if (GetLocalHostInfo())
+            g_nodetype = NodeType::Autonomous;
     }
     else {
         g_nodetype = NodeType::Bootstrap;
@@ -593,14 +843,15 @@ int main(int argc, char *argv[])
     initNode(mapHCArgs, udpip, udpport);
     nodemgr->loadNeighbourNodes_New();
 
+    if (g_nodetype == NodeType::Autonomous && nodemgr->getNodeMapSize() == 0) {
+        GenerateNodeslist();
+    }
+
     HCNodeSH me = nodemgr->myself();
     string mynodeid = me->getNodeId<string>();
     nodemgr->InitKBuckets();
 
     CHyperChainSpace *hyperchainspace = Singleton<CHyperChainSpace, string>::instance(mynodeid);
-
-    if (g_nodetype == NodeType::Bootstrap)
-        nodemgr->seedServer(me);
 
     Singleton<UdpRecvDataHandler>::instance();
 
@@ -608,7 +859,8 @@ int main(int argc, char *argv[])
 
     NodeUPKeepThreadPool* nodeUpkeepThreadpool = Singleton<NodeUPKeepThreadPool>::instance();
 
-    g_appPlugin = Singleton<AppPlugins,int, char**>::instance(argc, argv);
+    CloneArgs cargs(argc, argv);
+    g_appPlugin = Singleton<AppPlugins,int, char**>::instance(cargs.nArgc, cargs.ppArgv);
 
     if (g_nodetype != NodeType::LedgerRPCClient) {
 
@@ -624,6 +876,7 @@ int main(int argc, char *argv[])
         if (mapHCArgs.count("-restport")) {
             nPort = std::stoi(mapHCArgs["-restport"]);
         }
+
         RestApi::startRest(nPort);
 
         ConsensusEngine * consensuseng = Singleton<ConsensusEngine>::instance();
@@ -640,12 +893,26 @@ int main(int argc, char *argv[])
         cout << "NodeManager MQID: " << Singleton<NodeManager>::getInstance()->MQID() << endl << endl;
     }
     else {
-        
 
         g_appPlugin->StartAllApp();
     }
-    ConsoleCommandHandler console;
-    console.run();
+
+    ConsoleCommNetServer netserver(g_inproc_context);
+    if (mapHCArgs.count("-server")) {
+        int port = std::stoi(mapHCArgs["-server"]);
+        netserver.start(port);
+    }
+
+    ConsoleCommandHandler *console =
+        Singleton<ConsoleCommandHandler, std::streambuf* , std::streambuf*>::instance(cin.rdbuf(), cout.rdbuf());
+
+    ConsoleCommandHandler::role r = ConsoleCommandHandler::role::SERVER;
+    if (mapHCArgs.count("-daemon")) {
+        r = ConsoleCommandHandler::role::DAEMON;
+    }
+    console->run(r);
+
+    stopAll();
 
     return 0;
 }

@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -38,29 +38,23 @@ public:
 };
 
 
-
 class CKBuckets
 {
 public:
     CKBuckets() = default;
     ~CKBuckets();
 
-    
 
     void InitKbuckets(CUInt128 myID);
 
-    
 
     bool AddNode(CUInt128 nID, CUInt128& nRemoveID);
     void RemoveNode(CUInt128 nID);
 
-    
 
     std::set<CUInt128> PickRandomNodes(int nNum = 16);
-    
 
     vector<CUInt128> PickNeighbourNodes(CUInt128 targetID, int nNum = 10);
-    
 
     vector<CUInt128> PickLastActiveNodes(CUInt128 targetID, int nNum = 10, int nMinutes = 10);
 
@@ -69,13 +63,10 @@ public:
     bool IsNodeInKBuckets(CUInt128 nID);
 
 private:
-    
 
     int LocateKBucket(CUInt128 nID);
 
-    CUInt128 m_localID;			
-
+    CUInt128 m_localID;
     vector<list<CKBNode>> m_vecBuckets;
-    std::set<CUInt128> m_setNodes;    
-
+    std::set<CUInt128> m_setNodes;
 };

@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -53,6 +53,9 @@ static const int MAX_OUTBOUND_CONNECTIONS = 8;
 void ThreadMessageHandler2(void* parg);
 void ThreadSocketHandler2(void* parg);
 void ThreadOpenConnections2(void* parg);
+extern void ThreadBitcoinMiner(void* parg);
+extern void ThreadSearchLedgerNode(void* parg);
+
 #ifdef USE_UPNP
 void ThreadMapPort2(void* parg);
 #endif
@@ -73,6 +76,8 @@ static CNode* pnodeLocalHost = NULL;
 uint64 nLocalHostNonce = 0;
 boost::array<int, 10> vnThreadsRunning;
 static SOCKET hListenSocket = INVALID_SOCKET;
+
+HyperBlockMsgs hyperblockMsgs;
 
 vector<CNode*> vNodes;
 CCriticalSection cs_vNodes;
@@ -96,17 +101,112 @@ unsigned short GetListenPort()
     return (unsigned short)(GetArg("-port", GetDefaultPort()));
 }
 
-void CNode::PushGetBlocks(CBlockIndex* pindexBegin, uint256 hashEnd)
-{
-    // Filter out duplicate requests
-    if (pindexBegin == pindexLastGetBlocksBegin && hashEnd == hashLastGetBlocksEnd)
-        return;
-    pindexLastGetBlocksBegin = pindexBegin;
-    hashLastGetBlocksEnd = hashEnd;
+std::map<CBlockIndex*, std::tuple<CBlockLocator, int64>> g_mapblkindexLocator;
 
-    PushMessage("getblocks", CBlockLocator(pindexBegin), hashEnd);
+void CNode::IncreReqBlkInterval()
+{
+    nScore--;
+    nReqBlkInterval += nMinInterval;
 }
 
+void CNode::DecreReqBlkInterval(int64 timeReqBlk)
+{
+    nScore++;
+    int64 timeEscaped = GetTime() - timeReqBlk;
+
+    if (timeEscaped < nReqBlkInterval) {
+        nReqBlkInterval = timeEscaped;
+        return;
+    }
+
+    if (nReqBlkInterval > 0)
+        nReqBlkInterval -= nMinInterval;
+}
+
+void CNode::PushGetBlocks(CBlockIndex *pindexBegin, uint256 hashEnd)
+{
+    // Filter out duplicate requests
+    //TRY_CRITICAL_BLOCK(cs_vSend)
+    {
+        if (pindexBegin == pindexLastGetBlocksBegin && hashEnd == hashLastGetBlocksEnd && time(nullptr) - tmRequest < 5)
+            return;
+
+        pindexLastGetBlocksBegin = pindexBegin;
+        hashLastGetBlocksEnd = hashEnd;
+        tmRequest = time(nullptr);
+
+        TRACE_FL("\n*****************************************************************\n");
+        TRACE_FL("PushGetBlocks: getblocks %d %s to: %s\n\n",
+            (pindexBegin ? pindexBegin->Height() : -1),
+            (pindexBegin ? pindexBegin->GetBlockHash().ToPreViewString().c_str() : "null"),
+            nodeid.c_str());
+
+        std::tuple<CBlockLocator, int64> *blkloc = nullptr;
+        if (g_mapblkindexLocator.count(pindexBegin) > 0) {
+            blkloc = &g_mapblkindexLocator[pindexBegin];
+        }
+        else {
+            if (g_mapblkindexLocator.size() > 3) {
+
+                int64 mintm = time(nullptr);
+                auto bil = g_mapblkindexLocator.begin();
+                auto it = g_mapblkindexLocator.begin();
+
+                for (; it != g_mapblkindexLocator.end(); ++ it) {
+                    if (std::get<1>(it->second) < mintm ) {
+                        bil = it;
+                    }
+                }
+                g_mapblkindexLocator.erase(bil);
+            }
+
+            auto loc = std::tuple<CBlockLocator, int64>{ CBlockLocator(pindexBegin), time_t() };
+            g_mapblkindexLocator.insert(std::make_pair(pindexBegin, std::move(loc)));
+            blkloc = &g_mapblkindexLocator[pindexBegin];
+
+        }
+        PushMessage("getblocks", std::get<0>(*blkloc), hashEnd);
+    }
+}
+
+void CNode::GetChkBlock()
+{
+    auto now = time(nullptr);
+
+    if (nLastGetchkblk + 150 < now) {
+        TRY_CRITICAL_BLOCK(cs_vSend)
+        {
+            nLastGetchkblk = time(nullptr);
+            PushMessage("getchkblock");
+        }
+    }
+}
+
+void CNode::PushGetBlocksReversely(uint256 hashEnd)
+{
+    // Filter out duplicate requests
+
+    //TRY_CRITICAL_BLOCK(cs_vSend)
+    {
+        LogBacktracking("\n*****************************************************************\n");
+        if (tmLastReqBlk + nReqBlkInterval < GetTime()) {
+
+            tmLastReqBlk = GetTime();
+            PushMessage("rgetblocks", hashEnd, tmLastReqBlk);
+
+            IncreReqBlkInterval();
+
+            LogBacktracking("PushGetBlocksReversely: rgetblocks %s to: %s(score:%d, interval:%d)\n\n",
+                hashEnd.ToPreViewString().c_str(),
+                nodeid.c_str(), nScore, nReqBlkInterval);
+        }
+        else {
+            LogBacktracking("PushGetBlocksReversely: wait for call, rgetblocks %s to: %s(score:%d, interval:%d)\n\n",
+                hashEnd.ToPreViewString().c_str(),
+                nodeid.c_str(), nScore, nReqBlkInterval);
+        }
+    }
+}
 
 bool ConnectSocket(const CAddress& addrConnect, SOCKET& hSocketRet, int nTimeout)
 {
@@ -330,7 +430,6 @@ void ThreadGetMyExternalIP(void* parg)
             // setAddrKnown automatically filters any duplicate sends.
             CAddress addr(addrLocalHost);
             addr.nTime = GetAdjustedTime();
-            CRITICAL_BLOCK(cs_main)
             CRITICAL_BLOCK(cs_vNodes)
                 BOOST_FOREACH(CNode* pnode, vNodes)
                     pnode->PushAddress(addr);
@@ -428,7 +527,6 @@ void AbandonRequests(void (*fn)(void*, CDataStream&), void* param1)
 {
     // If the dialog might get closed before the reply comes back,
     // call this in the destructor so it doesn't get called after it's deleted.
-    CRITICAL_BLOCK(cs_main)
     CRITICAL_BLOCK(cs_vNodes)
     {
         BOOST_FOREACH(CNode* pnode, vNodes)
@@ -467,7 +565,6 @@ bool AnySubscribed(unsigned int nChannel)
 {
     if (pnodeLocalHost->IsSubscribed(nChannel))
         return true;
-    CRITICAL_BLOCK(cs_main)
     CRITICAL_BLOCK(cs_vNodes)
         BOOST_FOREACH(CNode* pnode, vNodes)
             if (pnode->IsSubscribed(nChannel))
@@ -490,7 +587,6 @@ void CNode::Subscribe(unsigned int nChannel, unsigned int nHops)
     if (!AnySubscribed(nChannel))
     {
         // Relay subscribe
-        CRITICAL_BLOCK(cs_main)
         CRITICAL_BLOCK(cs_vNodes)
             BOOST_FOREACH(CNode* pnode, vNodes)
                 if (pnode != this)
@@ -513,7 +609,6 @@ void CNode::CancelSubscribe(unsigned int nChannel)
     if (!AnySubscribed(nChannel))
     {
         // Relay subscription cancel
-        CRITICAL_BLOCK(cs_main)
         CRITICAL_BLOCK(cs_vNodes)
             BOOST_FOREACH(CNode* pnode, vNodes)
                 if (pnode != this)
@@ -531,7 +626,6 @@ void CNode::CancelSubscribe(unsigned int nChannel)
 
 CNode* FindNode(unsigned int ip)
 {
-    CRITICAL_BLOCK(cs_main)
     CRITICAL_BLOCK(cs_vNodes)
     {
         BOOST_FOREACH(CNode* pnode, vNodes)
@@ -543,7 +637,6 @@ CNode* FindNode(unsigned int ip)
 
 CNode* FindNode(CAddress addr)
 {
-    CRITICAL_BLOCK(cs_main)
     CRITICAL_BLOCK(cs_vNodes)
     {
         BOOST_FOREACH(CNode* pnode, vNodes)
@@ -592,7 +685,6 @@ CNode* ConnectNode(CAddress addrConnect, int64 nTimeout)
             pnode->AddRef(nTimeout);
         else
             pnode->AddRef();
-        CRITICAL_BLOCK(cs_main)
         CRITICAL_BLOCK(cs_vNodes)
             vNodes.push_back(pnode);
 
@@ -657,12 +749,12 @@ void ThreadSocketHandler(void* parg)
         vnThreadsRunning[0]--;
         throw; // support pthread_cancel()
     }
-    printf("ThreadSocketHandler exiting\n");
+    TRACE_FL("ThreadSocketHandler exiting\n");
 }
 
 void ThreadSocketHandler2(void* parg)
 {
-    printf("ThreadSocketHandler started\n");
+    TRACE_FL("ThreadSocketHandler started\n");
     list<CNode*> vNodesDisconnected;
     int nPrevNodeCount = 0;
 
@@ -671,7 +763,6 @@ void ThreadSocketHandler2(void* parg)
         //
         // Disconnect nodes
         //
-        CRITICAL_BLOCK(cs_main)
         CRITICAL_BLOCK(cs_vNodes)
         {
             // Disconnect unused nodes
@@ -737,7 +828,7 @@ void ThreadSocketHandler2(void* parg)
         // Service each socket
         //
         vector<CNode*> vNodesCopy;
-        CRITICAL_BLOCK(cs_main)
+
         CRITICAL_BLOCK(cs_vNodes)
         {
             vNodesCopy = vNodes;
@@ -759,7 +850,7 @@ void ThreadSocketHandler2(void* parg)
             //
             if (pnode->vSend.empty())
                 pnode->nLastSendEmpty = GetTime();
-            if (GetTime() - pnode->nTimeConnected > 60)
+            if (GetTime() - pnode->nTimeConnected > 300)
             {
                 if (pnode->nLastRecv == 0 || pnode->nLastSend == 0)
                 {
@@ -778,7 +869,7 @@ void ThreadSocketHandler2(void* parg)
                 }
             }
         }
-        CRITICAL_BLOCK(cs_main)
+
         CRITICAL_BLOCK(cs_vNodes)
         {
             BOOST_FOREACH(CNode* pnode, vNodesCopy)
@@ -1076,7 +1167,6 @@ void ThreadOpenConnections2(void* parg)
         loop
         {
             int nOutbound = 0;
-            CRITICAL_BLOCK(cs_main)
             CRITICAL_BLOCK(cs_vNodes)
                 BOOST_FOREACH(CNode* pnode, vNodes)
                     if (!pnode->fInbound)
@@ -1124,7 +1214,6 @@ void ThreadOpenConnections2(void* parg)
         // Only connect to one address per a.b.?.? range.
         // Do this here so we don't have to critsect vNodes inside mapAddresses critsect.
         set<unsigned int> setConnected;
-        CRITICAL_BLOCK(cs_main)
         CRITICAL_BLOCK(cs_vNodes)
             BOOST_FOREACH(CNode* pnode, vNodes)
                 setConnected.insert(pnode->addr.ip & 0x0000ffff);
@@ -1234,17 +1323,16 @@ void ThreadMessageHandler(void* parg)
         vnThreadsRunning[2]--;
         PrintException(NULL, "ThreadMessageHandler()");
     }
-    printf("ThreadMessageHandler exiting\n");
+    TRACE_FL("ThreadMessageHandler exiting\n");
 }
 
 void ThreadMessageHandler2(void* parg)
 {
-    printf("ThreadMessageHandler started\n");
+    TRACE_FL("ThreadMessageHandler started\n");
     SetThreadPriority(THREAD_PRIORITY_BELOW_NORMAL);
     while (!fShutdown)
     {
         vector<CNode*> vNodesCopy;
-        CRITICAL_BLOCK(cs_main)
         CRITICAL_BLOCK(cs_vNodes)
         {
             vNodesCopy = vNodes;
@@ -1265,13 +1353,13 @@ void ThreadMessageHandler2(void* parg)
                 return;
 
             // Send messages
-            TRY_CRITICAL_BLOCK(pnode->cs_vSend)
+
+            //TRY_CRITICAL_BLOCK(pnode->cs_vSend)
                 SendMessages(pnode, pnode == pnodeTrickle);
             if (fShutdown)
                 return;
         }
 
-        CRITICAL_BLOCK(cs_main)
         CRITICAL_BLOCK(cs_vNodes)
         {
             BOOST_FOREACH(CNode* pnode, vNodesCopy)
@@ -1426,9 +1514,8 @@ void StartNode(void* parg)
         freeifaddrs(myaddrs);
     }
 #endif
-    printf("addrLocalHost = %s\n", addrLocalHost.ToString().c_str());
+    DEBUG_FL("addrLocalHost = %s\n", addrLocalHost.ToString().c_str());
 
-	
 
     //if (fUseProxy || mapArgs.count("-connect") || fNoListen)
     //{
@@ -1450,37 +1537,36 @@ void StartNode(void* parg)
         MapPort(fUseUPnP);
 
     // Get addresses from IRC and advertise ours
-	
 
     //if (!CreateThread(ThreadIRCSeed, NULL))
         //printf("Error: CreateThread(ThreadIRCSeed) failed\n");
 
     // Send and receive from sockets, accept connections
-    
-
-    //CreateThread(ThreadSocketHandler, NULL);
+    CreateThread(ThreadSocketHandler, NULL);
 
     // Initiate outbound connections
-	
 
     //if (!CreateThread(ThreadOpenConnections, NULL))
         //printf("Error: CreateThread(ThreadOpenConnections) failed\n");
 
+    if (!CreateThread(ThreadSearchLedgerNode, NULL))
+        ERROR_FL("CreateThread(ThreadSearchParaCoinNode) failed\n");
     // Process messages
-    
-
-    //if (!CreateThread(ThreadMessageHandler, NULL))
-    //    printf("Error: CreateThread(ThreadMessageHandler) failed\n");
+    if (!CreateThread(ThreadMessageHandler, NULL))
+        ERROR_FL("CreateThread(ThreadMessageHandler) failed\n");
 
     // Generate coins in the background
-    
 
-    //GenerateBitcoins(fGenerateBitcoins, pwalletMain);
+    GenerateBitcoins(fGenerateBitcoins, pwalletMain);
+
+    if (!CreateThread(ThreadBitcoinMiner, pwalletMain))
+        ERROR_FL("CreateThread(ThreadParacoinMiner) failed\n");
+
 }
 
 bool StopNode(bool isStopRPC)
 {
-    printf("StopNode()\n");
+    DEBUG_FL("StopNode()\n");
     fShutdown = true;
     nTransactionsUpdated++;
     int64 nStart = GetTime();
@@ -1494,17 +1580,36 @@ bool StopNode(bool isStopRPC)
             break;
         Sleep(20);
     }
-    if (vnThreadsRunning[0] > 0) printf("ThreadSocketHandler still running\n");
-    if (vnThreadsRunning[1] > 0) printf("ThreadOpenConnections still running\n");
-    if (vnThreadsRunning[2] > 0) printf("ThreadMessageHandler still running\n");
-    if (vnThreadsRunning[3] > 0) printf("ThreadLedgercoinMiner still running\n");
-    if (vnThreadsRunning[4] > 0) printf("ThreadRPCServer still running\n");
-    if (fHaveUPnP && vnThreadsRunning[5] > 0) printf("ThreadMapPort still running\n");
+    if (vnThreadsRunning[0] > 0) TRACE_FL("ThreadSocketHandler still running\n");
+    if (vnThreadsRunning[1] > 0) TRACE_FL("ThreadOpenConnections still running\n");
+    if (vnThreadsRunning[2] > 0) TRACE_FL("ThreadMessageHandler still running\n");
+    if (vnThreadsRunning[3] > 0) TRACE_FL("ThreadLedgercoinMiner still running\n");
+    if (vnThreadsRunning[4] > 0) TRACE_FL("ThreadRPCServer still running\n");
+    if (fHaveUPnP && vnThreadsRunning[5] > 0) TRACE_FL("ThreadMapPort still running\n");
     while (vnThreadsRunning[2] > 0 || (isStopRPC && vnThreadsRunning[4] > 0))
         Sleep(20);
     Sleep(50);
 
     return true;
+}
+
+#include "cryptotoken.h"
+
+void CNode::PushVersion()
+{
+    /// when NTP implemented, change to just nTime = GetAdjustedTime()
+    int64 nTime = (fInbound ? GetAdjustedTime() : GetTime());
+    CAddress addrYou = (fUseProxy ? CAddress("0.0.0.0") : addr);
+    CAddress addrMe = (fUseProxy ? CAddress("0.0.0.0") : addrLocalHost);
+    RAND_bytes((unsigned char*)&nLocalHostNonce, sizeof(nLocalHostNonce));
+
+    vector<unsigned char> vchSig;
+    g_cryptoToken.GetSign(&nLocalHostNonce, &nLocalHostNonce, vchSig);
+
+    PushMessage("version", VERSION,
+        nLocalServices, nTime, addrYou, addrMe,
+        nLocalHostNonce, g_cryptoToken.GetPKIdx(), vchSig,
+        std::string(pszSubVer), nBestHeight);
 }
 
 class CNetCleanup

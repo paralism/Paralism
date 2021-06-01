@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -101,6 +101,27 @@ unsigned short GetListenPort()
 
 std::map<CBlockIndexSP, std::tuple<CBlockLocator, int64>> g_mapblkindexLocator;
 
+void CNode::IncreReqBlkInterval()
+{
+    nScore--;
+    nReqBlkInterval += nMinInterval;
+}
+
+void CNode::DecreReqBlkInterval(int64 timeReqBlk)
+{
+    nScore++;
+    int64 timeEscaped = GetTime() - timeReqBlk;
+
+    if (timeEscaped < nReqBlkInterval) {
+        nReqBlkInterval = timeEscaped;
+        return;
+    }
+
+    if (nReqBlkInterval > 0)
+        nReqBlkInterval -= nMinInterval;
+}
+
+
 void CNode::PushGetBlocks(CBlockIndexSP pindexBegin, uint256 hashEnd)
 {
     // Filter out duplicate requests
@@ -113,8 +134,8 @@ void CNode::PushGetBlocks(CBlockIndexSP pindexBegin, uint256 hashEnd)
         hashLastGetBlocksEnd = hashEnd;
         tmRequest = time(nullptr);
 
-        printf("\n*****************************************************************\n");
-        printf("PushGetBlocks: getblocks %d %s to: %s\n\n",
+        TRACE_FL("\n*****************************************************************\n");
+        TRACE_FL("PushGetBlocks: getblocks %d %s to: %s\n\n",
             (pindexBegin ? pindexBegin->nHeight : -1),
             (pindexBegin ? pindexBegin->GetBlockHash().ToPreViewString().c_str() : "null"),
             nodeid.c_str());
@@ -125,6 +146,7 @@ void CNode::PushGetBlocks(CBlockIndexSP pindexBegin, uint256 hashEnd)
         }
         else {
             if (g_mapblkindexLocator.size() > 3) {
+
                 int64 mintm = time(nullptr);
                 auto bil = g_mapblkindexLocator.begin();
                 auto it = g_mapblkindexLocator.begin();
@@ -149,6 +171,7 @@ void CNode::PushGetBlocks(CBlockIndexSP pindexBegin, uint256 hashEnd)
 void CNode::GetChkBlock()
 {
     auto now = time(nullptr);
+
     if (nLastGetchkblk + 150 < now) {
         TRY_CRITICAL_BLOCK(cs_vSend)
         {
@@ -161,15 +184,26 @@ void CNode::GetChkBlock()
 void CNode::PushGetBlocksReversely(uint256 hashEnd)
 {
     // Filter out duplicate requests
+
     //TRY_CRITICAL_BLOCK(cs_vSend)
     {
         LogBacktracking("\n*****************************************************************\n");
-        LogBacktracking("PushGetBlocksReversely: rgetblocks %s to: %s(score:%d)\n\n",
-            hashEnd.ToPreViewString().c_str(),
-            nodeid.c_str(), nScore);
+        if (tmLastReqBlk + nReqBlkInterval < GetTime()) {
 
-        nScore -= 300;
-        PushMessage("rgetblocks", hashEnd);
+            tmLastReqBlk = GetTime();
+            PushMessage("rgetblocks", hashEnd, tmLastReqBlk);
+
+            IncreReqBlkInterval();
+
+            LogBacktracking("PushGetBlocksReversely: rgetblocks %s to: %s(score:%d, interval:%d)\n\n",
+                hashEnd.ToPreViewString().c_str(),
+                nodeid.c_str(), nScore, nReqBlkInterval);
+        }
+        else {
+            LogBacktracking("PushGetBlocksReversely: wait for call, rgetblocks %s to: %s(score:%d, interval:%d)\n\n",
+                hashEnd.ToPreViewString().c_str(),
+                nodeid.c_str(), nScore, nReqBlkInterval);
+        }
     }
 }
 
@@ -186,6 +220,7 @@ bool ConnectSocket(const CAddress& addrConnect, SOCKET& hSocketRet, int nTimeout
 
 
     hSocketRet = hSocket;
+
 
     return false;
 }
@@ -421,7 +456,7 @@ bool AddAddress(CAddress addr, int64 nTimePenalty, CAddrDB *pAddrDB)
         if (it == mapAddresses.end())
         {
             // New address
-            printf("AddAddress(%s)\n", addr.ToString().c_str());
+            TRACE_FL("AddAddress(%s)\n", addr.ToString().c_str());
             mapAddresses.insert(make_pair(addr.GetKey(), addr));
             fUpdated = true;
             fNew = true;
@@ -712,12 +747,12 @@ void ThreadSocketHandler(void* parg)
         vnThreadsRunning[0]--;
         throw; // support pthread_cancel()
     }
-    printf("ThreadSocketHandler exiting\n");
+    TRACE_FL("ThreadSocketHandler exiting\n");
 }
 
 void ThreadSocketHandler2(void* parg)
 {
-    printf("ThreadSocketHandler started\n");
+    TRACE_FL("ThreadSocketHandler started\n");
     list<CNode*> vNodesDisconnected;
     int nPrevNodeCount = 0;
 
@@ -1286,12 +1321,12 @@ void ThreadMessageHandler(void* parg)
         vnThreadsRunning[2]--;
         PrintException(NULL, "ThreadMessageHandler()");
     }
-    printf("ThreadMessageHandler exiting\n");
+    TRACE_FL("ThreadMessageHandler exiting\n");
 }
 
 void ThreadMessageHandler2(void* parg)
 {
-    printf("ThreadMessageHandler started\n");
+    TRACE_FL("ThreadMessageHandler started\n");
     SetThreadPriority(THREAD_PRIORITY_BELOW_NORMAL);
     while (!fShutdown)
     {
@@ -1316,6 +1351,7 @@ void ThreadMessageHandler2(void* parg)
                 return;
 
             // Send messages
+
             //TRY_CRITICAL_BLOCK(pnode->cs_vSend)
                 SendMessages(pnode, pnode == pnodeTrickle);
             if (fShutdown)
@@ -1476,7 +1512,8 @@ void StartNode(void* parg)
         freeifaddrs(myaddrs);
     }
 #endif
-    printf("addrLocalHost = %s\n", addrLocalHost.ToString().c_str());
+    DEBUG_FL("addrLocalHost = %s\n", addrLocalHost.ToString().c_str());
+
 
     //if (fUseProxy || mapArgs.count("-connect") || fNoListen)
     //{
@@ -1498,21 +1535,23 @@ void StartNode(void* parg)
         MapPort(fUseUPnP);
 
     // Get addresses from IRC and advertise ours
+
     //if (!CreateThread(ThreadIRCSeed, NULL))
-        //printf("Error: CreateThread(ThreadIRCSeed) failed\n");
+        //ERROR_FL("Error: CreateThread(ThreadIRCSeed) failed\n");
 
     // Send and receive from sockets, accept connections
     CreateThread(ThreadSocketHandler, NULL);
 
     // Initiate outbound connections
+
     //if (!CreateThread(ThreadOpenConnections, NULL))
         //printf("Error: CreateThread(ThreadOpenConnections) failed\n");
 
     if (!CreateThread(ThreadSearchParaCoinNode, NULL))
-        printf("Error: CreateThread(ThreadSearchParaCoinNode) failed\n");
+        ERROR_FL("CreateThread(ThreadSearchParaCoinNode) failed\n");
     // Process messages
     if (!CreateThread(ThreadMessageHandler, NULL))
-        printf("Error: CreateThread(ThreadMessageHandler) failed\n");
+        ERROR_FL("CreateThread(ThreadMessageHandler) failed\n");
 
     // Generate coins in the background
     GenerateBitcoins(fGenerateBitcoins, pwalletMain);
@@ -1520,7 +1559,7 @@ void StartNode(void* parg)
 
 bool StopNode(bool isStopRPC)
 {
-    printf("StopNode()\n");
+    DEBUG_FL("StopNode()\n");
     fShutdown = true;
     nTransactionsUpdated++;
     int64 nStart = GetTime();
@@ -1534,12 +1573,12 @@ bool StopNode(bool isStopRPC)
             break;
         Sleep(20);
     }
-    if (vnThreadsRunning[0] > 0) printf("ThreadSocketHandler still running\n");
-    if (vnThreadsRunning[1] > 0) printf("ThreadOpenConnections still running\n");
-    if (vnThreadsRunning[2] > 0) printf("ThreadMessageHandler still running\n");
-    if (vnThreadsRunning[3] > 0) printf("ThreadParacoinMiner still running\n");
-    if (vnThreadsRunning[4] > 0) printf("ThreadRPCServer still running\n");
-    if (fHaveUPnP && vnThreadsRunning[5] > 0) printf("ThreadMapPort still running\n");
+    if (vnThreadsRunning[0] > 0) TRACE_FL("ThreadSocketHandler still running\n");
+    if (vnThreadsRunning[1] > 0) TRACE_FL("ThreadOpenConnections still running\n");
+    if (vnThreadsRunning[2] > 0) TRACE_FL("ThreadMessageHandler still running\n");
+    if (vnThreadsRunning[3] > 0) TRACE_FL("ThreadParacoinMiner still running\n");
+    if (vnThreadsRunning[4] > 0) TRACE_FL("ThreadRPCServer still running\n");
+    if (fHaveUPnP && vnThreadsRunning[5] > 0) TRACE_FL("ThreadMapPort still running\n");
     while (vnThreadsRunning[2] > 0 || (isStopRPC && vnThreadsRunning[4] > 0))
         Sleep(20);
     Sleep(50);

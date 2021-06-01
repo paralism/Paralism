@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -36,13 +36,13 @@ using namespace std;
 
 #define LEDGER_T_SERVICE "LEDGER_task"
 
-
 enum class LEDGER_TASKTYPE : unsigned char
 {
     BASETYPE = 0,
     LEDGER,
     LEDGER_PING_NODE,
     LEDGER_PING_NODE_RSP,
+    REINIT,
 };
 
 void pingNode(const CAddress &addrConnect);
@@ -66,7 +66,6 @@ public:
     ILedgerTask() {}
     ILedgerTask(TASKBUF && recvbuf) : ITask(std::forward<TASKBUF>(recvbuf))
     {
-        
 
         _payload++;
         _payloadlen--;

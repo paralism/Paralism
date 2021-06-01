@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -59,19 +59,17 @@ public:
     {
         g_consensus_console_logger->trace("enter OnChainRspTask: {}", _peerid.ToHexString());
 
-        
 
-        
 
         T_SHA256 preHyperBlockHash;
         uint64 prehyperblockid = 0;
+        uint64 ctm;
         CHyperChainSpace* sp = Singleton<CHyperChainSpace, string>::getInstance();
-        sp->GetLatestHyperBlockIDAndHash(prehyperblockid, preHyperBlockHash);
+        sp->GetLatestHyperBlockIDAndHash(prehyperblockid, preHyperBlockHash, ctm);
 
         ConsensusEngine *pEng = Singleton<ConsensusEngine>::getInstance();
         T_P2PMANAGERSTATUS *pConsensusStatus = pEng->GetConsunsusState();
 
-        
 
         size_t consensusblks = pConsensusStatus->listLocalBuddyChainInfo.size();
         if (consensusblks == 0) {
@@ -86,8 +84,8 @@ public:
         try {
             ia >> P2pProtocolOnChainReqRecv;
         }
-        catch (runtime_error& e) {
-            g_consensus_console_logger->warn("{}", e.what());
+        catch (boost::archive::archive_exception& e) {
+            g_console_logger->error("{} {}", __FUNCTION__, e.what());
             return;
         }
 
@@ -100,7 +98,6 @@ public:
 
         bool index = false;
 
-        
 
         consensusblks = pConsensusStatus->listLocalBuddyChainInfo.size();
         if (consensusblks == 0) {
@@ -114,7 +111,6 @@ public:
             return;
         }
 
-        
 
         pConsensusStatus->UpdateLocalBuddyBlockToLatest(prehyperblockid, preHyperBlockHash);
 
@@ -122,7 +118,6 @@ public:
         copyLocalBuddyList(buddyInfo.localList, pConsensusStatus->listLocalBuddyChainInfo);
 
         auto firstelm = buddyInfo.localList.begin();
-        
 
         for (uint64 i = 0; i < P2pProtocolOnChainReqRecv.GetBlockCount(); i++) {
             T_LOCALCONSENSUS  LocalBlockInfo;
@@ -143,10 +138,8 @@ public:
             index = JudgExistAtLocalBuddy(buddyInfo.localList, LocalBlockInfo);
             if (index)
                 continue;
-            
 
             buddyInfo.localList.push_back(LocalBlockInfo);
-            
 
             buddyInfo.localList.sort(CmpareOnChain());
         }
@@ -158,12 +151,18 @@ public:
         stringstream ssList;
         boost::archive::binary_oarchive oaList(ssList, boost::archive::archive_flags::no_header);
 
-        ITR_LIST_T_LOCALCONSENSUS itrTemp = buddyInfo.localList.begin();
-        for (; itrTemp != buddyInfo.localList.end(); itrTemp++) {
-            oaList << (*itrTemp);
+        try {
+            ITR_LIST_T_LOCALCONSENSUS itrTemp = buddyInfo.localList.begin();
+            for (; itrTemp != buddyInfo.localList.end(); itrTemp++) {
+                oaList << (*itrTemp);
+            }
         }
+        catch (boost::archive::archive_exception& e) {
+            g_consensus_console_logger->error("{} {}", __FUNCTION__, e.what());
+            return;
+        }
+
         buddyInfo.SetPeerAddrOut(T_PEERADDRESS(_peerid));
-        
 
         buddyInfo.SetBuddyState(SEND_ON_CHAIN_RSP);
 
@@ -183,7 +182,6 @@ public:
                 return;
             }
         }
-        
 
         pConsensusStatus->listCurBuddyReq.push_back(buddyInfo);
 
@@ -191,7 +189,8 @@ public:
 
         T_SHA256 tPreHyperBlockHash;
         uint64 hyperblockid = 0;
-        sp->GetLatestHyperBlockIDAndHash(hyperblockid, tPreHyperBlockHash);
+
+        sp->GetLatestHyperBlockIDAndHash(hyperblockid, tPreHyperBlockHash, ctm);
 
         T_P2PPROTOCOLONCHAINRSP P2pProtocolOnChainRsp;
         P2pProtocolOnChainRsp.SetP2pprotocolonchainrsp(T_P2PPROTOCOLRSP(T_P2PPROTOCOLTYPE(P2P_PROTOCOL_ON_CHAIN_RSP, CCommonStruct::gettimeofday_update()), P2P_PROTOCOL_SUCCESS),
@@ -200,11 +199,17 @@ public:
 
         stringstream ssBuf;
         boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
-        oa << P2pProtocolOnChainRsp;
+        try {
+            oa << P2pProtocolOnChainRsp;
 
-        ITR_LIST_T_LOCALCONSENSUS itr = buddyInfo.localList.begin();
-        for (; itr != buddyInfo.localList.end(); itr++) {
-            oa << (*itr);
+            ITR_LIST_T_LOCALCONSENSUS itr = buddyInfo.localList.begin();
+            for (; itr != buddyInfo.localList.end(); itr++) {
+                oa << (*itr);
+            }
+        }
+        catch (boost::archive::archive_exception& e) {
+            g_consensus_console_logger->error("{} {}", __FUNCTION__, e.what());
+            return;
         }
 
         DataBuffer<OnChainRspTask> msgbuf(std::move(ssBuf.str()));
@@ -252,14 +257,14 @@ public:
     ~OnChainTask() {};
     void exec() override
     {
-        
 
-        
 
         T_SHA256 preHyperBlockHash;
         uint64 prehyperblockid = 0;
+        uint64 ctm;
+
         CHyperChainSpace* sp = Singleton<CHyperChainSpace, string>::getInstance();
-        sp->GetLatestHyperBlockIDAndHash(prehyperblockid, preHyperBlockHash);
+        sp->GetLatestHyperBlockIDAndHash(prehyperblockid, preHyperBlockHash, ctm);
 
         ConsensusEngine *pEng = Singleton<ConsensusEngine>::getInstance();
         T_P2PMANAGERSTATUS *pConsensusStatus = pEng->GetConsunsusState();
@@ -292,7 +297,6 @@ public:
             return;
         }
 
-        
 
         T_P2PPROTOCOLONCHAINREQ P2pProtocolOnChainReq;
         P2pProtocolOnChainReq.SetP2pprotocolonchainreq(T_P2PPROTOCOLTYPE(P2P_PROTOCOL_ON_CHAIN_REQ, CCommonStruct::gettimeofday_update()),
@@ -300,17 +304,23 @@ public:
 
         stringstream ssBuf;
         boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
-        oa << P2pProtocolOnChainReq;
-
         uint32_t i = 0;
+        try {
+            oa << P2pProtocolOnChainReq;
 
-        itr = pConsensusStatus->listLocalBuddyChainInfo.begin();
-        for (; itr != pConsensusStatus->listLocalBuddyChainInfo.end(); itr++) {
-            T_LOCALCONSENSUS PeerInfos;
-            PeerInfos.SetLoaclConsensus((*itr).GetPeer(), (*itr).GetLocalBlock());
-            oa << PeerInfos;
-            i++;
+            itr = pConsensusStatus->listLocalBuddyChainInfo.begin();
+            for (; itr != pConsensusStatus->listLocalBuddyChainInfo.end(); itr++) {
+                T_LOCALCONSENSUS PeerInfos;
+                PeerInfos.SetLoaclConsensus((*itr).GetPeer(), (*itr).GetLocalBlock());
+                oa << PeerInfos;
+                i++;
+            }
         }
+        catch (boost::archive::archive_exception& e) {
+            g_consensus_console_logger->error("{} {}", __FUNCTION__, e.what());
+            return;
+        }
+
         DataBuffer<OnChainTask> msgbuf(std::move(ssBuf.str()));
 
         g_consensus_console_logger->info("Broadcast OnChainTask...block number:{} prehyperblockid:{}", i,
@@ -326,15 +336,14 @@ public:
         localBuddyInfo.Set(RECV_REQ, _payloadlen, _payload, peerAddrOut);
 
         stringstream ssBuf(localBuddyInfo.GetBuffer());
-        
 
         boost::archive::binary_iarchive ia(ssBuf, boost::archive::archive_flags::no_header);
         T_P2PPROTOCOLONCHAINREQ P2pProtocolOnChainReq;
         try {
             ia >> P2pProtocolOnChainReq;
         }
-        catch (runtime_error& e) {
-            g_consensus_console_logger->warn("{}", e.what());
+        catch (boost::archive::archive_exception& e) {
+            g_consensus_console_logger->error("{} {}", __FUNCTION__, e.what());
             return;
         }
 
@@ -350,8 +359,8 @@ public:
             try {
                 iaTemp >> currReq;
             }
-            catch (runtime_error& e) {
-                g_consensus_console_logger->warn("{}", e.what());
+            catch (boost::archive::archive_exception& e) {
+                g_consensus_console_logger->error("{} {}", __FUNCTION__, e.what());
                 return;
             }
             if ((*itr).GetRequestAddress() == localBuddyInfo.GetRequestAddress()) {
@@ -366,7 +375,6 @@ public:
         }
 
         if (!index) {
-            
 
             pConsensusStatus->listRecvLocalBuddyReq.push_back(localBuddyInfo);
         }

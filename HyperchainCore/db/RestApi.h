@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -82,25 +82,27 @@ public:
     void blockBodyToJsonValue(const T_HYPERBLOCK &hyperblock, json::value& val);
     void blockToJsonValue(const T_HYPERBLOCK& hyperblock, size_t hyperBlockSize, json::value& val);
 
-    json::value MakeRegistration(string strdata);
+    json::value MakeRegistration(const SubmitData &data, http::status_code& code);
+    static bool Upqueue(const SubmitData& data, vector<string>& out_vc);
+
     json::value MakeBatchRegistration(string strdata);
-    static bool Upqueue(string strdata, vector<string>& out_vc);
+
 
     json::value getLocalblock(uint64_t hid, uint16 id, uint16 chain_num);
     json::value getLocalblockHead(uint64_t hid, uint16 id, uint16 chain_num);
     json::value getLocalblockBody(uint64_t hid, uint16 id, uint16 chain_num);
 
-    json::value getHyperblocks(uint64_t nStartId, uint64_t nNum);		
-    json::value getHyperblockInfo(uint64_t hid);								
+    json::value getHyperblocks(uint64_t nStartId, uint64_t nNum);
+    json::value getHyperblockInfo(uint64_t hid);
     json::value getHyperblockHead(uint64_t hid);
     json::value getHyperblockBody(uint64_t hid);
 
     json::value getLocalchain(uint64_t hid, uint64_t chain_num);
 
-    json::value getOnchainState(const string & requestID);
+    static string getOnchainState(const string & requestID, T_LOCALBLOCKADDRESS *pblockaddr);
+    static json::value getOnchainState(const string & requestID);
     json::value getBatchOnchainState(const string & batchID);
 
-    static string GetOnchainState(const string & requestID);
     static void SubmitBatchRegistration();
     static void SubmitBatchRegistrationThread();
     static void RetrySubmit();

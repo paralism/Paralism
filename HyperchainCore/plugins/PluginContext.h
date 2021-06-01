@@ -32,7 +32,6 @@ struct PluginContext
     std::shared_ptr<spdlog::logger> consensus_console_logger;
 #endif
 
-    
 
     void SetPluginContext()
     {
@@ -44,7 +43,6 @@ struct PluginContext
 
         g_inproc_context = inproc_context;
 
-        
 
         //g_tP2pManagerStatus = tP2pManagerStatus;
 

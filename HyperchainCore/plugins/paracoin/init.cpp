@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -46,9 +46,9 @@ DEALINGS IN THE SOFTWARE.
 using namespace std;
 
 extern bool HandleGenesisBlockCb(vector<T_PAYLOADADDR>& vecPA);
-extern bool PutParaCoinChainCb();
+extern bool PutChainCb();
 extern bool CheckChainCb(vector<T_PAYLOADADDR>& vecPA);
-extern bool AcceptChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& , uint32_t& hidFork, uint32_t& hid, T_SHA256& thhash, bool isLatest);
+extern bool AcceptChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>&, uint32_t& hidFork, uint32_t& hid, T_SHA256& thhash, bool isLatest);
 extern bool CheckChainCbWhenOnChaining(vector<T_PAYLOADADDR>& vecPA, uint32_t prevhid, T_SHA256& tprevhhash);
 extern bool ValidateLedgerDataCb(T_PAYLOADADDR& payloadaddr, map<boost::any, T_LOCALBLOCKADDRESS>& mapOutPt, boost::any& hashPrevBlock);
 extern bool BlockUUIDCb(string& payload, string& uuidpayload);
@@ -72,22 +72,30 @@ extern CAddress g_seedserver;
 
 string GetHyperChainDataDir()
 {
-	string datapath;
-	boost::filesystem::path pathDataDir;
-	if (mapArgs.count("-datadir") && boost::filesystem::is_directory(boost::filesystem::system_complete(mapArgs["-datadir"])))
-		pathDataDir = boost::filesystem::system_complete(mapArgs["-datadir"]);
-	else
-		pathDataDir = boost::filesystem::system_complete(".");
+    string datapath;
+    boost::filesystem::path pathDataDir;
+    if (mapArgs.count("-datadir")) {
+        pathDataDir = boost::filesystem::system_complete(mapArgs["-datadir"]);
+        if (!boost::filesystem::exists(pathDataDir))
+            if (!boost::filesystem::create_directories(pathDataDir)) {
+                cerr << "can not create directory: " << pathDataDir << endl;
+                pathDataDir = boost::filesystem::system_complete(".");
+            }
+    }
+    else
+        pathDataDir = boost::filesystem::system_complete(".");
 
-	if (mapArgs.count("-model") && mapArgs["-model"] == "informal")
-		pathDataDir /= "informal";
-	else
-		pathDataDir /= "sandbox";
+    if (mapArgs.count("-model") && mapArgs["-model"] == "informal")
+        pathDataDir /= "informal";
+    else if (mapArgs.count("-model") && mapArgs["-model"] == "formal")
+        pathDataDir /= "formal";
+    else
+        pathDataDir /= "sandbox";
 
-	if (!boost::filesystem::exists(pathDataDir))
-		boost::filesystem::create_directories(pathDataDir);
+    if (!boost::filesystem::exists(pathDataDir))
+        boost::filesystem::create_directories(pathDataDir);
 
-	return pathDataDir.string();
+    return pathDataDir.string();
 }
 
 string CreateChildDir(const string& childdir)
@@ -118,7 +126,7 @@ static std::shared_ptr<boost::interprocess::file_lock> g_pLock;
 
 void StopApplication()
 {
-	Shutdown(nullptr);
+    Shutdown(nullptr);
 }
 
 bool IsStopped()
@@ -151,10 +159,9 @@ void ShutdownExcludeRPCServer()
     delete pwalletMain;
     pwalletMain = nullptr;
 
-    
 
     //{
-        vNodes.clear();
+    vNodes.clear();
     //}
     //CreateThread(ExitTimeout, NULL);
     Sleep(50);
@@ -172,10 +179,6 @@ void Shutdown(void* parg)
         fTaken = true;
     }
 
-    
-
-    g_sys_interrupted = 1;
-
     ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::getInstance();
     if (consensuseng) {
         consensuseng->UnregisterAppCallback(T_APPTYPE(APPTYPE::paracoin, 0, 0, 0));
@@ -187,9 +190,8 @@ void Shutdown(void* parg)
         g_pLock->unlock();
     }
 
-    if (fFirstThread)
-    {
-        printf("Stopping Hyperchain ParaCoin...\n");
+    if (fFirstThread) {
+        INFO_FL("Stopping Hyperchain ParaCoin...\n");
 
         fShutdown = true;
         StopMQHandler();
@@ -206,7 +208,7 @@ void Shutdown(void* parg)
         Sleep(50);
         fExit = true;
     }
- }
+}
 
 void HandleSIGTERM(int)
 {
@@ -215,7 +217,6 @@ void HandleSIGTERM(int)
 
 bool LoadCryptoCurrency()
 {
-    
 
     CApplicationSettings appini;
     string defaultAppHash;
@@ -230,13 +231,12 @@ bool LoadCryptoCurrency()
     g_cryptoCurrency.SelectNetWorkParas();
     if (!CryptoCurrency::ContainCurrency(coinhash)) {
 
-        ERROR_FL("Invalid Cryptocurrency: %s", coinhash.c_str());
+        cerr << strprintf("Invalid Cryptocurrency: %s\n", coinhash.c_str());
+        ERROR_FL("Invalid Cryptocurrency: %s\n", coinhash.c_str());
         if (CryptoCurrency::ContainCurrency(defaultAppHash)) {
-            ERROR_FL("Invalid Cryptocurrency: %s", coinhash.c_str());
             coinhash = defaultAppHash;
         }
         else {
-            
 
             coinhash = g_cryptoCurrency.GetHashPrefixOfGenesis();
         }
@@ -246,22 +246,24 @@ bool LoadCryptoCurrency()
         appini.WriteDefaultApp(coinhash);
     }
 
-    
 
     if (g_cryptoCurrency.GetHashPrefixOfGenesis() != coinhash) {
 
         string errmsg;
-        if (!g_cryptoCurrency.ReadCoinFile("", coinhash,errmsg)) {
-            return ERROR_FL("Not found cryptocurrency: %s", coinhash.c_str());
+        if (!g_cryptoCurrency.ReadCoinFile("", coinhash, errmsg)) {
+            return WARNING_FL("Not found cryptocurrency: %s", coinhash.c_str());
         }
     }
     hashGenesisBlock = g_cryptoCurrency.GetHashGenesisBlock();
 
-    
 
     string strLedgerDir = CreateChildDir(g_cryptoCurrency.GetCurrencyConfigPath());
     strlcpy(pszSetDataDir, strLedgerDir.c_str(), sizeof(pszSetDataDir));
 
+    cout << strprintf("Current coin : %s %s [%u,%u,%u]\n",
+        g_cryptoCurrency.GetName().c_str(),
+        g_cryptoCurrency.GetHashPrefixOfGenesis().c_str(),
+        g_cryptoCurrency.GetHID(), g_cryptoCurrency.GetChainNum(), g_cryptoCurrency.GetLocalID());
     return true;
 }
 
@@ -276,17 +278,17 @@ bool StartApplication(PluginContext* context)
         fExit = !fRet;
     }
     catch (std::exception& e) {
-        PrintException(&e, "AppInit()");
+        PrintException(&e, "AppInit2()");
     }
     catch (...) {
-        PrintException(NULL, "AppInit()");
+        PrintException(NULL, "AppInit2()");
     }
     if (!fRet) {
-        printf("Failed to start ParaCoin");
+        PrintException(NULL, "AppInit2(), Failed to start ParaCoin");
         Shutdown(NULL);
     }
 
-    return fRet;
+     return fRet;
 }
 
 bool AppInit2(int argc, char* argv[])
@@ -355,9 +357,8 @@ bool AppInit2(int argc, char* argv[])
 
     NodeManager* mgr = Singleton<NodeManager>::getInstance();
 
-    if (mgr->isSpecfySeedServer()) {
+    if (mgr->isSpecifySeedServer()) {
         HCNodeSH seedser = mgr->seedServer();
-        auto aplist = seedser->getAPList();
 
         string seedserIP;
         int nport;
@@ -370,14 +371,13 @@ bool AppInit2(int argc, char* argv[])
     if (mapArgs.count("-model") && mapArgs["-model"] == "informal")
         pro_ver = ProtocolVer::NET::INFORMAL_NET;
 
-    
 
     LoadCryptoCurrency();
 
     if (!fDebug && !pszSetDataDir[0])
         ShrinkDebugFile();
-    printf("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
-    printf("Hyperchain version %s\n", FormatFullVersion().c_str());
+    INFO_FL("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
+    INFO_FL("Hyperchain version %s\n", FormatFullVersion().c_str());
 
     if (GetBoolArg("-loadblockindextest")) {
         CTxDB_Wrapper txdb("r+");
@@ -417,24 +417,28 @@ bool AppInit2(int argc, char* argv[])
     strErrors = "";
     int64 nStart;
 
-    printf("Loading addresses...\n");
+    INFO_FL("Loading addresses...\n");
     nStart = GetTimeMillis();
     if (!LoadAddresses())
         strErrors += _("Error loading addr.dat      \n");
-    printf(" addresses   %15" PRI64d " ms\n", GetTimeMillis() - nStart);
+    TRACE_FL(" addresses   %15" PRI64d " ms\n", GetTimeMillis() - nStart);
 
-    
 
-    printf("Loading blocks will to do global buddy consensus...\n");
+    INFO_FL("Loading blocks will to do global buddy consensus...\n");
     LoadBlockUnChained();
 
-    printf("Loading block index...\n");
+    {
+        COrphanBlockTripleAddressDB db("cr+");
+    }
+
+
+    fprintf(stdout, "Loading block index...\n");
     nStart = GetTimeMillis();
     if (!LoadBlockIndex())
         strErrors += _("Error loading blkindex.dat      \n");
 
-    printf(" block index %15" PRI64d "ms\n", GetTimeMillis() - nStart);
-    printf("Loading wallet...\n");
+    TRACE_FL(" block index %15" PRI64d "ms\n", GetTimeMillis() - nStart);
+    fprintf(stdout, "Loading wallet...\n");
     nStart = GetTimeMillis();
     bool fFirstRun;
     if (!pwalletMain) {
@@ -445,39 +449,39 @@ bool AppInit2(int argc, char* argv[])
         if (nLoadWalletRet == DB_CORRUPT)
             strErrors += _("Error loading wallet.dat: Wallet corrupted      \n");
         else if (nLoadWalletRet == DB_TOO_NEW)
-            strErrors += _("Error loading wallet.dat: Wallet requires newer version of ParaCoin      \n");
+            strErrors += _("Error loading wallet.dat: Wallet requires newer version of Paracoin      \n");
         else
             strErrors += _("Error loading wallet.dat      \n");
     }
 
-    printf(" wallet      %15" PRI64d "ms\n", GetTimeMillis() - nStart);
+    TRACE_FL(" wallet      %15" PRI64d "ms\n", GetTimeMillis() - nStart);
     RegisterWallet(pwalletMain);
     CBlockIndexSP pindexRescan = pindexBest;
     if (GetBoolArg("-rescan"))
         pindexRescan = pindexGenesisBlock;
     else {
-        CWalletDB walletdb("wallet.dat");
+        CWalletDB_Wrapper walletdb("wallet.dat");
         CBlockLocator locator;
         if (walletdb.ReadBestBlock(locator))
             pindexRescan = locator.GetBlockIndex();
     }
     if (pindexBest != pindexRescan) {
-        printf("Rescanning last %i blocks (from block %i)...\n", pindexBest->nHeight - pindexRescan->nHeight, pindexRescan->nHeight);
+        TRACE_FL("Rescanning last %i blocks (from block %i)...\n", pindexBest->nHeight - pindexRescan->nHeight, pindexRescan->nHeight);
         nStart = GetTimeMillis();
         pwalletMain->ScanForWalletTransactions(pindexRescan, true);
 
-        printf(" rescan      %15" PRI64d "ms\n", GetTimeMillis() - nStart);
+        TRACE_FL(" rescan      %15" PRI64d "ms\n", GetTimeMillis() - nStart);
     }
 
-    printf("Done loading\n");
+    TRACE_FL("Done loading\n");
 
     //// debug print
-    printf("mapBlockIndex.size() = %d\n", mapBlockIndex.size());
+    TRACE_FL("mapBlockIndex.size() = %d\n", mapBlockIndex.size());
 
-    printf("nBestHeight = %d\n", nBestHeight);
-    printf("setKeyPool.size() = %d\n", pwalletMain->setKeyPool.size());
-    printf("mapWallet.size() = %d\n", pwalletMain->mapWallet.size());
-    printf("mapAddressBook.size() = %d\n", pwalletMain->mapAddressBook.size());
+    TRACE_FL("nBestHeight = %d\n", nBestHeight);
+    TRACE_FL("setKeyPool.size() = %d\n", pwalletMain->setKeyPool.size());
+    TRACE_FL("mapWallet.size() = %d\n", pwalletMain->mapWallet.size());
+    TRACE_FL("mapAddressBook.size() = %d\n", pwalletMain->mapAddressBook.size());
 
     if (!strErrors.empty()) {
         wxMessageBox(strErrors, "ParaCoin", wxOK | wxICON_ERROR);
@@ -541,7 +545,6 @@ bool AppInit2(int argc, char* argv[])
                 AddAddress(addr);
         }
     }
-    
 
     //if (GetBoolArg("-nodnsseed"))
     //    printf("DNS seeding disabled\n");
@@ -572,22 +575,19 @@ bool AppInit2(int argc, char* argv[])
 
     RandAddSeedPerfmon();
 
-    
 
     if (mapArgs.count("-publickey")) {
         CReserveKey reservekey(pwalletMain);
         std::vector<unsigned char> vchPubKey = reservekey.GetReservedKey();
         cout << "PublicKey:" << ToHexString(vchPubKey) << endl;
-        
 
         reservekey.KeepKey();
         return 0;
     }
 
 
-    
 
-    ConsensusEngine * consensuseng = Singleton<ConsensusEngine>::getInstance();
+    ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::getInstance();
     if (consensuseng) {
 
         CONSENSUSNOTIFY paracoinGenesisCallback =
@@ -606,7 +606,7 @@ bool AppInit2(int argc, char* argv[])
 
         CONSENSUSNOTIFY paracoinCallback =
             std::make_tuple(nullptr, nullptr,
-                PutParaCoinChainCb,
+                PutChainCb,
                 nullptr,
                 nullptr,
                 CheckChainCb,
@@ -618,7 +618,7 @@ bool AppInit2(int argc, char* argv[])
         consensuseng->RegisterAppCallback(
             T_APPTYPE(APPTYPE::paracoin, g_cryptoCurrency.GetHID(), g_cryptoCurrency.GetChainNum(), g_cryptoCurrency.GetLocalID()),
             paracoinCallback);
-        printf("Registered ParaCoin callback\n");
+        TRACE_FL("Registered ParaCoin callback\n");
     }
 
     LatestHyperBlock::Sync();
@@ -626,7 +626,7 @@ bool AppInit2(int argc, char* argv[])
 
     StartMQHandler();
     if (!CreateThread(StartNode, NULL))
-        printf("Error: CreateThread(StartNode) failed\n");
+        ERROR_FL("Error: CreateThread(StartNode) failed\n");
 
     if (fServer && !fRPCServerRunning) {
         StartRPCServer();

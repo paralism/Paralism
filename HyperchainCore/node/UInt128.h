@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -142,7 +142,7 @@ public:
     }
 
     CUInt128& SetValueBE(const uint8_t *valueBE) throw();
-    CUInt128& SetHexString(const std::string & s) throw();
+    CUInt128& SetHexString(const std::string& s);
 
     std::string ToHexString() const;
     std::string ToBinaryString(bool trim = false) const;

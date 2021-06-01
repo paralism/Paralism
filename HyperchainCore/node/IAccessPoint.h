@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -27,7 +27,7 @@ DEALINGS IN THE SOFTWARE.
 using namespace std;
 
 class IAccessPoint {
-public: 
+public:
 	virtual bool open() { assert(false);  return true; };
 	virtual int write(const char *buf, size_t len) { assert(false); return 0; }
 	virtual void close() { assert(false); }

@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -34,11 +34,16 @@ DEALINGS IN THE SOFTWARE.
 string t2s(const utility::string_t& ts)
 {
 #ifdef WIN32
-    // On Windows, all strings are wide
-    wstring_convert<std::codecvt<wchar_t, char, std::mbstate_t>> strCnv;
-    return strCnv.to_bytes(ts);
+    // On Windows, utility::string_t are wide, and Chinese is UCS2 code
+    //wstring_convert<std::codecvt<wchar_t, char, std::mbstate_t>> strCnv;
+    //return strCnv.to_bytes(ts); //HC here throw exception(bad conversion) for Chinese
+
+
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
+    return conv.to_bytes(ts);
+
 #else
-    // On POSIX platforms, all strings are narrow
+    // On POSIX platforms, utility::string_t are narrow, and Chinese is UTF-8 code
     return string(ts);
 #endif
 }
@@ -47,10 +52,55 @@ utility::string_t s2t(const std::string& s)
 {
 #ifdef WIN32
     // On Windows, all strings are wide
-    std::wstring_convert<std::codecvt<wchar_t, char, std::mbstate_t>> strCnv;
-    return strCnv.from_bytes(s);
+    //std::wstring_convert<std::codecvt<wchar_t, char, std::mbstate_t>> strCnv;
+    //return strCnv.from_bytes(s);
+
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
+    return conv.from_bytes(s);
+
 #else
     // On POSIX platforms, all strings are narrow
     return utility::string_t(s);
 #endif
+}
+
+
+utility::string_t s2t_ign(const std::string& s)
+{
+#ifdef WIN32
+    // On Windows, all strings are wide
+    std::wstring_convert<std::codecvt<wchar_t, char, std::mbstate_t>> strCnv;
+    return strCnv.from_bytes(s);
+
+#else
+    // On POSIX platforms, all strings are narrow
+    return utility::string_t(s);
+#endif
+}
+
+void stringTostringlist(const string& str, list<string>& l, char delimiter)
+{
+    string piece;
+    string tmp = str;
+
+    size_t len = tmp.size();
+
+    std::size_t found = tmp.find_first_of(delimiter);
+    while (found < len) {
+        piece = tmp.substr(0, found);
+        l.push_back(piece);
+
+        size_t pos = tmp.find_first_not_of(delimiter, found);
+        if (pos > found + 1) {
+            tmp.erase(0, pos);
+        }
+        else {
+            tmp.erase(0, found + 1);
+        }
+        found = tmp.find_first_of(delimiter);
+    }
+
+    if (tmp.size() > 0) {
+        l.push_back(tmp);
+    }
 }

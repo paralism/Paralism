@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -22,6 +22,7 @@ DEALINGS IN THE SOFTWARE.
 
 #pragma once
 
+#include "utility/ElapsedTime.h"
 #include "UInt128.h"
 #include "HCNode.h"
 #include "ITask.hpp"
@@ -34,17 +35,19 @@ DEALINGS IN THE SOFTWARE.
 using namespace std;
 
 class UdpAccessPoint;
-enum class NodeType :char {
-    Normal = 0,     
-    Bootstrap,      
-    LedgerRPCClient  
+enum class NodeType : char {
+    Normal = 0,
+    Bootstrap,
+    LedgerRPCClient,
+    Autonomous
 };
+
 
 const uint16_t SAND_BOX = 0xD000;
 const uint16_t INFORMAL_NET = 0xE000;
 const uint16_t FORMAL_NET = 0xF000;
 
-using HCNodeMap = std::map<CUInt128, std::shared_ptr<HCNode> >;
+using HCNodeMap = std::map<CUInt128, HCNodeSH>;
 extern ProtocolVer pro_ver;
 
 template<typename T>
@@ -115,17 +118,26 @@ public:
     void myself(HCNodeSH &me) { _me = std::move(me); }
     HCNodeSH & myself() { return _me; }
 
-    bool isSpecfySeedServer() {
-        if (_me->getNodeId<CUInt128>() == _seed->getNodeId<CUInt128>())
+    template<typename T>
+    T getMyNodeId() {
+        return _me->getNodeId<T>();
+    }
+
+    bool isSpecifySeedServer() {
+        if (!_seeds.size() ||
+            _me->getNodeId<CUInt128>() == _seeds[0]->getNodeId<CUInt128>())
             return false;
         return true;
     }
 
     void seedServer(HCNodeSH &seed) {
-        _seed = std::move(seed);
-        _nodemap[_seed->getNodeId<CUInt128>()] = _seed;
+
+        _seeds.emplace_back(seed);
+        _nodemap[seed->getNodeId<CUInt128>()] = seed;
     }
-    HCNodeSH & seedServer() { return _seed; }
+    HCNodeSH & seedServer() { return _seeds[0]; }
+
+    vector<HCNodeSH>& seedServers() { return _seeds; }
 
     HCNodeSH getNode(const CUInt128 &nodeid);
     bool getNodeAP(const CUInt128 &nodeid, UdpAccessPoint *ap);
@@ -169,6 +181,7 @@ public:
         msgbuf.setHeader(b);
 
         if (_msghandler.getID() == std::this_thread::get_id()) {
+
             if (!IsNodeInKBuckets(targetNodeid))
                 return;
 
@@ -192,13 +205,16 @@ public:
 
     bool parseNode(const string &node, UdpAccessPoint *ap);
 
-    bool IsSeedServer(HCNodeSH & node);
+    bool IsSeedServer(const HCNode & node);
 
     string toFormatString();
+    string GetMQCostStatistics();
 
     void PickNeighbourNodes(const CUInt128 &nodeid, int num, vector<CUInt128> &vnodes);
+    void PickNeighbourNodesEx(const CUInt128 &nodeid, int num, vector<HCNode> &vnodes);
+
     bool IsNodeInKBuckets(const CUInt128 &nodeid);
-    void PickRandomNodes(int nNum, std::set<CUInt128> &nodes);
+    void PickRandomNodes(int nNum, std::set<HCNode> &nodes);
     void GetAllNodes(std::set<CUInt128> &setNodes);
     int GetNodesNum();
 
@@ -209,7 +225,9 @@ public:
     void EnableNodeActive(const CUInt128 &nodeid, bool bEnable);
 
 
+
     void ParseNodeList(const string &nodes, vector<CUInt128> &vecNewNode);
+
 
     void loadNeighbourNodes_New();
 
@@ -242,6 +260,7 @@ private:
 
     void ToAllNodes(const string& data);
 
+
     bool SaveNodeToDB(const CUInt128 &nodeid, system_clock::time_point  lastActTime);
 
     void PushToKBuckets(const CUInt128 &nodeid);
@@ -262,19 +281,23 @@ private:
         GetNodeMapNodes,
         ToFormatString,
         PickNeighbourNodes,
+        PickNeighbourNodesEx,
         IsNodeInKBuckets,
         GetAllNodes,
         PickRandomNodes,
         GetNodesNum,
         SendTo,
+        MQCostStatistics,
     };
 
     HCNodeSH _me;
-    HCNodeSH _seed;
+    vector<HCNodeSH> _seeds;
     HCNodeMap _nodemap;
 
     CKBuckets m_actKBuchets;
     std::list<CKBNode> m_lstDeactiveNode;
 
     MsgHandler _msghandler;
+
+    CActionCostStatistics m_actioncoststt;
  };

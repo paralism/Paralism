@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -24,9 +24,10 @@ DEALINGS IN THE SOFTWARE.
 // Distributed under the MIT/X11 software license, see the accompanying
 // file license.txt or http://www.opensource.org/licenses/mit-license.php.
 
-#include "config.h"
+#include "globalconfig.h"
 #include "headers.h"
 #include "strlcpy.h"
+#include "util.h"
 
 #include <boost/program_options/detail/config_file.hpp>
 #include <boost/program_options/parsers.hpp>
@@ -47,6 +48,10 @@ map<string, vector<string> > mapMultiArgs;
 bool fDebug = false;
 bool fPrintToConsole = false;
 bool fPrintToDebugFile = false;
+bool fPrintBacktracking = false;
+bool fPrintBacktracking_node = false;
+string strBacktracking_node;
+
 bool fPrintToDebugger = false;
 char pszSetDataDir[MAX_PATH] = "";
 bool fRequestShutdown = false;
@@ -59,17 +64,12 @@ string strMiscWarning;
 bool fTestNet = false;
 bool fNoListen = false;
 bool fLogTimestamps = false;
-
-
-char log_prefix_i[] = "INFO";
-char log_prefix_e[] = "ERROR";
-char log_prefix_w[] = "WARNING";
+char mdname[] = "Ledger";
 
 
 // Workaround for "multiple definition of `_tls_used'"
 // http://svn.boost.org/trac/boost/ticket/4258
 extern "C" void tss_cleanup_implemented() { }
-
 
 
 
@@ -93,7 +93,7 @@ void CApplicationSettings::ReadDefaultApp(string& hash)
         return;
     }
     catch (std::exception e) {
-        printf(e.what());
+        DEBUG_FL("%s\n", e.what());
     }
     hash = CryptoToken::GetHashPrefixOfSysGenesis();
 }
@@ -163,57 +163,12 @@ void RandAddSeedPerfmon()
     {
         RAND_add(pdata, nSize, nSize/100.0);
         memset(pdata, 0, nSize);
-        printf("%s RandAddSeed() %d bytes\n", DateTimeStrFormat("%x %H:%M", GetTime()).c_str(), nSize);
+        TRACE_FL("%s RandAddSeed() %d bytes\n", DateTimeStrFormat("%x %H:%M", GetTime()).c_str(), nSize);
     }
 #endif
 }
 
-extern "C" BOOST_SYMBOL_EXPORT
-bool TurnOnOffDebugOutput(const string& onoff, string& ret)
-{
-    string optiononoff=onoff;
-    std::transform(onoff.begin(), onoff.end(), optiononoff.begin(),
-        [](unsigned char c) { return std::tolower(c); });
 
-    if (optiononoff.empty()) {
-        if (fPrintToConsole && fPrintToDebugFile) {
-            ret = "Ledger's debug setting is 'both'";
-        }
-        else if (!fPrintToConsole && !fPrintToDebugFile) {
-            ret = "Ledger's debug setting is 'off'";
-        }
-        else if (fPrintToConsole && !fPrintToDebugFile) {
-            ret = "Ledger's debug setting is 'con'";
-        }
-        else if (!fPrintToConsole && fPrintToDebugFile) {
-            ret = "Ledger's debug setting is 'file'";
-        }
-        return true;
-    }
-
-    if (optiononoff == "both") {
-        fPrintToConsole = true;
-        fPrintToDebugFile = true;
-    }
-    else if (optiononoff == "con") {
-        fPrintToConsole = true;
-        fPrintToDebugFile = false;
-    }
-    else if (optiononoff == "file") {
-        fPrintToConsole = false;
-        fPrintToDebugFile = true;
-    }
-    else if (optiononoff == "off") {
-        fPrintToConsole = false;
-        fPrintToDebugFile = false;
-    }
-    else {
-        ret = "unknown debug option";
-        return false;
-    }
-    ret = string("Ledger's debug setting is '") + optiononoff + "'";
-    return true;
-}
 
 uint64 GetRand(uint64 nMax)
 {
@@ -240,8 +195,7 @@ int GetRandInt(int nMax)
 inline int OutputDebugStringF(const char* pszFormat, ...)
 {
     int ret = 0;
-    if (fPrintToConsole)
-    {
+    if (fPrintToConsole) {
         // print to console
         va_list arg_ptr;
         va_start(arg_ptr, pszFormat);
@@ -249,21 +203,18 @@ inline int OutputDebugStringF(const char* pszFormat, ...)
         va_end(arg_ptr);
     }
 
-    if(fPrintToDebugFile)
-    {
+    if(fPrintToDebugFile) {
         // print to debug.log
         static FILE* fileout = NULL;
 
-        if (!fileout)
-        {
+        if (!fileout) {
             char pszFile[MAX_PATH+100];
             GetDataDir(pszFile);
             strlcat(pszFile, "/debug_ledger.log", sizeof(pszFile));
             fileout = fopen(pszFile, "a");
             if (fileout) setbuf(fileout, NULL); // unbuffered
         }
-        if (fileout)
-        {
+        if (fileout) {
             static bool fStartedNewLine = true;
 
             // Debug print useful for profiling
@@ -282,8 +233,7 @@ inline int OutputDebugStringF(const char* pszFormat, ...)
     }
 
 #ifdef __WXMSW__
-    if (fPrintToDebugger)
-    {
+    if (fPrintToDebugger) {
         static CCriticalSection cs_OutputDebugStringF;
 
         // accumulate a line at a time
@@ -298,8 +248,7 @@ inline int OutputDebugStringF(const char* pszFormat, ...)
             int limit = END(pszBuffer) - pend - 2;
             int ret = _vsnprintf(pend, limit, pszFormat, arg_ptr);
             va_end(arg_ptr);
-            if (ret < 0 || ret >= limit)
-            {
+            if (ret < 0 || ret >= limit) {
                 pend = END(pszBuffer) - 2;
                 *pend++ = '\n';
             }
@@ -308,8 +257,7 @@ inline int OutputDebugStringF(const char* pszFormat, ...)
             *pend = '\0';
             char* p1 = pszBuffer;
             char* p2;
-            while (p2 = strchr(p1, '\n'))
-            {
+            while (p2 = strchr(p1, '\n')) {
                 p2++;
                 char c = *p2;
                 *p2 = '\0';
@@ -325,24 +273,6 @@ inline int OutputDebugStringF(const char* pszFormat, ...)
 #endif
     return ret;
 }
-
-string strprintf(const char* fmt, ...)
-{
-    va_list args;
-
-    va_start(args, fmt);
-    int sz = std::vsnprintf(nullptr, 0, fmt, args);
-    va_end(args);
-
-    std::string buf(sz, 0);
-
-    va_start(args, fmt);
-    std::vsnprintf(&buf[0], sz + 1, fmt, args);
-    va_end(args);
-
-    return buf;
-}
-
 
 void ParseString(const string& str, char c, vector<string>& v)
 {
@@ -537,27 +467,17 @@ bool WildcardMatch(const string& str, const string& mask)
 
 
 
-
-
-
-
-
 void FormatException(char* pszMessage, std::exception* pex, const char* pszThread)
 {
-#ifdef __WXMSW__
-    char pszModule[MAX_PATH];
-    pszModule[0] = '\0';
-    GetModuleFileNameA(NULL, pszModule, sizeof(pszModule));
-#else
     const char* pszModule = "ledger";
-#endif
     if (pex)
         snprintf(pszMessage, 1000,
-            "EXCEPTION: %s       \n%s       \n%s in %s       \n", typeid(*pex).name(), pex->what(), pszModule, pszThread);
+            "EXCEPTION: %s       \n%s       \n%s in %s       \n", pex->what(), pszModule, pszThread);
     else
         snprintf(pszMessage, 1000,
             "UNKNOWN EXCEPTION       \n%s in %s       \n", pszModule, pszThread);
 }
+
 
 void LogException(std::exception* pex, const char* pszThread)
 {
@@ -573,7 +493,6 @@ void PrintException(std::exception* pex, const char* pszThread)
     printf("\n\n************************\n%s\n", pszMessage);
     fprintf(stderr, "\n\n************************\n%s\n", pszMessage);
     strMiscWarning = pszMessage;
-    
 
     //throw;
 }
@@ -831,7 +750,7 @@ void AddTimeData(unsigned int ip, int64 nTime)
     if (vTimeOffsets.empty())
         vTimeOffsets.push_back(0);
     vTimeOffsets.push_back(nOffsetSample);
-    printf("Added time data, samples %d, offset %+" PRI64d " (%+" PRI64d " minutes)\n", vTimeOffsets.size(), vTimeOffsets.back(), vTimeOffsets.back()/60);
+    DEBUG_FL("Added time data, samples %d, offset %+" PRI64d " (%+" PRI64d " minutes)\n", vTimeOffsets.size(), vTimeOffsets.back(), vTimeOffsets.back()/60);
     if (vTimeOffsets.size() >= 5 && vTimeOffsets.size() % 2 == 1)
     {
         sort(vTimeOffsets.begin(), vTimeOffsets.end());
@@ -1031,4 +950,28 @@ bool CCriticalSection::TryEnter(const char*, const char*, int)
     return result;
 }
 
+char pcstName[] = "cs_main";
+
+template<>
+string CCriticalBlockT<pcstName>::_file = "";
+
+template<>
+int CCriticalBlockT<pcstName>::_nLine = 0;
+
+template<>
+std::thread::id CCriticalBlockT<pcstName>::_tid = std::thread::id();
+
+
 #endif /* DEBUG_LOCKORDER */
+
+
+string& replace_all(string& str, const string& old_value, const string& new_value)
+{
+    while (true) {
+        string::size_type pos(0);
+        if ((pos = str.find(old_value)) != string::npos)
+            str.replace(pos, old_value.length(), new_value);
+        else break;
+    }
+    return str;
+}

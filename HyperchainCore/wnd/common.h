@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -24,6 +24,7 @@ DEALINGS IN THE SOFTWARE.
 #define COMMON_H
 
 #include <string>
+#include <list>
 
 #define _TURN_OFF_PLATFORM_STRING
 #include <cpprest/details/basic_types.h>
@@ -31,6 +32,9 @@ using namespace std;
 
 string t2s(const utility::string_t& ts);
 utility::string_t s2t(const std::string& s);
+utility::string_t s2t_ign(const std::string& s);
+
+void stringTostringlist(const string& str, list<string>& l, char delimiter = ' ');
 
 inline size_t strlcpy(char *dst, const char *src, size_t siz)
 {
@@ -57,4 +61,7 @@ inline size_t strlcpy(char *dst, const char *src, size_t siz)
 
     return(s - src - 1); /* count does not include NUL */
 }
+
+
+
 #endif // COMMON_H

@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -51,7 +51,7 @@ bool zmsg::recv(zmq::socket_t & socket)
                 return false;
             }
         }
-        catch (zmq::error_t error) {
+        catch (zmq::error_t &error) {
             std::cout << "E: " << error.what() << std::endl;
             return false;
         }
@@ -81,7 +81,6 @@ int zmsg::send(zmq::socket_t & socket)
             while (!g_sys_interrupted) {
                 auto rc = socket.send(message, flags);
                 if (!rc.has_value()) {
-                    
 
                     continue;
                 }
@@ -91,16 +90,17 @@ int zmsg::send(zmq::socket_t & socket)
                 break;
             }
         }
-        catch (zmq::error_t error) {
-            cout << "zmq error catch: " << zmq_strerror(error.num());
+        catch (zmq::error_t &error) {
+            cout << "zmq error catch: " << zmq_strerror(error.num()) << endl;
             assert(error.num() != 0);
         }
-        catch (std::exception error) {
-            cout << "zmq send error catch: " << error.what();
+        catch (std::exception &error) {
+            cout << "zmq send error catch: " << error.what() << endl;
         }
 
     }
     clear();
+    return 0;
 }
 
 size_t zmsg::parts()
@@ -124,13 +124,13 @@ void zmsg::body_fmt(const char* fmt, ...)
     int sz = std::vsnprintf(nullptr, 0, fmt, args);
     va_end(args);
 
-    std::string buf(sz, 0);
+    std::string buf(sz + 1, 0);
 
     va_start(args, fmt);
     std::vsnprintf(&buf[0], sz + 1, fmt, args);
     va_end(args);
 
-    body_set((char*)buf.c_str(), buf.size());
+    body_set((char*)buf.c_str(), sz);
 }
 
 // zmsg_push
@@ -203,7 +203,7 @@ unsigned char * zmsg::decode_uuid(char *uuidstr)
 string zmsg::pop_front()
 {
     if (m_part_data.size() == 0) {
-        return 0;
+        return "";
     }
     string part = m_part_data.front();
     m_part_data.erase(m_part_data.begin());

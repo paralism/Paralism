@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -29,6 +29,7 @@ DEALINGS IN THE SOFTWARE.
 #define DBERROR(ex) dbError(__FUNCTION__, __LINE__, ex)
 
 namespace DBSQL {
+
 
     const std::string EVIDENCES_TBL =
         "CREATE TABLE IF NOT EXISTS evidence_tbl "
@@ -70,23 +71,24 @@ namespace DBSQL {
 
     const std::string ONCHAINED_TBL =
         "CREATE TABLE IF NOT EXISTS localblockonchained ("
-        "  [requestid]	varchar(32) DEFAULT ''," 
+        "  [requestid]	varchar(32) DEFAULT '',"
         "  [hid]		INTEGER DEFAULT 0,"
         "  [chain_num]	INTEGER DEFAULT 0,"
-        "  [id]	INTEGER DEFAULT 0,"			
+        "  [id]	INTEGER DEFAULT 0,"
         "  PRIMARY KEY (requestid)"
         ");";
 
     const std::string BATCHONCHAINED_TBL =
         "CREATE TABLE IF NOT EXISTS batchonchained ("
         "  [batchid]	varchar(32) DEFAULT '',"
-        "  [requestid]	varchar(32) DEFAULT ''," 
+        "  [requestid]	varchar(32) DEFAULT '',"
         "  [data]       blob DEFAULT '' NOT NULL,"
         "  [retry]      INTEGER DEFAULT 0,"
         "  [ctime]	    INTEGER DEFAULT 0,"
         "  [succeed]	INTEGER DEFAULT 0,"
         "  PRIMARY KEY (batchid,requestid,ctime)"
         ");";
+
 
 
     const std::string HASHINFO_TBL =
@@ -97,6 +99,7 @@ namespace DBSQL {
         "  PRIMARY KEY (id)"
         ");";
 
+
     const std::string HEADERHASHINFO_TBL =
         "CREATE TABLE IF NOT EXISTS headerhashinfo ("
         "  [id]		    INTEGER DEFAULT 0,"
@@ -104,12 +107,13 @@ namespace DBSQL {
         "  PRIMARY KEY (id)"
         ");";
 
-    const std::string SINGLEHEADER_TBL =
-        "CREATE TABLE IF NOT EXISTS singleheader ("
+    const std::string SINGLEHEADERS_TBL =
+        "CREATE TABLE IF NOT EXISTS singleheaders ("
+        "  [id]             INTEGER DEFAULT 0,"
         "  [headerhash]	    char(64) NOT NULL DEFAULT '',"
         "  [preheaderhash]	char(64) NOT NULL DEFAULT '',"
         "  [from_id]	   TEXT NOT NULL DEFAULT '',"
-        "  PRIMARY KEY (headerhash)"
+        "  PRIMARY KEY (id,headerhash)"
         ");";
 
     const std::string HEADER_TBL =
@@ -314,6 +318,7 @@ int DBmgr::insertEvidence(const TEVIDENCEINFO &evidence)
 {
     try
     {
+
         CppSQLite3Statement stmt = _db->compileStatement(scEvidenceInsert.c_str());
         stmt.bind(1, evidence.cFileHash.c_str());
         stmt.bind(2, (sqlite_int64)evidence.iBlocknum);
@@ -359,6 +364,7 @@ int DBmgr::getEvidences(std::list<TEVIDENCEINFO> &evidences, int page, int size)
         CppSQLite3Query query = stmt.execQuery();
         while (!query.eof())
         {
+
             TEVIDENCEINFO evi;
             evi.cFileHash = query.getStringField("hash");
             evi.cFileName = query.getStringField("filename");
@@ -398,6 +404,7 @@ int DBmgr::getNoConfiringList(std::list<TEVIDENCEINFO>& evidences)
         CppSQLite3Query query = stmt.execQuery();
         while (!query.eof())
         {
+
             TEVIDENCEINFO evi;
             evi.cFileHash = query.getStringField("hash");
             evi.cFileName = query.getStringField("filename");
@@ -423,6 +430,7 @@ int DBmgr::getNoConfiringList(std::list<TEVIDENCEINFO>& evidences)
 int DBmgr::updateEvidence(const TEVIDENCEINFO &evidence, int type)
 {
     try {
+
         std::string sql;
         if (1 == type) {
             sql = "UPDATE evidence_tbl SET filestate=?"
@@ -510,7 +518,7 @@ int DBmgr::createTbls()
     _db->execDML(DBSQL::BATCHONCHAINED_TBL.c_str());
     _db->execDML(DBSQL::HASHINFO_TBL.c_str());
     _db->execDML(DBSQL::HEADER_TBL.c_str());
-    _db->execDML(DBSQL::SINGLEHEADER_TBL.c_str());
+    _db->execDML(DBSQL::SINGLEHEADERS_TBL.c_str());
     _db->execDML(DBSQL::HEADERHASHINFO_TBL.c_str());
     _db->execDML(DBSQL::HEADERINDEX_TBL.c_str());
     _db->execDML(DBSQL::HBLOCKS_TBL.c_str());
@@ -523,11 +531,16 @@ int DBmgr::createTbls()
 
 int DBmgr::updateDB()
 {
+
     //TO DO in the future
     if (ifTblOrIndexExist("neighbornodes", 1)) {
         if (!ifColExist("neighbornodes", "lasttime")) {
             exec("alter table neighbornodes ADD lasttime integer default 0");
         }
+    }
+
+    if (ifTblOrIndexExist("singleheader", 1)) {
+        exec("DROP TABLE singleheader");
     }
     return 0;
 }
@@ -558,11 +571,11 @@ int DBmgr::rollbackHyperblockAndLocalblock(uint64 hid)
     return 0;
 }
 
-int DBmgr::deleteHyperblockAndLocalblock(T_SHA256 headerhash)
+int DBmgr::deleteHyperblockAndLocalblock(uint64 hid, const T_SHA256& headerhash)
 {
     try {
-        exec("DELETE FROM lblocks WHERE hhash=(SELECT hash FROM hblocks WHERE headerhash=?)", headerhash.toHexString());
-        exec("DELETE FROM hblocks WHERE headerhash=?", headerhash.toHexString());
+        exec("DELETE FROM lblocks WHERE hid=? AND hhash=(SELECT hash FROM hblocks WHERE id=? AND headerhash=?)", hid, hid, headerhash.toHexString());
+        exec("DELETE FROM hblocks WHERE id=? AND headerhash=?", hid, headerhash.toHexString());
     }
     catch (CppSQLite3Exception& ex) {
         return DBERROR(ex);
@@ -571,10 +584,10 @@ int DBmgr::deleteHyperblockAndLocalblock(T_SHA256 headerhash)
     return 0;
 }
 
-int DBmgr::deleteHeader(T_SHA256 headerhash)
+int DBmgr::deleteHeader(uint64 hid, const T_SHA256& headerhash)
 {
     try {
-        exec("DELETE FROM header WHERE headerhash=?", headerhash.toHexString());
+        exec("DELETE FROM header WHERE id=? AND headerhash=?", hid, headerhash.toHexString());
     }
     catch (CppSQLite3Exception& ex) {
         return DBERROR(ex);
@@ -583,10 +596,10 @@ int DBmgr::deleteHeader(T_SHA256 headerhash)
     return 0;
 }
 
-int DBmgr::deleteHeaderIndex(T_SHA256 headerhash)
+int DBmgr::deleteHeaderIndex(uint64 hid, const T_SHA256& headerhash)
 {
     try {
-        exec("DELETE FROM headerindex WHERE headerhash=?", headerhash.toHexString());
+        exec("DELETE FROM headerindex WHERE id=? AND headerhash=?", hid, headerhash.toHexString());
     }
     catch (CppSQLite3Exception& ex) {
         return DBERROR(ex);
@@ -594,6 +607,20 @@ int DBmgr::deleteHeaderIndex(T_SHA256 headerhash)
 
     return 0;
 }
+
+int DBmgr::rollbackSingleHeaderInfo(uint64 hid)
+{
+    try {
+        exec("DELETE FROM singleheaders WHERE id<=?",
+            static_cast<sqlite_int64>(hid));
+    }
+    catch (CppSQLite3Exception & ex) {
+        return DBERROR(ex);
+    }
+
+    return 0;
+}
+
 
 int DBmgr::rollbackHeaderHashInfo(uint64 hid)
 {
@@ -620,10 +647,10 @@ int DBmgr::rollbackHashInfo(uint64 hid)
     return 0;
 }
 
-int DBmgr::deleteSingleHeaderInfo(T_SHA256 headerhash)
+int DBmgr::deleteSingleHeaderInfo(uint64 hid, const T_SHA256& headerhash)
 {
     try {
-        exec("DELETE FROM singleheader WHERE headerhash=?", headerhash.toHexString());
+        exec("DELETE FROM singleheaders WHERE id=? AND headerhash=?", hid, headerhash.toHexString());
     }
     catch (CppSQLite3Exception& ex) {
         return DBERROR(ex);
@@ -648,6 +675,10 @@ int DBmgr::insertHyperblock(const T_HYPERBLOCK& hyperblock)
             hyperblock.GetID(),
             hyperblock.GetPreHash().toHexString(),
             header, body);
+    }
+    catch (boost::archive::archive_exception& e) {
+        g_console_logger->error("{} {}", __FUNCTION__, e.what());
+        return -1;
     }
     catch (CppSQLite3Exception& ex) {
         return DBERROR(ex);
@@ -682,6 +713,10 @@ int DBmgr::insertLocalblock(const T_LOCALBLOCK& localblock, uint64 hid, uint16 c
             localblock.GetID(), hid, chainnum,
             header, body, mt);
     }
+    catch (boost::archive::archive_exception& e) {
+        g_console_logger->error("{} {}", __FUNCTION__, e.what());
+        return -1;
+    }
     catch (CppSQLite3Exception& ex) {
         return DBERROR(ex);
     }
@@ -713,8 +748,11 @@ int DBmgr::getLocalblock(T_LOCALBLOCK& localblock, uint64 hid, uint16 id, uint16
                 ia >> localblock.body;
                 ret = 0;
             }
+            catch (boost::archive::archive_exception& e) {
+                g_console_logger->error("{} {}", __FUNCTION__, e.what());
+            }
             catch (runtime_error& e) {
-                g_consensus_console_logger->warn("{}", e.what());
+                g_console_logger->warn("{}", e.what());
             }
         }, hid, id, chain_num);
     }
@@ -724,6 +762,45 @@ int DBmgr::getLocalblock(T_LOCALBLOCK& localblock, uint64 hid, uint16 id, uint16
 
     return ret;
 }
+
+int DBmgr::getLocalblock(T_LOCALBLOCK& localblock, const T_SHA256& hhash, const T_LOCALBLOCKADDRESS& addr)
+{
+    int ret = -1;
+    try {
+        CppSQLite3Statement stmt;
+        query("SELECT * FROM lblocks WHERE hhash=? AND hid=? AND id=? AND chain_num=?;", [&localblock, &ret, addr](CppSQLite3Query& q) {
+            stringstream ssBuf;
+            boost::archive::binary_iarchive ia(ssBuf, boost::archive::archive_flags::no_header);
+            int len = 0;
+            localblock.SetChainNum(q.getIntField("chain_num"));
+            localblock.SetPreHID(addr.hid - 1);
+            try {
+                const unsigned char* p = q.getBlobField("header", len);
+                ssBuf.str(string((char*)p, len));
+                ia >> localblock.header;
+
+                len = 0;
+                p = q.getBlobField("body", len);
+                ssBuf.clear();
+                ssBuf.str(string((char*)p, len));
+                ia >> localblock.body;
+                ret = 0;
+            }
+            catch (boost::archive::archive_exception& e) {
+                g_console_logger->error("{} {}", __FUNCTION__, e.what());
+            }
+            catch (runtime_error & e) {
+                g_console_logger->warn("{}", e.what());
+            }
+        }, hhash.toHexString(), addr.hid, addr.id, addr.chainnum);
+    }
+    catch (CppSQLite3Exception & ex) {
+        return DBERROR(ex);
+    }
+
+    return ret;
+}
+
 
 int DBmgr::getLocalchain(uint64 hid, int chain_num, int &blocks, int &chain_difficulty)
 {
@@ -765,6 +842,9 @@ int DBmgr::getLocalBlocks(std::list<T_LOCALBLOCK> &queue, uint64 nHyperID)
                 ia >> localblock.body;
                 queue.emplace_back(localblock);
             }
+            catch (boost::archive::archive_exception& e) {
+                g_console_logger->error("{} {}", __FUNCTION__, e.what());
+            }
             catch (runtime_error& e) {
                 g_consensus_console_logger->warn("{}", e.what());
             }
@@ -783,12 +863,12 @@ int DBmgr::getLocalBlocks(std::list<T_LOCALBLOCK> &queue, uint64 nHyperID)
     return 0;
 }
 
-int DBmgr::getHyperBlockbyHeaderHash(T_HYPERBLOCK &h, const T_SHA256 &headerhash)
+int DBmgr::getHyperBlockbyHeaderHash(T_HYPERBLOCK &h, uint64 hid, const T_SHA256 &headerhash)
 {
 
     try {
         CppSQLite3Statement stmt;
-        query("select * from hblocks where headerhash = ? ;", [&h](CppSQLite3Query & q) {
+        query("select * from hblocks where id=? AND headerhash=? ;", [&h](CppSQLite3Query & q) {
             stringstream ssBuf;
             int len = 0;
             try {
@@ -803,10 +883,10 @@ int DBmgr::getHyperBlockbyHeaderHash(T_HYPERBLOCK &h, const T_SHA256 &headerhash
                 ssBuf.str(string((char*)p, len));
                 ia >> h.body;
             }
-            catch (runtime_error& e) {
-                g_consensus_console_logger->warn("{}", e.what());
+            catch (boost::archive::archive_exception& e) {
+                g_console_logger->error("{} {}", __FUNCTION__, e.what());
             }
-        }, headerhash.toHexString());
+        }, hid, headerhash.toHexString());
         return 0;
     }
     catch (CppSQLite3Exception& ex) {
@@ -835,8 +915,8 @@ int DBmgr::getHyperBlock(T_HYPERBLOCK &h, const T_SHA256 &hhash)
                 ssBuf.str(string((char*)p, len));
                 ia >> h.body;
             }
-            catch (runtime_error& e) {
-                g_consensus_console_logger->warn("{}", e.what());
+            catch (boost::archive::archive_exception& e) {
+                g_console_logger->error("{} {}", __FUNCTION__, e.what());
             }
         }, hhash.toHexString());
         return 0;
@@ -869,8 +949,8 @@ int DBmgr::getHyperBlocks(std::list<T_HYPERBLOCK> &queue, uint64 nStartHyperID, 
 
                 queue.emplace_back(hyperblock);
             }
-            catch (runtime_error& e) {
-                g_consensus_console_logger->warn("{}", e.what());
+            catch (boost::archive::archive_exception& e) {
+                g_console_logger->error("{} {}", __FUNCTION__, e.what());
             }
         }, nStartHyperID, nEndHyperID);
     }
@@ -909,8 +989,8 @@ int DBmgr::getHyperblockshead(T_HYPERBLOCKHEADER& header, uint64 nStartHyperID)
                 ssBuf.str(string((char*)p, len));
                 ia >> header;
             }
-            catch (runtime_error& e) {
-                g_consensus_console_logger->warn("{}", e.what());
+            catch (boost::archive::archive_exception& e) {
+                g_console_logger->error("{} {}", __FUNCTION__, e.what());
             }
         }, nStartHyperID);
     }
@@ -989,6 +1069,7 @@ int DBmgr::getUpqueue(std::list<TUPQUEUE> &queue, int page, int size)
 
         CppSQLite3Query query = stmt.execQuery();
         while (!query.eof()) {
+
             TUPQUEUE evi;
             evi.uiID = query.getInt64Field("id");
             evi.strHash = query.getStringField("hash");
@@ -1027,7 +1108,7 @@ int DBmgr::getLatestHyperBlockNo()
     return ret;
 }
 
-bool DBmgr::isBlockExistedbyHash(T_SHA256 hash)
+bool DBmgr::isBlockExistedbyHash(const T_SHA256& hash)
 {
     int num = 0;
     query("SELECT count(*) as num FROM hblocks WHERE hash = ? ; ",
@@ -1039,14 +1120,13 @@ bool DBmgr::isBlockExistedbyHash(T_SHA256 hash)
     return num != 0;
 }
 
-bool DBmgr::isBlockExistedbyHeaderHash(T_SHA256 headerhash)
+bool DBmgr::isBlockExistedbyHeaderHash(uint64 hid, const T_SHA256& headerhash)
 {
     int num = 0;
-    query("SELECT count(*) as num FROM hblocks WHERE headerhash = ? ; ",
+    query("SELECT count(*) as num FROM hblocks WHERE id=? AND headerhash=? ; ",
         [this, &num](CppSQLite3Query & q) {
         num = q.getIntField("num");
-    },
-        headerhash.toHexString());
+    }, hid, headerhash.toHexString());
 
     return num != 0;
 }
@@ -1077,14 +1157,30 @@ int DBmgr::getAllHeaderHashInfo(std::map<uint64, T_SHA256> &headerhashmap)
     return 0;
 }
 
-int DBmgr::getAllHashInfo(std::map<uint64, T_SHA256> &hashmap, std::map<uint64, T_SHA256> &headerhashmap)
+int DBmgr::getAllBlockHashInfo(std::map<uint64, T_SHA256> &hashmap)
 {
     try {
         CppSQLite3Statement stmt;
         query("SELECT * FROM hyperblockhashinfo ORDER BY id;",
-            [&hashmap, &headerhashmap](CppSQLite3Query & q) {
-            headerhashmap[q.getInt64Field("id")] = CCommonStruct::StrToHash256(string(q.getStringField("headerhash")));
-            hashmap[q.getInt64Field("id")] = CCommonStruct::StrToHash256(string(q.getStringField("hash")));
+            [&hashmap](CppSQLite3Query & q) {
+			hashmap[q.getInt64Field("id")] = CCommonStruct::StrToHash256(string(q.getStringField("hash")));
+	    });
+    }
+    catch (CppSQLite3Exception& ex) {
+        return DBERROR(ex);
+    }
+    return 0;
+}
+
+int DBmgr::getAllHeaderHashInfo(std::set<pair<uint64, T_SHA256>> &headerhashset)
+{
+    try {
+        CppSQLite3Statement stmt;
+        query("SELECT id, headerhash FROM header ORDER BY id;",
+            [&headerhashset](CppSQLite3Query & q) {
+            uint64 id = q.getInt64Field("id");
+            T_SHA256 hhash = CCommonStruct::StrToHash256(string(q.getStringField("headerhash")));
+            headerhashset.insert(make_pair(id, hhash));
         });
     }
     catch (CppSQLite3Exception& ex) {
@@ -1093,7 +1189,7 @@ int DBmgr::getAllHashInfo(std::map<uint64, T_SHA256> &hashmap, std::map<uint64, 
     return 0;
 }
 
-int DBmgr::updateHeaderHashInfo(const uint64 hid, const T_SHA256 headerhash)
+int DBmgr::updateHeaderHashInfo(const uint64 hid, const T_SHA256& headerhash)
 {
     try {
         exec("insert or replace into headerhashinfo(id,headerhash) values(?,?);",
@@ -1107,7 +1203,7 @@ int DBmgr::updateHeaderHashInfo(const uint64 hid, const T_SHA256 headerhash)
     return 0;
 }
 
-int DBmgr::updateHashInfo(const uint64 hid, const T_SHA256 headerhash, const T_SHA256 hash)
+int DBmgr::updateHashInfo(const uint64 hid, const T_SHA256& headerhash, const T_SHA256& hash)
 {
     try {
         exec("insert or replace into hyperblockhashinfo(id,headerhash,hash) values(?,?,?);",
@@ -1155,41 +1251,33 @@ int DBmgr::updateBatchOnChainState(const string &requestid, const string &newreq
     return 0;
 }
 
+int DBmgr::InsertOnChainState(const string& requestid, const T_LOCALBLOCKADDRESS& address)
+{
+    return exec("insert or replace into localblockonchained(requestid,hid,chain_num,id) values(?,?,?,?)",
+        requestid.c_str(),
+        address.hid,
+        address.chainnum,
+        address.id);
+}
+
 int DBmgr::updateOnChainState(const string &requestid, const T_LOCALBLOCKADDRESS& address)
 {
-    try {
-        exec("insert or replace into localblockonchained(requestid,hid,chain_num,id) values(?,?,?,?)",
-            requestid.c_str(),
-            address.hid,
-            address.chainnum,
-            address.id);
-
-    }
-    catch (CppSQLite3Exception& ex) {
-        return DBERROR(ex);
-    }
-
-    return 0;
+    int nRowsChanged = exec("update localblockonchained set hid=?,chain_num=?,id=? where requestid=?",
+        address.hid,
+        address.chainnum,
+        address.id,
+        requestid.c_str());
+    return nRowsChanged;
 }
 
 void DBmgr::initOnChainState(uint64 hid)
 {
-    try {
-        exec("update localblockonchained set hid=-1,chain_num=-1,id=-1 where hid=?", hid);
-    }
-    catch (CppSQLite3Exception& ex) {
-        DBERROR(ex);
-    }
+    exec("update localblockonchained set hid=0,chain_num=0,id=0 where hid=?", hid);
 }
 
 void DBmgr::rehandleOnChainState(uint64 hid)
 {
-    try {
-        exec("update localblockonchained set hid=-1,chain_num=-1,id=-1 where hid>=?", hid);
-    }
-    catch (CppSQLite3Exception& ex) {
-        DBERROR(ex);
-    }
+    exec("update localblockonchained set hid=0,chain_num=0,id=0 where hid>=?", hid);
 }
 
 bool DBmgr::getRequestID(const string &batchid, string &requestid)
@@ -1251,7 +1339,7 @@ int DBmgr::getBatchOnChainData(const string &requestid, string &data)
 bool DBmgr::getOnChainStateFromRequestID(const string &requestid, T_LOCALBLOCKADDRESS &addr)
 {
     bool isfound = false;
-    addr.hid = -1;
+    addr.hid = UINT64_MAX;
     query("SELECT hid,chain_num,id FROM localblockonchained WHERE requestid = ? ; ",
         [this, &addr, &isfound](CppSQLite3Query & q) {
         addr.hid = q.getInt64Field("hid");
@@ -1300,16 +1388,16 @@ bool DBmgr::isHeaderIndexExisted(uint64 hid)
     return num != 0;
 }
 
-bool DBmgr::isHeaderExistedbyHash(T_SHA256 hash)
-{
-    int num = 0;
-    query("SELECT count(*) as num FROM header WHERE headerhash = ? ; ",
-        [this, &num](CppSQLite3Query & q) {
-        num = q.getIntField("num");
-    }, hash.toHexString());
-
-    return num != 0;
-}
+//bool DBmgr::isHeaderExistedbyHash(T_SHA256 hash)
+//{
+//    int num = 0;
+//    query("SELECT count(*) as num FROM header WHERE headerhash = ? ; ",
+//        [this, &num](CppSQLite3Query & q) {
+//        num = q.getIntField("num");
+//    }, hash.toHexString());
+//
+//    return num != 0;
+//}
 
 int DBmgr::getHeadersByID(std::map<T_SHA256,T_HYPERBLOCKHEADER> &headermap, uint64 nStartHyperID, uint64 nEndHyperID)
 {
@@ -1328,8 +1416,8 @@ int DBmgr::getHeadersByID(std::map<T_SHA256,T_HYPERBLOCKHEADER> &headermap, uint
                 ia >> header;
                 headermap[headerhash] = header;
             }
-            catch (runtime_error& e) {
-                g_consensus_console_logger->warn("{}", e.what());
+            catch (boost::archive::archive_exception& e) {
+                g_console_logger->error("{} {}", __FUNCTION__, e.what());
             }
 
         }, nStartHyperID, nEndHyperID);
@@ -1357,8 +1445,8 @@ int DBmgr::getHeadersByID(std::list<T_HYPERBLOCKHEADER> &headerlist, uint64 nSta
                 ia >> header;
                 headerlist.emplace_back(header);
             }
-            catch (runtime_error& e) {
-                g_consensus_console_logger->warn("{}", e.what());
+            catch (boost::archive::archive_exception& e) {
+                g_console_logger->error("{} {}", __FUNCTION__, e.what());
             }
 
         }, nStartHyperID, nEndHyperID);
@@ -1371,10 +1459,10 @@ int DBmgr::getHeadersByID(std::list<T_HYPERBLOCKHEADER> &headerlist, uint64 nSta
 }
 
 
-int DBmgr::getHeaderByHash(T_HYPERBLOCKHEADER &header, T_SHA256 &headerhash)
+int DBmgr::getHeaderByHash(T_HYPERBLOCKHEADER &header, uint64 hid, const T_SHA256& headerhash)
 {
     try {
-        query("SELECT header FROM header WHERE headerhash=?;",
+        query("SELECT header FROM header WHERE id=? AND headerhash=?;",
             [&header](CppSQLite3Query & q) {
             stringstream ssBuf;
             boost::archive::binary_iarchive ia(ssBuf, boost::archive::archive_flags::no_header);
@@ -1384,11 +1472,11 @@ int DBmgr::getHeaderByHash(T_HYPERBLOCKHEADER &header, T_SHA256 &headerhash)
                 ssBuf.str(string((char*)p, len));
                 ia >> header;
             }
-            catch (runtime_error& e) {
-                g_consensus_console_logger->warn("{}", e.what());
+            catch (boost::archive::archive_exception& e) {
+                g_console_logger->error("{} {}", __FUNCTION__, e.what());
             }
 
-        }, headerhash.toHexString());
+        }, hid, headerhash.toHexString());
     }
     catch (CppSQLite3Exception& ex) {
         return DBERROR(ex);
@@ -1397,7 +1485,7 @@ int DBmgr::getHeaderByHash(T_HYPERBLOCKHEADER &header, T_SHA256 &headerhash)
     return 0;
 }
 
-int DBmgr::getFurcatedHeaderHash(uint64 hid, T_SHA256 headerhash, vector<T_SHA256> &headerhashvec)
+int DBmgr::getFurcatedHeaderHash(uint64 hid, const T_SHA256& headerhash, vector<T_SHA256> &headerhashvec)
 {
     try {
         query("SELECT headerhash FROM header WHERE id=? AND headerhash!=?;",
@@ -1414,10 +1502,11 @@ int DBmgr::getFurcatedHeaderHash(uint64 hid, T_SHA256 headerhash, vector<T_SHA25
 }
 
 
-int DBmgr::updateSingleHeaderInfo(T_SINGLEHEADER singleheader)
+int DBmgr::updateSingleHeaderInfo(const T_SINGLEHEADER& singleheader)
 {
     try {
-        exec("insert or replace into singleheader(headerhash,preheaderhash,from_id) values(?,?,?)",
+        exec("insert or replace into singleheaders(id,headerhash,preheaderhash,from_id) values(?,?,?,?)",
+            singleheader.id,
             singleheader.headerhash.toHexString(),
             singleheader.preheaderhash.toHexString(),
             singleheader.from_id);
@@ -1430,18 +1519,19 @@ int DBmgr::updateSingleHeaderInfo(T_SINGLEHEADER singleheader)
     return 0;
 }
 
-int DBmgr::getAllSingleHeaderInfo(map<T_SHA256, T_SINGLEHEADER> &singleheadermap)
+int DBmgr::getAllSingleHeaderInfo(multimap<uint64, T_SINGLEHEADER> &singleheadermap)
 {
     try {
-        query("SELECT * FROM singleheader;",
+        query("SELECT * FROM singleheaders;",
             [&singleheadermap](CppSQLite3Query & q) {
             T_SINGLEHEADER singleheader;
 
+            singleheader.id = q.getInt64Field("id");
             singleheader.headerhash = CCommonStruct::StrToHash256(string(q.getStringField("headerhash")));
             singleheader.preheaderhash = CCommonStruct::StrToHash256(string(q.getStringField("preheaderhash")));
             singleheader.from_id = q.getStringField("from_id");
 
-            singleheadermap[singleheader.headerhash] = singleheader;
+            singleheadermap.insert(make_pair(singleheader.id, std::move(singleheader)));
         });
     }
     catch (CppSQLite3Exception& ex) {
@@ -1450,7 +1540,7 @@ int DBmgr::getAllSingleHeaderInfo(map<T_SHA256, T_SINGLEHEADER> &singleheadermap
     return 0;
 }
 
-int DBmgr::updateHeaderInfo(const uint64 hid, const T_SHA256 headerhash, const T_HYPERBLOCKHEADER header)
+int DBmgr::updateHeaderInfo(const uint64 hid, const T_SHA256& headerhash, const T_HYPERBLOCKHEADER& header)
 {
     try {
         stringstream ssBuf;
@@ -1463,6 +1553,10 @@ int DBmgr::updateHeaderInfo(const uint64 hid, const T_SHA256 headerhash, const T
             headerhash.toHexString(),
             headerstring);
 
+    }
+    catch (boost::archive::archive_exception& e) {
+        g_console_logger->error("{} {}", __FUNCTION__, e.what());
+        return -1;
     }
     catch (CppSQLite3Exception& ex) {
         return DBERROR(ex);
@@ -1496,7 +1590,7 @@ int DBmgr::getAllHeaderIndex(MAP_T_HEADERINDEX &headerindexmap)
     return 0;
 }
 
-int DBmgr::getHeaderIndexByHash(T_HEADERINDEX &headerindex, T_SHA256 headerhash)
+int DBmgr::getHeaderIndexByHash(T_HEADERINDEX &headerindex, const T_SHA256& headerhash)
 {
     try {
         query("SELECT * FROM headerindex WHERE headerhash=?;",
@@ -1518,7 +1612,7 @@ int DBmgr::getHeaderIndexByHash(T_HEADERINDEX &headerindex, T_SHA256 headerhash)
     return 0;
 }
 
-int DBmgr::updateHeaderIndex(T_HEADERINDEX headerindex)
+int DBmgr::updateHeaderIndex(const T_HEADERINDEX& headerindex)
 {
     try {
         exec("insert or replace into headerindex(id,headerhash,preheaderhash,prehash,ctime,weight,total_weight,from_id) values(?,?,?,?,?,?,?,?)",
@@ -1557,6 +1651,10 @@ int DBmgr::SaveHyperblock(const T_HYPERBLOCK& hyperblock)
             hyperblock.GetHashSelf().toHexString(),
             header, body);
     }
+    catch (boost::archive::archive_exception& e) {
+        g_console_logger->error("{} {}", __FUNCTION__, e.what());
+        return -1;
+    }
     catch (CppSQLite3Exception& ex) {
         return DBERROR(ex);
     }
@@ -1564,7 +1662,7 @@ int DBmgr::SaveHyperblock(const T_HYPERBLOCK& hyperblock)
     return 0;
 }
 
-int DBmgr::SaveLocalblock(const T_LOCALBLOCK& localblock, uint64 hid, uint16 chainnum, T_SHA256 hhash)
+int DBmgr::SaveLocalblock(const T_LOCALBLOCK& localblock, uint64 hid, uint16 chainnum, const T_SHA256& hhash)
 {
     try {
         stringstream ssBuf;
@@ -1579,6 +1677,10 @@ int DBmgr::SaveLocalblock(const T_LOCALBLOCK& localblock, uint64 hid, uint16 cha
         exec("insert or replace into lblocks(id,hid,chain_num,hhash,header,body) values(?,?,?,?,?,?)",
             localblock.GetID(), hid, chainnum, hhash.toHexString(), header, body);
     }
+    catch (boost::archive::archive_exception& e) {
+        g_console_logger->error("{} {}", __FUNCTION__, e.what());
+        return -1;
+    }
     catch (CppSQLite3Exception& ex) {
         return DBERROR(ex);
     }
@@ -1586,7 +1688,7 @@ int DBmgr::SaveLocalblock(const T_LOCALBLOCK& localblock, uint64 hid, uint16 cha
     return 0;
 }
 
-int DBmgr::getLocalBlocks(std::list<T_LOCALBLOCK> &queue, T_SHA256 hhash)
+int DBmgr::getLocalBlocks(std::list<T_LOCALBLOCK> &queue, const T_SHA256& hhash)
 {
     try {
         CppSQLite3Statement stmt;
@@ -1610,6 +1712,9 @@ int DBmgr::getLocalBlocks(std::list<T_LOCALBLOCK> &queue, T_SHA256 hhash)
                 ia >> localblock.body;
                 queue.emplace_back(localblock);
             }
+            catch (boost::archive::archive_exception& e) {
+                g_console_logger->error("{} {}", __FUNCTION__, e.what());
+            }
             catch (runtime_error& e) {
                 g_consensus_console_logger->warn("{}", e.what());
             }
@@ -1620,6 +1725,51 @@ int DBmgr::getLocalBlocks(std::list<T_LOCALBLOCK> &queue, T_SHA256 hhash)
                 g_consensus_console_logger->error("unknown exception occurs");
             }
         }, hhash.toHexString());
+    }
+    catch (CppSQLite3Exception& ex) {
+        return DBERROR(ex);
+    }
+
+    return 0;
+}
+
+int DBmgr::getLocalBlocks(std::list<T_LOCALBLOCK>& queue, const T_LOCALBLOCKADDRESS& addr)
+{
+    try {
+        CppSQLite3Statement stmt;
+        query("SELECT * FROM lblocks WHERE hid=? AND chain_num=? AND id=?;", [&queue](CppSQLite3Query& q) {
+            stringstream ssBuf;
+            boost::archive::binary_iarchive ia(ssBuf, boost::archive::archive_flags::no_header);
+            int len = 0;
+            try {
+                T_LOCALBLOCK localblock;
+                uint64 nHyperID = q.getInt64Field("hid");
+                localblock.SetChainNum(q.getIntField("chain_num"));
+                localblock.SetPreHID(nHyperID - 1);
+                const unsigned char* p = q.getBlobField("header", len);
+                ssBuf.str(string((char*)p, len));
+                ia >> localblock.header;
+
+                len = 0;
+                p = q.getBlobField("body", len);
+                ssBuf.clear();
+                ssBuf.str(string((char*)p, len));
+                ia >> localblock.body;
+                queue.emplace_back(localblock);
+            }
+            catch (boost::archive::archive_exception& e) {
+                g_console_logger->error("{} {}", __FUNCTION__, e.what());
+            }
+            catch (runtime_error& e) {
+                g_consensus_console_logger->warn("{}", e.what());
+            }
+            catch (std::exception& e) {
+                g_consensus_console_logger->error("{}", e.what());
+            }
+            catch (...) {
+                g_consensus_console_logger->error("unknown exception occurs");
+            }
+            }, addr.hid, addr.chainnum, addr.id);
     }
     catch (CppSQLite3Exception& ex) {
         return DBERROR(ex);

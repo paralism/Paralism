@@ -50,15 +50,15 @@ function RefreshUI()
         //myPage.warning.setText("<p style=\"color: red\">Existing installation detected, you must backed up your wallets to continue.</p>");
 		//myPage.warningInput.setText("<p style=\"color: red\">Please input 'y' to uninstall if you have already backed up your wallets:</p>");
 
-		myPage.warning.setText("<p style=\"color: red\">当前选择的目标目录检测到已安装Paralism，继续安装前将卸载之前安装，卸载后您的钱包将不可恢复！！！或者您也可以选择其他目录来继续安装。</p>");
-		myPage.warningInput.setText("<p style=\"color: red\">如果仍然继续，请务必先备份您的钱包，然后在右边文本框中输入‘y’，安装程序将会卸载已安装的Paralism。</p>");
+		myPage.warning.setText("<p style=\"color: red\">当前选择的目标目录检测到已安装本软件，继续安装前将卸载之前安装，卸载后目标目录下的钱包文件将被删除，且不可恢复！！！或者您也可以选择其它目录来继续安装。</p>");
+		myPage.warningInput.setText("<p style=\"color: red\">如果仍然继续，请务必先备份您的钱包，然后在右边文本框中输入‘y’，安装程序将会卸载之前安装。</p>");
 		
 		myPage.warningInput.setVisible(true);
 		myPage.confirmLineEdit.setVisible(true);
     }
     else if (installer.fileExists(dir)) {
         //myPage.warning.setText("<p style=\"color: red\">Installing in existing directory. It will be wiped on uninstallation.</p>");
-		myPage.warning.setText("<p style=\"color: red\">警告：当前目标目录已经存在，Paralism卸载后将会删除目录下所有文件。</p>");
+		myPage.warning.setText("<p style=\"color: red\">警告：当前目标目录已经存在，将来卸载本软件将会删除目录下所有文件。</p>");
 		myPage.complete = true;
     }
     else {
@@ -77,7 +77,7 @@ Component.prototype.installerLoaded = function()
     //myPage.windowTitle = "Choose Installation Directory";
 	myPage.windowTitle = "选择安装目录";
     //myPage.description.setText("Please select where Paralism will be installed:");	
-	myPage.description.setText("请选择Paralism安装目录：");
+	myPage.description.setText("请选择安装目录：");
 		
 	//install event handler
     myPage.targetDirectory.textChanged.connect(this, this.targetDirectoryChanged);

@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -51,13 +51,13 @@ typedef struct _tsha256
             pID[i] = sha[i];
     }
 
-    _tsha256(const string sha)
+    _tsha256(const string& sha)
     {
         for (int i = 0; i < DEF_SHA256_LEN; i++)
             pID[i] = sha[i];
     }
 
-    _tsha256(const _tsha256&sha)
+    _tsha256(const _tsha256& sha)
     {
         for (int i = 0; i < DEF_SHA256_LEN; i++)
             pID[i] = sha.pID[i];
@@ -69,6 +69,13 @@ typedef struct _tsha256
             for (int i = 0; i < DEF_SHA256_LEN; i++)
                 pID[i] = arRes.pID[i];
         }
+        return *this;
+    }
+
+    _tsha256 operator = (const string& sha)
+    {
+        for (int i = 0; i < DEF_SHA256_LEN; i++)
+            pID[i] = sha[i];
         return *this;
     }
 
@@ -144,16 +151,17 @@ typedef struct _tsha256
         char ucBuf[DEF_SHA256_LEN * 2 + 1] = { 0 };
 
         unsigned int uiNum = 0;
-        char *p = ucBuf;
+        char* p = ucBuf;
         for (; uiNum < DEF_SHA256_LEN; uiNum++) {
             sprintf(p, "%02x", pID[uiNum]);
             p += 2;
         }
         return string(ucBuf);
     }
-    bool isNull() {
+    bool isNull()
+    {
         char test[DEF_SHA256_LEN] = { 0 };
-        if (memcmp(pID.data(),test,DEF_SHA256_LEN) == 0) {
+        if (memcmp(pID.data(), test, DEF_SHA256_LEN) == 0) {
             return true;
         }
         return false;
@@ -161,12 +169,12 @@ typedef struct _tsha256
 private:
     friend class boost::serialization::access;
     template <typename Archive>
-    void serialize(Archive &ar, unsigned int version)
+    void serialize(Archive& ar, unsigned int version)
     {
-        ar & boost::serialization::make_array(pID.data(), DEF_SHA256_LEN);
+        ar& boost::serialization::make_array(pID.data(), DEF_SHA256_LEN);
     }
 
-}T_SHA256, *T_PSHA256;
+}T_SHA256, * T_PSHA256;
 BOOST_CLASS_VERSION(T_SHA256, 0)
 
 typedef struct _tsha512
@@ -245,9 +253,10 @@ typedef struct _tsha512
         pID.fill(nNum);
     }
 
-    bool isNull() {
+    bool isNull()
+    {
         char test[DEF_SHA512_LEN] = { 0 };
-        if (memcmp(pID.data(),test,DEF_SHA512_LEN) == 0) {
+        if (memcmp(pID.data(), test, DEF_SHA512_LEN) == 0) {
             return true;
         }
         return false;
@@ -255,6 +264,6 @@ typedef struct _tsha512
 
     inline unsigned char* data() { return pID.data(); }
 
-}T_SHA512, *T_PSHA512;
+}T_SHA512, * T_PSHA512;
 
 #endif

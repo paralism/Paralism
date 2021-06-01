@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -24,10 +24,11 @@ DEALINGS IN THE SOFTWARE.
 // Distributed under the MIT/X11 software license, see the accompanying
 // file license.txt or http://www.opensource.org/licenses/mit-license.php.
 
-#include "config.h"
+#include "globalconfig.h"
 #include "headers.h"
 #include "strlcpy.h"
 #include "util.h"
+
 
 #include <boost/program_options/detail/config_file.hpp>
 #include <boost/program_options/parsers.hpp>
@@ -64,33 +65,15 @@ string strMiscWarning;
 bool fTestNet = false;
 bool fNoListen = false;
 bool fLogTimestamps = false;
+char mdname[] = "Para";
 
 
-char log_prefix_i[] = "INFO";
-char log_prefix_e[] = "ERROR";
-char log_prefix_w[] = "WARNING";
 
 // Workaround for "multiple definition of `_tls_used'"
 // http://svn.boost.org/trac/boost/ticket/4258
 extern "C" void tss_cleanup_implemented() { }
 
 
-
-void log_output_nowrap(const char* format, ...)
-{
-    char buffer[50000];
-    int limit = sizeof(buffer);
-    va_list arg_ptr;
-    va_start(arg_ptr, format);
-    int ret = _vsnprintf(buffer, limit, format, arg_ptr);
-    va_end(arg_ptr);
-    if (ret < 0 || ret >= limit)
-    {
-        ret = limit - 1;
-        buffer[limit - 1] = 0;
-    }
-    fprintf(stdout, "%s", buffer);
-}
 
 
 
@@ -113,7 +96,7 @@ void CApplicationSettings::ReadDefaultApp(string& hash)
         return;
     }
     catch (std::exception e) {
-        printf(e.what());
+        DEBUG_FL("%s\n", e.what());
     }
     hash = CryptoCurrency::GetHashPrefixOfSysGenesis();
 }
@@ -186,101 +169,10 @@ void RandAddSeedPerfmon()
     {
         RAND_add(pdata, nSize, nSize/100.0);
         memset(pdata, 0, nSize);
-        printf("%s RandAddSeed() %d bytes\n", DateTimeStrFormat("%x %H:%M", GetTime()).c_str(), nSize);
+        TRACE_FL("%s RandAddSeed() %d bytes\n", DateTimeStrFormat("%x %H:%M", GetTime()).c_str(), nSize);
     }
 #endif
 }
-
-extern "C" BOOST_SYMBOL_EXPORT
-bool TurnOnOffDebugOutput(const string& onoff, string& ret)
-{
-    string optiononoff=onoff;
-    std::transform(onoff.begin(), onoff.end(), optiononoff.begin(),
-        [](unsigned char c) { return std::tolower(c); });
-
-    ret = "Paracoin's debug setting is ";
-    if (optiononoff.empty()) {
-        if (fPrintToConsole && fPrintToDebugFile) {
-            ret += "'both'";
-        }
-        else if (!fPrintToConsole && !fPrintToDebugFile) {
-            ret += "'off'";
-        }
-        else if (fPrintToConsole && !fPrintToDebugFile) {
-            ret += "'con'";
-        }
-        else if (!fPrintToConsole && fPrintToDebugFile) {
-            ret += "'file'";
-        }
-
-        if (fPrintBacktracking) {
-            ret = "'backtracking' on";
-        }
-
-        if (fPrintBacktracking_node) {
-            ret = "'backtracking on from node: ";
-            ret += strBacktracking_node;
-            ret += "'";
-        }
-
-        return true;
-    }
-
-    if (optiononoff == "both") {
-        fPrintToConsole = true;
-        fPrintToDebugFile = true;
-    }
-    else if (optiononoff == "con") {
-        fPrintToConsole = true;
-        fPrintToDebugFile = false;
-    }
-    else if (optiononoff == "file") {
-        fPrintToConsole = false;
-        fPrintToDebugFile = true;
-    }
-    else if (optiononoff == "off") {
-        fPrintToConsole = false;
-        fPrintToDebugFile = false;
-        fPrintBacktracking = false;
-        fPrintBacktracking_node = false;
-    }
-    else if (optiononoff == "bt") {
-        fPrintBacktracking = true;
-    }
-    else if (optiononoff.find("bt:") != string::npos) {
-        fPrintBacktracking_node = true;
-        strBacktracking_node = optiononoff.substr(3);
-    }
-    else {
-        ret = "unknown debug option";
-        return false;
-    }
-    ret = string("Paracoin's debug setting is '") + optiononoff + "'";
-    return true;
-}
-
-void LogBacktrackingFromNode(const string &fromnode, const char* format, ...)
-{
-    if (fPrintBacktracking_node && fromnode == strBacktracking_node) {
-        // print to console
-        va_list arg_ptr;
-        va_start(arg_ptr, format);
-        vprintf(format, arg_ptr);
-        va_end(arg_ptr);
-    }
-}
-
-void LogBacktracking(const char* format, ...)
-{
-    if (fPrintBacktracking || fPrintToConsole) {
-        // print to console
-        va_list arg_ptr;
-        va_start(arg_ptr, format);
-        vprintf(format, arg_ptr);
-        va_end(arg_ptr);
-    }
-}
-
 
 int OutputDebugStringF(const char* pszFormat, ...)
 {
@@ -365,22 +257,6 @@ int OutputDebugStringF(const char* pszFormat, ...)
 }
 
 
-string strprintf(const char* fmt, ...)
-{
-    va_list args;
-
-    va_start(args, fmt);
-    int sz = std::vsnprintf(nullptr, 0, fmt, args);
-    va_end(args);
-
-    std::string buf(sz, 0);
-
-    va_start(args, fmt);
-    std::vsnprintf(&buf[0], sz + 1, fmt, args);
-    va_end(args);
-
-    return buf;
-}
 
 void ParseString(const string& str, char c, vector<string>& v)
 {
@@ -577,16 +453,10 @@ bool WildcardMatch(const string& str, const string& mask)
 
 void FormatException(char* pszMessage, std::exception* pex, const char* pszThread)
 {
-#ifdef __WXMSW__
-    char pszModule[MAX_PATH];
-    pszModule[0] = '\0';
-    GetModuleFileNameA(NULL, pszModule, sizeof(pszModule));
-#else
-    const char* pszModule = "ledger";
-#endif
+    const char* pszModule = "paracoin";
     if (pex)
         snprintf(pszMessage, 1000,
-            "EXCEPTION: %s       \n%s       \n%s in %s       \n", typeid(*pex).name(), pex->what(), pszModule, pszThread);
+            "EXCEPTION: %s       \n%s       \n%s in %s       \n", pex->what(), pszModule, pszThread);
     else
         snprintf(pszMessage, 1000,
             "UNKNOWN EXCEPTION       \n%s in %s       \n", pszModule, pszThread);
@@ -606,6 +476,7 @@ void PrintException(std::exception* pex, const char* pszThread)
     printf("\n\n************************\n%s\n", pszMessage);
     fprintf(stderr, "\n\n************************\n%s\n", pszMessage);
     strMiscWarning = pszMessage;
+
     //throw;
 }
 
@@ -862,7 +733,7 @@ void AddTimeData(unsigned int ip, int64 nTime)
     if (vTimeOffsets.empty())
         vTimeOffsets.push_back(0);
     vTimeOffsets.push_back(nOffsetSample);
-    printf("Added time data, samples %d, offset %+" PRI64d " (%+" PRI64d " minutes)\n", vTimeOffsets.size(), vTimeOffsets.back(), vTimeOffsets.back()/60);
+    DEBUG_FL("Added time data, samples %d, offset %+" PRI64d " (%+" PRI64d " minutes)\n", vTimeOffsets.size(), vTimeOffsets.back(), vTimeOffsets.back()/60);
     if (vTimeOffsets.size() >= 5 && vTimeOffsets.size() % 2 == 1)
     {
         sort(vTimeOffsets.begin(), vTimeOffsets.end());
@@ -1073,3 +944,15 @@ std::thread::id CCriticalBlockT<pcstName>::_tid = std::thread::id();
 
 
 #endif /* DEBUG_LOCKORDER */
+
+string& replace_all(string& str, const string& old_value, const string& new_value)
+{
+    while (true) {
+        string::size_type pos(0);
+        if ((pos = str.find(old_value)) != string::npos)
+            str.replace(pos, old_value.length(), new_value);
+        else break;
+    }
+    return str;
+}
+

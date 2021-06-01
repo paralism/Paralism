@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -87,8 +87,8 @@ public:
                 hyperchainspace->GetRemoteHyperBlockByID(addr.hid);
             }
         }
-        catch (runtime_error& e) {
-            g_console_logger->warn("{} : {}", __FUNCTION__, e.what());
+        catch (boost::archive::archive_exception& e) {
+            g_console_logger->error("{} : {}", __FUNCTION__, e.what());
             return;
         }
     }
@@ -118,8 +118,8 @@ public:
             oa << _eAddr;
             oa << _app;
         }
-        catch (runtime_error& e) {
-            g_console_logger->warn("{} : {}", __FUNCTION__, e.what());
+        catch (boost::archive::archive_exception& e) {
+            g_console_logger->error("{} : {}", __FUNCTION__, e.what());
             return;
         }
 
@@ -141,8 +141,8 @@ public:
             ia >> _eAddr;
             ia >> _app;
         }
-        catch (runtime_error& e) {
-            g_console_logger->warn("{} : {}", __FUNCTION__, e.what());
+        catch (boost::archive::archive_exception& e) {
+            g_console_logger->error("{} : {}", __FUNCTION__, e.what());
             return;
         }
 

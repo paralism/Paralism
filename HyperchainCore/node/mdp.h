@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -23,17 +23,15 @@ DEALINGS IN THE SOFTWARE.
 #pragma once
 
 
-
 #define MDPC_CLIENT         "MDPC01"
-
+#define MDPC_CONSOLECLIENT  "MDPC02"
+#define MDPC_CONSOLESERVER  "MDPS01"
 
 
 #define MDPW_WORKER         "MDPW01"
 
 
-
 #define MDP_MON "MDPMON"
-
 
 
 #define MDPW_READY          "\001"
@@ -43,8 +41,7 @@ DEALINGS IN THE SOFTWARE.
 #define MDPW_HEARTBEAT      "\005"
 #define MDPW_DISCONNECT     "\006"
 
-#define HC_BROKER "inproc:
-
+#define HC_BROKER "inproc://hc_broker"
 
 #define CONSENSUS_SERVICE "consensus"
 #define CONSENSUS_T_SERVICE "consensus_task"

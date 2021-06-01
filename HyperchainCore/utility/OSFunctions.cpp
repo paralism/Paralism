@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -22,17 +22,17 @@ DEALINGS IN THE SOFTWARE.
 
 #ifdef WIN32
 #include <windows.h>
-#include <psapi.h>    
+#include <psapi.h>
 #pragma comment(lib,"psapi.lib")
 #else
 #include <sys/sysinfo.h>
-#include <stdio.h>  
-#include <unistd.h>  
-#include <linux/kernel.h>  
+#include <stdio.h>
+#include <unistd.h>
+#include <linux/kernel.h>
 #include <stdlib.h>
 
-#define VMRSS_LINE 17  
-#define VMSIZE_LINE 13  
+#define VMRSS_LINE 17
+#define VMSIZE_LINE 13
 #define PROCESS_ITEM 14
 
 #endif
@@ -50,12 +50,12 @@ int OSFunctions::GetCurrentFreeMemoryOS()
 
 	return mems;
 #else
-	struct sysinfo sys;  
-	sysinfo(&sys); 
+	struct sysinfo sys;
+	sysinfo(&sys);
 	int mems = sys.freeram/MB;
 
 	return mems;
-#endif	
+#endif
 }
 
 int OSFunctions::GetTotalMemoryOS()
@@ -67,7 +67,7 @@ int OSFunctions::GetTotalMemoryOS()
 
 	return mems;
 #else
-	struct sysinfo sys;  
+	struct sysinfo sys;
 	sysinfo(&sys);
 	int mems = sys.totalram / MB;
 
@@ -81,10 +81,10 @@ int OSFunctions::GetUsedMemoryHC()
 #ifdef WIN32
 	HANDLE handle = GetCurrentProcess();
 	PROCESS_MEMORY_COUNTERS pmc;
-	GetProcessMemoryInfo(handle,&pmc,sizeof(pmc)); 
+	GetProcessMemoryInfo(handle,&pmc,sizeof(pmc));
 
 	return pmc.WorkingSetSize / MB;
-#else	
+#else
 	pid_t pid = getpid();
 	char file_name[64] = { 0 };
 	FILE *fd;
@@ -136,7 +136,7 @@ int OSFunctions::GetCurrentCPUIdlePercentageOS()
 
 	typedef struct {
 		unsigned int user;
-		unsigned int nice; 
+		unsigned int nice;
 		unsigned int system;
 		unsigned int idle;
 	}total_cpu_occupy_t;
@@ -145,10 +145,10 @@ int OSFunctions::GetCurrentCPUIdlePercentageOS()
 	fd = fopen("/proc/stat", "r");
 	fgets(buffer, sizeof(buffer), fd);
 
-	char name[16];	
+	char name[16];
 	sscanf(buffer, "%s %u %u %u %u", name, &t.user, &t.nice, &t.system, &t.idle);
 	fclose(fd);
 
 	return t.user + t.nice + t.system + t.idle;
-#endif	
+#endif
 }

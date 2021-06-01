@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -28,11 +28,12 @@ DEALINGS IN THE SOFTWARE.
 #include <WinSock2.h>
 #endif
 
-#include "headers.h"
 #include "cryptopp/sha.h"
+#include "headers.h"
 #include "db.h"
 #include "net.h"
 #include "init.h"
+#include "ledger_rpc.h"
 
 #include "cryptotoken.h"
 #include "ledgertask.h"
@@ -53,9 +54,6 @@ DEALINGS IN THE SOFTWARE.
 #include <boost/filesystem/fstream.hpp>
 typedef boost::asio::ssl::stream<boost::asio::ip::tcp::socket> SSLStream;
 #endif
-#include "json/json_spirit_reader_template.h"
-#include "json/json_spirit_writer_template.h"
-#include "json/json_spirit_utils.h"
 #define printf OutputDebugStringF
 // MinGW 3.4.5 gets "fatal error: had to relocate PCH" if the json headers are
 // precompiled in headers.h.  The problem might be when the pch file goes over
@@ -65,7 +63,6 @@ typedef boost::asio::ssl::stream<boost::asio::ip::tcp::socket> SSLStream;
 using namespace std;
 using namespace boost;
 using namespace boost::asio;
-using namespace json_spirit;
 
 void ThreadRPCServer2(void* parg);
 typedef Value(*rpcfn_type)(const Array& params, bool fHelp);
@@ -84,7 +81,6 @@ Value committoken(const Array& params, bool fHelp);
 Value queryfundblock(const Array& params, bool fHelp);
 Value gettokeninfo(const Array& params, bool fHelp);
 Value importtoken(const Array& params, bool fHelp);
-Value starttoken(const Array& params, bool fHelp);
 
 Object JSONRPCError(int code, const string& message)
 {
@@ -116,7 +112,7 @@ void PrintConsole(const char* format, ...)
 int64 AmountFromValue(const Value& value)
 {
     double dAmount = value.get_real();
-    if (dAmount <= 0.0 || dAmount > 21000000.0)
+    if (dAmount <= 0.0 || dAmount > 92200000000.0)
         throw JSONRPCError(-3, "Invalid amount");
     int64 nAmount = roundint64(dAmount * COIN);
     if (!MoneyRange(nAmount))
@@ -157,7 +153,7 @@ Value help(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() > 1)
         throw runtime_error(
-            "Ledger help [command]\n"
+            "help [command]\n"
             "List commands, or get help for a command.");
 
     string strCommand;
@@ -245,6 +241,31 @@ Value getconnectioncount(const Array& params, bool fHelp)
     return (int)vNodes.size();
 }
 
+Value setgenerate(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() < 1 || params.size() > 2)
+        throw runtime_error(
+            "setgenerate <generate> [genproclimit]\n"
+            "<generate> is true or false to turn generation on or off.\n"
+            "Generation is limited to [genproclimit] processors, -1 is unlimited.");
+
+    bool fGenerate = true;
+    if (params.size() > 0)
+        fGenerate = params[0].get_bool();
+
+    if (params.size() > 1) {
+        int nGenProcLimit = params[1].get_int();
+        fLimitProcessors = (nGenProcLimit != -1);
+        WriteSetting("fLimitProcessors", fLimitProcessors);
+        if (nGenProcLimit != -1)
+            WriteSetting("nLimitProcessors", nLimitProcessors = nGenProcLimit);
+        if (nGenProcLimit == 0)
+            fGenerate = false;
+    }
+
+    GenerateBitcoins(fGenerate, pwalletMain);
+    return Value::null;
+}
 
 Value gethashespersec(const Array& params, bool fHelp)
 {
@@ -347,7 +368,6 @@ CBitcoinAddress GetAccountAddress(string strAccount, bool bForceNew = false)
             throw JSONRPCError(-12, "Error: Keypool ran out, please call keypoolrefill first");
 
         pwalletMain->SetAddressBookName(CBitcoinAddress(account.vchPubKey), strAccount);
-        
 
         //walletdb.WriteAccount(strAccount, account);
     }
@@ -1182,7 +1202,7 @@ Value gettransactionaddr(const Array& params, bool fHelp)
         throw JSONRPCError(-5, "Invalid or non-wallet transaction id");
 
     CTxIndex txindex;
-    if (!CTxDB("r").ReadTxIndex(hash, txindex))
+    if (!CTxDB_Wrapper().ReadTxIndex(hash, txindex))
         throw JSONRPCError(-5, "Failed to read transaction");
 
     entry.push_back(Pair("address",txindex.pos.addr.tostring()));
@@ -1233,10 +1253,14 @@ Value backupwallet(const Array& params, bool fHelp)
             "Safely copies wallet.dat to destination, which can be a directory or a path with filename.");
 
     string strDest = params[0].get_str();
-    BackupWallet(*pwalletMain, strDest);
+
+    string errmsg;
+    if (!BackupWallet(*pwalletMain, strDest, errmsg)) {
+        throw JSONRPCError(-1, errmsg);
+    }
 
     Object entry;
-    entry.push_back(Pair("hashprefix", g_cryptoToken.GetHashPrefixOfGenesis()));
+    entry.push_back(Pair("hash", g_cryptoToken.GetHashPrefixOfGenesis()));
 
     return entry;
 }
@@ -1282,7 +1306,7 @@ void ThreadCleanWalletPassphrase(void* parg)
         }
 
         while (GetTime() < nWalletUnlockTime)
-            Sleep(GetTime() - nWalletUnlockTime);
+            Sleep(nWalletUnlockTime - GetTime());
 
         CRITICAL_BLOCK(cs_nWalletUnlockTime)
         {
@@ -1307,12 +1331,11 @@ void ThreadCleanWalletPassphrase(void* parg)
 
 Value walletpassphrase(const Array& params, bool fHelp)
 {
-    if (pwalletMain->IsCrypted() && (fHelp || params.size() != 2))
+    if (fHelp || (pwalletMain->IsCrypted() && params.size() != 2))
         throw runtime_error(
             "walletpassphrase <passphrase> <timeout>\n"
             "Stores the wallet decryption key in memory for <timeout> seconds.");
-    if (fHelp)
-        return true;
+
     if (!pwalletMain->IsCrypted())
         throw JSONRPCError(-15, "Error: running with an unencrypted wallet, but walletpassphrase was called.");
 
@@ -1482,16 +1505,14 @@ Value addamounttoaddress(const Array& params, bool fHelp)
             "Add the address the given value.");
 
     CBitcoinAddress address(params[1].get_str());
-    
 
-    
 
     if (!address.IsValid())
         throw JSONRPCError(-5, "Invalid address");
     // Amount
     int64 nAmount = AmountFromValue(params[0]);
 
-    std::shared_ptr<CBlock> spBlock = CreateInitBlock(nAmount, address);
+    CBlockSP spBlock = CreateInitBlock(nAmount, address);
     string requestid, errmsg;
     if (!CommitToConsensus(spBlock.get(), requestid, errmsg)) {
         throw runtime_error(errmsg);
@@ -1526,7 +1547,8 @@ pair<string, rpcfn_type> pCallTable[] =
     make_pair("getblockcount",          &getblockcount),
     make_pair("getblocknumber",         &getblocknumber),
     make_pair("getconnectioncount",     &getconnectioncount),
-    make_pair("gethashespersec",        &gethashespersec),
+    make_pair("setgenerate",            &setgenerate),
+    //make_pair("gethashespersec",        &gethashespersec),
     make_pair("getinfo",                &getinfo),
     make_pair("getnewaddress",          &getnewaddress),
     make_pair("getaccountaddress",      &getaccountaddress),
@@ -1555,11 +1577,10 @@ pair<string, rpcfn_type> pCallTable[] =
     make_pair("listaccounts",           &listaccounts),
     make_pair("settxfee",               &settxfee),
     make_pair("issuetoken",             &issuetoken),
-    make_pair("committoken",            &committoken),
+    //make_pair("committoken",            &committoken),
     make_pair("queryfundblock",         &queryfundblock),
     make_pair("gettokeninfo",           &gettokeninfo),
     make_pair("importtoken",            &importtoken),
-    make_pair("starttoken",            &starttoken),
 };
 map<string, rpcfn_type> mapCallTable(pCallTable, pCallTable + sizeof(pCallTable) / sizeof(pCallTable[0]));
 
@@ -1886,7 +1907,6 @@ private:
 
 void ThreadRPCServer(void* parg)
 {
-    
 
     //IMPLEMENT_RANDOMIZE_STACK(ThreadRPCServer(parg));
     fRPCServerRunning = true;
@@ -1906,7 +1926,7 @@ void ThreadRPCServer(void* parg)
     }
     fRPCServerRunning = false;
 
-    printf("ThreadRPCServer exiting\n");
+    TRACE_FL("ThreadRPCServer exiting\n");
 }
 
 void HandleAccept(const system::error_code& error,
@@ -1930,7 +1950,7 @@ void StartAccept(boost::asio::ip::tcp::acceptor& acceptor)
 
 void ThreadRPCServer2(void* parg)
 {
-    printf("ThreadRPCServer started\n");
+    TRACE_FL("ThreadRPCServer started\n");
 
     if (mapArgs["-rpcuser"] == "" && mapArgs["-rpcpassword"] == "")
     {
@@ -1980,11 +2000,9 @@ void ThreadRPCServer2(void* parg)
         throw runtime_error("-rpcssl=1, but ledger compiled without full openssl libraries.");
 #endif
 
-    
 
     StartAccept(acceptor);
 
-    
 
     io_service.run();
 }
@@ -2057,8 +2075,19 @@ void HandleReadHttpBody(boost::shared_ptr<asio::ip::tcp::socket> socket,
                 // Execute
                 Value result;
                 CRITICAL_BLOCK(cs_main)
-                CRITICAL_BLOCK(pwalletMain->cs_wallet)
+                    CRITICAL_BLOCK(pwalletMain->cs_wallet)
+                {
+                    auto fn = *(mi->second);
+                    if (fn != help &&
+                        fn != importtoken &&
+                        fn != issuetoken &&
+                        fn != gettokeninfo) {
+                        if (g_cryptoToken.IsSysToken()) {
+                            throw JSONRPCError(-32601, "Token not specified");
+                        }
+                    }
                     result = (*(*mi).second)(params, false);
+                }
 
                 // Send reply
                 string strReply = JSONRPCReply(result, Value::null, id);
@@ -2138,7 +2167,6 @@ void HandleReadHttpHeader(boost::shared_ptr<asio::ip::tcp::socket> socket,
         //    return;
         //}
 
-        
 
         // Check authorization
         //if (mapHeaders.count("authorization") == 0)
@@ -2164,7 +2192,6 @@ void HandleAccept(const system::error_code& error,
     boost::shared_ptr< asio::ip::tcp::socket > socket,
     asio::ip::tcp::acceptor& acceptor)
 {
-    
 
     if (error) {
         printf("Error accepting connection: %s", error.message().c_str());
@@ -2228,7 +2255,6 @@ void HandleAccept(const system::error_code& error,
 
     } while (false);
 
-    
 
     StartAccept(acceptor);
 
@@ -2236,7 +2262,6 @@ void HandleAccept(const system::error_code& error,
 
 void StartRPCServer()
 {
-    
 
     int n = 1;//std::thread::hardware_concurrency();
     for (int i = 0; i < n; i++) {
@@ -2363,6 +2388,8 @@ int CommandLineRPC(int argc, char *argv[])
         //
         // Special case non-string parameter types
         //
+        if (strMethod == "setgenerate"            && n > 0) ConvertTo<bool>(params[0]);
+        if (strMethod == "setgenerate"            && n > 1) ConvertTo<boost::int64_t>(params[1]);
         if (strMethod == "sendtoaddress"          && n > 1) ConvertTo<double>(params[1]);
         if (strMethod == "settxfee"               && n > 0) ConvertTo<double>(params[0]);
         if (strMethod == "getreceivedbyaddress"   && n > 1) ConvertTo<boost::int64_t>(params[1]);
@@ -2434,23 +2461,35 @@ int CommandLineRPC(int argc, char *argv[])
 
 Value issuetoken(const Array& params, bool fHelp)
 {
-    if (fHelp || params.size() < 2)
+    if (fHelp || params.size() < 1)
         throw runtime_error(
-            "issuetoken {Name} [Genesis Block Description] [Initail Supply] [Logo] [Address]\n");
+            //"issuetoken <Name> [Genesis Block Description] [Initial Supply] [Logo] [Address]\n");
+            "issuetoken <configuration file name>\n" " The file contains pairs of key and value:\n "
+            "name, description, supply, logo, address and gbpublickey(>=2)\n");
 
-    vector<string> key = { "name", "description", "supply", "logo", "address"};
-    map<string, string> mapGenenisBlockParams;
-    for (int i=0; i<params.size(); i++) {
-        mapGenenisBlockParams[key[i]] = params[i].get_str();
+    map<string, string> mapGenenisBlkParams;
+    vector<string> vpublickey;
+    string errormsg;
+
+    if (!CryptoToken::ReadIssCfg(params[0].get_str(), mapGenenisBlkParams, vpublickey, errormsg)) {
+        throw JSONRPCError(-100, errormsg);
+    }
+
+    if (mapGenenisBlkParams.count("supply")) {
+        int64 spply = std::atoll(mapGenenisBlkParams["supply"].c_str());
+        if (spply > MAX_MONEY / COIN)
+            throw JSONRPCError(-100, "supply value too high");
+        if (spply < 1)
+            throw JSONRPCError(-100, "supply value too low");
     }
 
     CKey keyPair;
-    if (mapGenenisBlockParams.count("address")) {
+    if (mapGenenisBlkParams.count("address")) {
         if (!pwalletMain) {
             throw JSONRPCError(-1, string("The wallet is not available"));
         }
 
-        CBitcoinAddress coinaddress(mapGenenisBlockParams["address"]);
+        CBitcoinAddress coinaddress(mapGenenisBlkParams["address"]);
         if (!pwalletMain->GetKey(coinaddress, keyPair)) {
             throw JSONRPCError(-2, string("The address not exist"));
         }
@@ -2459,13 +2498,19 @@ Value issuetoken(const Array& params, bool fHelp)
         keyPair.MakeNewKey();
     }
 
-    mapGenenisBlockParams["time"] = std::to_string(GetTime());
+    mapGenenisBlkParams["time"] = std::to_string(GetTime());
 
     CryptoToken newtoken(false);
-    newtoken.SetParas(mapGenenisBlockParams);
+    newtoken.SetParas(mapGenenisBlkParams);
+
+    GBPUBKEYS gbkeys;
+    for (auto &keystr : vpublickey) {
+        gbkeys.push_back(ParseHex(keystr));
+    }
+
+    newtoken.SetGenBlkPubKeys(std::move(gbkeys));
 
     CBlock genesis = newtoken.MineGenesisBlock(keyPair);
-    
 
 
     string hash = newtoken.GetHashPrefixOfGenesis();
@@ -2484,7 +2529,6 @@ Value issuetoken(const Array& params, bool fHelp)
     }
 
     string requestid;
-    
 
     UNCRITICAL_BLOCK(pwalletMain->cs_wallet)
     {
@@ -2505,7 +2549,7 @@ Value importkey(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() < 2)
         throw runtime_error(
-            "importkey {Name} {PublicKey} {PrivateKey}\n");
+            "importkey <Name> <PublicKey> <PrivateKey>\n");
 
     vector<string> key = { "name", "publickey" "privatekey"};
     map<string, string> mapParams;
@@ -2550,7 +2594,7 @@ Value committoken(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() < 1)
         throw runtime_error(
-            "committoken {name} \n");
+            "committoken <name> \n");
 
     map<string, string> mapGenenisBlockParams;
     mapGenenisBlockParams["name"] = params[0].get_str();
@@ -2596,7 +2640,7 @@ void ReadBlockFromChainSpace(const T_LOCALBLOCKADDRESS& addr, CBlock& block)
 Value gettokeninfo(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() < 3)
-        throw runtime_error("gettokeninfo {hyperblockId} {chainNumber} {localId} \n");
+        throw runtime_error("gettokeninfo <hyperblockId> <chainNumber> <localId> \n");
 
     T_LOCALBLOCKADDRESS addr;
     addr.set(std::stoi(params[0].get_str()),
@@ -2618,18 +2662,18 @@ Value gettokeninfo(const Array& params, bool fHelp)
     result.push_back(Pair("logo", token.GetLogo()));
     result.push_back(Pair("supply", token.GetSupply()));
     result.push_back(Pair("address", token.GetAddress()));
+    result.push_back(Pair("hash", token.GetHashPrefixOfGenesis()));
     return result;
 }
 
 Value queryfundblock(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() < 1)
-        throw runtime_error("queryfundblock {requestid}\n");
+        throw runtime_error("queryfundblock <requestid>\n");
     uint32_t hid;
     uint16 chainnum;
     uint16 localid;
 
-    
 
     T_LOCALBLOCKADDRESS addr;
     bool isfound = Singleton<DBmgr>::instance()->getOnChainStateFromRequestID(params[0].get_str(), addr);
@@ -2647,7 +2691,7 @@ Value queryfundblock(const Array& params, bool fHelp)
 Value importtoken(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() < 3)
-        throw runtime_error("importtoken {hyperblockId} {chainNumber} {localId} \n");
+        throw runtime_error("importtoken <hyperblockId> <chainNumber> <localId> \n");
 
     T_LOCALBLOCKADDRESS addr;
     addr.set(std::stoi(params[0].get_str()),
@@ -2674,50 +2718,11 @@ Value importtoken(const Array& params, bool fHelp)
     result.push_back(Pair("logo", newtoken.GetLogo()));
     result.push_back(Pair("supply", newtoken.GetSupply()));
     result.push_back(Pair("address", newtoken.GetAddress()));
+    result.push_back(Pair("hash", newtoken.GetHashPrefixOfGenesis()));
 
     return result;
 }
 
-Value starttoken(const Array& params, bool fHelp)
-{
-    if (fHelp)
-        throw runtime_error("starttoken [{name} | {hyperblockId} {chainNumber} {localId}] \n");
-
-    string tokenname = "";
-    string coinhash = "";
-    if (params.size() == 1) {
-        tokenname = params[0].get_str();
-    }
-    else if (params.size() == 3) {
-        if (!CryptoToken::SearchTokenByTriple(std::stoi(params[0].get_str()),
-            std::stoi(params[1].get_str()),
-            std::stoi(params[2].get_str()), tokenname, coinhash)) {
-
-            throw JSONRPCError(-1, string("cannot find the token"));
-        }
-    }
-
-    Object result;
-    if ((g_cryptoToken.GetName() == tokenname && g_cryptoToken.GetHashPrefixOfGenesis() == coinhash) ||
-        tokenname.empty()) {
-        throw JSONRPCError(-2, string("Already started: ") + g_cryptoToken.GetName());
-    }
-
-    CryptoToken currency(false);
-    currency.SetName(tokenname);
-    string errmsg;
-    if (!currency.ReadTokenFile(tokenname, coinhash, errmsg)) {
-        throw JSONRPCError(-3, string("Failed to load token: ") + errmsg);
-    }
-
-    std::shared_ptr<OPAPP> oppara = std::make_shared<OPAPP>(coinhash, mapArgs);
-
-    boost::thread op_thread(OperatorApplication, oppara);
-    op_thread.detach();
-
-    result.push_back(Pair("result", string("ok, will switch to token: ") + tokenname));
-    return result;
-}
 
 #ifdef TEST
 int main(int argc, char *argv[])

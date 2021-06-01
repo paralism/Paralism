@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -39,6 +39,8 @@ SOFTWARE.
 #include <map>
 using namespace std;
 
+MsgHandler ledgermsghandler;
+
 extern CryptoToken g_cryptoToken;
 
 extern bool AppInit2(int argc, char* argv[]);
@@ -46,11 +48,48 @@ extern void ShutdownExcludeRPCServer();
 void ReInitSystemRunningEnv();
 
 static bool isControlingApp = false;
+
+int SwitchToken(std::shared_ptr<OPAPP> parg);
+
 int OperatorApplication(std::shared_ptr<OPAPP> parg)
+{
+    if (ledgermsghandler.getID() == std::this_thread::get_id()) {
+        return SwitchToken(parg);
+    }
+    else {
+
+
+        string s(CUInt128::value + sizeof(ProtocolVer),'1');
+        s.append(sizeof(char), (char)TASKTYPE::LEDGER);
+        s.append(sizeof(char), (char)LEDGER_TASKTYPE::REINIT);
+
+        char* p = (char*)parg.get();
+        s.append((char*)&p, sizeof(void*));
+
+        HCMQClient client(ZMQ_REQ);
+
+        zmsg msg;
+        MQMsgPush(&msg, s);
+        zmsg* rspmsg = (zmsg*)client.cocall(LEDGER_T_SERVICE, &msg);
+
+        uint ret = 0;
+        if (rspmsg) {
+            MQMsgPop(rspmsg, ret);
+            delete rspmsg;
+        }
+        return ret;
+    }
+}
+
+
+
+
+int SwitchToken(std::shared_ptr<OPAPP> parg)
 {
     if (isControlingApp) {
         return -1;
     }
+
     auto t = parg.get();
 
     auto& apphash = std::get<0>(*t);
@@ -59,6 +98,7 @@ int OperatorApplication(std::shared_ptr<OPAPP> parg)
     mapParas["-tokenhash"] = apphash;
 
     ShutdownExcludeRPCServer();
+
 
     std::deque<string> appli;
 
@@ -91,32 +131,61 @@ int OperatorApplication(std::shared_ptr<OPAPP> parg)
     return 0;
 }
 
+void ThreadSearchLedgerNode(void* parg)
+{
+    std::function<void(int)> sleepfn = [](int sleepseconds) {
+        int i = 0;
+        int maxtimes = sleepseconds * 1000 / 200;
+        while (i++ < maxtimes) {
+            if (fShutdown) {
+                break;
+            }
+            Sleep(200);
+        }
+    };
+
+
+    while (!fShutdown) {
+        PingTask task;
+        task.exec();
+        sleepfn(15);
+    }
+}
 
 void sendToNode(CNode* pnode)
 {
+    std::string sndbuf;
     TRY_CRITICAL_BLOCK(pnode->cs_vSend)
     {
         CDataStream& vSend = pnode->vSend;
-        if (!vSend.empty())
-        {
+        if (!vSend.empty()) {
             int nBytes = vSend.size();
-            if (nBytes > 0)
-            {
-                LedgerTask tsk(pnode->nodeid, &vSend[0], nBytes);
-                tsk.exec();
+            if (nBytes > 0) {
+
+
+
+
+
+
+                sndbuf = string(vSend.begin(), vSend.begin() + nBytes);
                 vSend.erase(vSend.begin(), vSend.begin() + nBytes);
                 pnode->nLastSend = GetTime();
             }
             if (vSend.size() > SendBufferSize()) {
                 if (!pnode->fDisconnect)
-                    printf("socket send flood control disconnect (%d bytes)\n", vSend.size());
+                    TRACE_FL("socket send flood control disconnect (%d bytes)\n", vSend.size());
                 pnode->CloseSocketDisconnect();
             }
         }
     }
+
+    if (sndbuf.size() > 0 && !pnode->fDisconnect) {
+        LedgerTask tsk(pnode->nodeid, sndbuf.c_str(), sndbuf.size());
+        tsk.exec();
+    }
 }
 
-void recvFromNode(CNode* pnode, const char *pchBuf, size_t nBytes)
+void recvFromNode(CNode* pnode, const char* pchBuf, size_t nBytes)
 {
     TRY_CRITICAL_BLOCK(pnode->cs_vRecv)
     {
@@ -125,32 +194,28 @@ void recvFromNode(CNode* pnode, const char *pchBuf, size_t nBytes)
 
         if (nPos > ReceiveBufferSize()) {
             if (!pnode->fDisconnect)
-                printf("socket recv flood control disconnect (%d bytes)\n", vRecv.size());
+                TRACE_FL("socket recv flood control disconnect (%d bytes)\n", vRecv.size());
             pnode->CloseSocketDisconnect();
         }
         else {
             // typical socket buffer is 8K-64K
-            if (nBytes > 0)
-            {
+            if (nBytes > 0) {
                 vRecv.resize(nPos + nBytes);
                 memcpy(&vRecv[nPos], pchBuf, nBytes);
                 pnode->nLastRecv = GetTime();
             }
-            else if (nBytes == 0)
-            {
+            else if (nBytes == 0) {
                 // socket closed gracefully
                 if (!pnode->fDisconnect)
-                    printf("socket closed\n");
+                    TRACE_FL("socket closed\n");
                 pnode->CloseSocketDisconnect();
             }
-            else if (nBytes < 0)
-            {
+            else if (nBytes < 0) {
                 // error
                 int nErr = WSAGetLastError();
-                if (nErr != WSAEWOULDBLOCK && nErr != WSAEMSGSIZE && nErr != WSAEINTR && nErr != WSAEINPROGRESS)
-                {
+                if (nErr != WSAEWOULDBLOCK && nErr != WSAEMSGSIZE && nErr != WSAEINTR && nErr != WSAEINPROGRESS) {
                     if (!pnode->fDisconnect)
-                        printf("socket recv error %d\n", nErr);
+                        TRACE_FL("socket recv error %d\n", nErr);
                     pnode->CloseSocketDisconnect();
                 }
             }
@@ -158,10 +223,14 @@ void recvFromNode(CNode* pnode, const char *pchBuf, size_t nBytes)
     }
 }
 
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 void LedgerTask::exec()
 {
+    char prefix = (char)LEDGER_TASKTYPE::LEDGER;
+    _msg.insert(_msg.begin(), prefix);
     DataBuffer<LedgerTask> msgbuf(std::move(_msg));
     _nodemgr->sendTo(CUInt128(_nodeid), msgbuf);
 }
@@ -176,7 +245,7 @@ void LedgerTask::execRespond()
         string sentnodeid = _sentnodeid.ToHexString();
         //CRITICAL_BLOCK(cs_main)
         CRITICAL_BLOCK(cs_vNodes)
-            BOOST_FOREACH(CNode* pnode, vNodes)
+            BOOST_FOREACH(CNode * pnode, vNodes)
             if (pnode->nodeid == sentnodeid) {
                 recvFromNode(pnode, _payload + sizeof(LEDGER_TASKTYPE), _payloadlen - sizeof(LEDGER_TASKTYPE));
             }
@@ -192,6 +261,18 @@ void LedgerTask::execRespond()
         task.execRespond();
         break;
     }
+
+
+    //case LEDGER_TASKTYPE::REINIT: {
+
+    //    OPAPP* parg;
+    //    memcpy(&parg, _payload + sizeof(LEDGER_TASKTYPE), sizeof(void*));
+
+    //    std::shared_ptr<OPAPP> x(parg, [] (OPAPP*) {});
+    //    OperatorApplication(x);
+    //    break;
+    //}
+
     default:
         return;
     }
@@ -204,11 +285,19 @@ void LedgerTask::execRespond()
 
 void PingRspTask::exec()
 {
-    char prefix = (char)LEDGER_TASKTYPE::LEDGER_PING_NODE_RSP;
-    string self(prefix, 1);
-    self += _nodemgr->myself()->serialize();
+    uint32 hid = g_cryptoToken.GetHID();
+    uint32 chainnum = g_cryptoToken.GetChainNum();
+    uint32 localid = g_cryptoToken.GetLocalID();
 
-    DataBuffer<PingRspTask> databuf(std::move(self));
+    T_APPTYPE apptype;
+    apptype.set(hid, chainnum, localid);
+    string buffer(apptype.serialize());
+    buffer += _nodemgr->myself()->serialize();
+
+    char prefix = (char)LEDGER_TASKTYPE::LEDGER_PING_NODE_RSP;
+    buffer.insert(buffer.begin(), prefix);
+
+    DataBuffer<PingRspTask> databuf(std::move(buffer));
     _nodemgr->sendTo(_sentnodeid, databuf);
 }
 
@@ -224,49 +313,54 @@ void PingRspTask::execRespond()
     uint16 localid;
     apptype.get(hid, chainnum, localid);
     if (!g_cryptoToken.IsTokenSame(hid, chainnum, localid)) {
-        printf("%s: application type is different.\n", __FUNCTION__);
+        TRACE_FL("application type is different.\n");
         return;
     }
 
     UdpAccessPoint udppoint("", 0);
     if (!_nodemgr->getNodeAP(_sentnodeid, &udppoint)) {
         if (!_nodemgr->parseNode(payload.substr(offset), &udppoint)) {
-            printf("%s: cannot find udp access point\n", __FUNCTION__);
+            TRACE_FL("cannot find udp access point\n");
             return;
         }
-        printf("%s: added a new Ledger node.\n", __FUNCTION__);
+        TRACE_FL("added a new Ledger node.\n");
     }
 
     CAddress addrConnect(udppoint.ip(), (int)udppoint.port());
 
-    CRITICAL_BLOCK(cs_main)
+    CNode* pNode = nullptr;
     CRITICAL_BLOCK(cs_vNodes)
     {
-        BOOST_FOREACH(CNode* pnode, vNodes)
+        BOOST_FOREACH(CNode * pnode, vNodes)
             if (pnode->nodeid == _sentnodeid.ToHexString()) {
                 if (pnode->addr != addrConnect) {
                     pnode->addr = addrConnect;
                 }
-                pnode->AddRef();
+                pnode->AddRef(300);
                 return;
             }
 
         //no found
-        printf("Create a new outbound node and insert into Ledger nodes.\n");
-        CNode* pNode = new CNode(-1, addrConnect, false);
+        TRACE_FL("Create a new outbound node and insert into Ledger nodes.\n");
+        pNode = new CNode(-1, addrConnect, false);
         pNode->nodeid = _sentnodeid.ToHexString();
         pNode->nTimeConnected = GetTime();
-        pNode->AddRef();
+        pNode->AddRef(300);
         vNodes.push_back(pNode);
     }
-    printf("%s: reachable node %s\n", __FUNCTION__, addrConnect.ToString().c_str());
+
+    if (pNode) {
+        pNode->GetChkBlock();
+    }
+
+    TRACE_FL("reachable node %s\n", addrConnect.ToString().c_str());
 }
 
 
 void PingTask::exec()
 {
     DataBuffer<PingTask> databuf(1);
-    char *p = databuf.payload();
+    char* p = databuf.payload();
     *p = (char)LEDGER_TASKTYPE::LEDGER_PING_NODE;
 
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
@@ -310,18 +404,17 @@ void UnregisterTask(void* objFac)
     datahandler->unregisterAppTask(TASKTYPE::LEDGER);
 }
 
-MsgHandler ledgermsghandler;
 
-static void handleLedgerTask(void *wrk, zmsg *msg)
+static void handleLedgerTask(void* wrk, zmsg* msg)
 {
     msg->unwrap();
     string buf = msg->pop_front();
     auto taskbuf = std::make_shared<string>(std::move(buf));
 
-    HCMQWrk *realwrk = reinterpret_cast<HCMQWrk*>(wrk);
+    HCMQWrk* realwrk = reinterpret_cast<HCMQWrk*>(wrk);
 
     TASKTYPE tt = *(TASKTYPE*)(taskbuf->c_str() + CUInt128::value + sizeof(ProtocolVer));
-    if (tt != TASKTYPE::PARACOIN) {
+    if (tt != TASKTYPE::LEDGER) {
         return;
     }
 

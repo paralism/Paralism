@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -19,7 +19,6 @@ FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TOR
 OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 */
-#pragma once
 #include "ITask.hpp"
 
 #include <boost/thread/tss.hpp>
@@ -28,7 +27,6 @@ DEALINGS IN THE SOFTWARE.
 #include <functional>
 
 #include "MsgDispatcher.h"
-
 
 
 boost::thread_specific_ptr<zmq::socket_t> msgtransfer;
@@ -117,15 +115,14 @@ void MsgDispatcher::dispatch(const char *taskbuf, int len, const string& ip, uin
 
         zmsg msg(taskbuf, len);
         MQMsgPush(&msg, ip, port);
+        msg.push_front("");
         msg.send(*msgtransfer);
     }
 }
 
 void MsgDispatcher::dispatch_real(const char *taskbuf, int len, const string& ip, uint32_t port)
 {
-    
 
-    
 
     string buff(taskbuf, ProtocolHeaderLen);
     ITask::setTaskType(&buff[0], TASKTYPE::ACTIVE_NODE);
@@ -162,23 +159,24 @@ void MsgDispatcher::dispatch_real(const char *taskbuf, int len, const string& ip
     case TASKTYPE::HYPER_CHAIN_SPACE_PULL_RSP:
     case TASKTYPE::GET_HYPERBLOCK_BY_NO_REQ:
     case TASKTYPE::GET_HYPERBLOCK_BY_PREHASH_REQ:
-    case TASKTYPE::GET_HEADERHASH_BY_NO_REQ:
-    case TASKTYPE::GET_HEADERHASH_BY_NO_RSP:
+    case TASKTYPE::GET_HEADERHASHMTROOT_REQ:
+    case TASKTYPE::GET_HEADERHASHMTROOT_RSP:
+    case TASKTYPE::GET_HEADERHASH_REQ:
+    case TASKTYPE::GET_HEADERHASH_RSP:
     case TASKTYPE::GET_BLOCKHEADER_REQ:
     case TASKTYPE::GET_BLOCKHEADER_RSP:
     case TASKTYPE::BOARDCAST_HYPER_BLOCK:
     case TASKTYPE::NO_HYPERBLOCK_RSP:
     case TASKTYPE::NO_BLOCKHEADER_RSP:
+    case TASKTYPE::NO_HEADERHASHMTROOT_RSP:
         send(HYPERCHAINSPACE_T_SERVICE, &request);
         break;
 
     default:
         if (!_mapAppTask.count(tt)) {
-            
 
             return;
         }
-        
 
         send(_mapAppTask[tt], &request);
     }
@@ -235,11 +233,8 @@ zmsg* MsgDispatcher::send(std::string service, zmsg *request)
 {
     assert(request);
 
-    
 
-    
 
-    
 
     request->push_front((char*)service.c_str());
     request->push_front((char*)MDPC_CLIENT);

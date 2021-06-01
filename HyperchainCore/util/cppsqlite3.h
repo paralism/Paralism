@@ -33,7 +33,7 @@
 #ifndef _CppSQLite3_H_
 #define _CppSQLite3_H_
 
-#include "../thirdparty/sqlite3/sqlite3.h"
+#include "sqlite3.h"
 #include <cstdio>
 #include <cstring>
 #include <string>

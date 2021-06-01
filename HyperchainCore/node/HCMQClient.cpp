@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -79,18 +79,15 @@ void* HCMQClient::cocall(const char *servicename, zmsg *request)
         }
         npolltimes = 0;
 
-        
 
         if (items[0].revents & ZMQ_POLLIN) {
             zmsg * recv_msg = new zmsg(*m_client);
 
-            
 
             assert(recv_msg->parts() >= 1);
 
             if (m_socktype != ZMQ_REQ)
-                recv_msg->pop_front(); 
-
+                recv_msg->pop_front();
 
             std::string header = recv_msg->pop_front();
             assert(header.compare(m_mdptype) == 0);
@@ -100,7 +97,6 @@ void* HCMQClient::cocall(const char *servicename, zmsg *request)
         else {
             retries++;
 
-            
 
             if (retries > max_retries) {
                 connect_to_broker();
@@ -110,7 +106,6 @@ void* HCMQClient::cocall(const char *servicename, zmsg *request)
 
                 total_retries++;
 
-                
 
                 //cout << time2string() << " " << this_thread::get_id() << "(" << servicename
                 //    << "): retry already " << total_retries << " times" << endl;
@@ -153,18 +148,15 @@ zmsg* HCMQClient::send(std::string service, zmsg *request)
                 { static_cast<void*>(*m_client), 0, ZMQ_POLLIN, 0 } };
             zmq::poll(items, 1, 100);
 
-            
 
             if (items[0].revents & ZMQ_POLLIN) {
                 zmsg * recv_msg = new zmsg(*m_client);
 
-                
 
                 assert(recv_msg->parts() >= 1);
 
                 if (m_socktype != ZMQ_REQ)
-                    recv_msg->pop_front(); 
-
+                    recv_msg->pop_front();
 
                 std::string header = recv_msg->pop_front();
                 assert(header.compare(m_mdptype) == 0);
@@ -174,7 +166,6 @@ zmsg* HCMQClient::send(std::string service, zmsg *request)
             else {
                 retries++;
 
-                
 
                 if (retries > max_retries) {
                     connect_to_broker();

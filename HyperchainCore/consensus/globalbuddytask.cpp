@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -35,6 +35,7 @@ void MergeChainsWithMine(T_P2PPROTOCOLGLOBALBUDDYHEADER &globalBuddyHeader, boos
 
     ConsensusEngine *pEng = Singleton<ConsensusEngine>::getInstance();
 
+
     for (uint64 i = 0; i < globalBuddyHeader.GetBlockCount(); i++) {
         T_GLOBALCONSENSUS  localBlockInfo;
         try {
@@ -52,6 +53,7 @@ void MergeChainsWithMine(T_P2PPROTOCOLGLOBALBUDDYHEADER &globalBuddyHeader, boos
         if (uiChainCountNum != localBlockInfo.GetChainNo()) {
             uiChainCountNum = localBlockInfo.GetChainNo();
             if (listLocalConsensusInfo.size() != 0) {
+
                 pEng->MergeToGlobalBuddyChains(listLocalConsensusInfo);
                 listLocalConsensusInfo.clear();
             }
@@ -60,6 +62,7 @@ void MergeChainsWithMine(T_P2PPROTOCOLGLOBALBUDDYHEADER &globalBuddyHeader, boos
         listLocalConsensusInfo.emplace_back(localInfo);
 
         if (i == globalBuddyHeader.GetBlockCount() - 1) {
+
             pEng->MergeToGlobalBuddyChains(listLocalConsensusInfo);
             listLocalConsensusInfo.clear();
         }
@@ -76,15 +79,21 @@ void GlobalBuddyStartTask::exec()
     T_SHA256 preHyperblockHash = pConsensusStatus->GetConsensusPreHyperBlockHash();
     uint32_t blockNum = static_cast<uint32>(pConsensusStatus->listLocalBuddyChainInfo.size());
     if (blockNum <= 1) {
+
         return;
     }
 
     NodeManager *nodemgr = Singleton<NodeManager>::getInstance();
     HCNodeSH & me = nodemgr->myself();
 
+    pEng->MergeToGlobalBuddyChains(pConsensusStatus->listLocalBuddyChainInfo);
+    pConsensusStatus->tBuddyInfo.usChainNum = static_cast<uint16>(pConsensusStatus->listGlobalBuddyChainInfo.size());
+
     auto itr = pConsensusStatus->listLocalBuddyChainInfo.end();
+
     itr--;
     if ((*itr).GetPeer().GetPeerAddr() == me->getNodeId<CUInt128>()) {
+
 
         T_P2PPROTOCOLGLOBALBUDDYHEADER P2pProtocolGlobalBuddyReq;
 
@@ -92,18 +101,22 @@ void GlobalBuddyStartTask::exec()
         P2pProtocolGlobalBuddyReq.SetP2pprotocolglobalconsensusreq(T_PEERADDRESS(me->getNodeId<CUInt128>()), blockNum, 1);
 
         stringstream ssBuf;
-        boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
+        try {
+            boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
 
-        oa << P2pProtocolGlobalBuddyReq;
-        for (auto &localblock : pConsensusStatus->listLocalBuddyChainInfo) {
-            T_GLOBALCONSENSUS PeerInfos;
-            PeerInfos.SetGlobalconsenus(localblock.GetPeer(), localblock.GetLocalBlock(), 1);
-            oa << PeerInfos;
+            oa << P2pProtocolGlobalBuddyReq;
+            for (auto& localblock : pConsensusStatus->listLocalBuddyChainInfo) {
+                T_GLOBALCONSENSUS PeerInfos;
+                PeerInfos.SetGlobalconsenus(localblock.GetPeer(), localblock.GetLocalBlock(), 1);
+                oa << PeerInfos;
+            }
         }
-        DataBuffer<GlobalBuddyStartTask> msgbuf(move(ssBuf.str()));
+        catch (boost::archive::archive_exception& e) {
+            g_consensus_console_logger->error("{} {}", __FUNCTION__, e.what());
+            return;
+        }
 
-        pConsensusStatus->listGlobalBuddyChainInfo.push_back(pConsensusStatus->listLocalBuddyChainInfo);
-        pConsensusStatus->tBuddyInfo.usChainNum = static_cast<uint16>(pConsensusStatus->listGlobalBuddyChainInfo.size());
+        DataBuffer<GlobalBuddyStartTask> msgbuf(move(ssBuf.str()));
 
         nodemgr->sendToAllNodes(msgbuf);
     }
@@ -124,27 +137,21 @@ void GlobalBuddyRspTask::exec()
         return;
     }
 
-    if (pConsensusStatus->listLocalBuddyChainInfo.empty()) {
-        return;
-    }
-
-    stringstream ssBuf(_buf);
-    boost::archive::binary_iarchive ia(ssBuf, boost::archive::archive_flags::no_header);
-
-    T_P2PPROTOCOLGLOBALBUDDYHEADER globalBuddyHeader;
-    try {
-        ia >> globalBuddyHeader;
-    }
-    catch (runtime_error& e) {
-        g_consensus_console_logger->warn("{}", e.what());
-        return;
-    }
-
-    NodeManager *nodemgr = Singleton<NodeManager>::getInstance();
-
     bool isEndNodeBuddyChain = pEng->IsEndNode();
-
     if (isEndNodeBuddyChain) {
+
+        stringstream ssBuf(_buf);
+        boost::archive::binary_iarchive ia(ssBuf, boost::archive::archive_flags::no_header);
+
+        T_P2PPROTOCOLGLOBALBUDDYHEADER globalBuddyHeader;
+        try {
+            ia >> globalBuddyHeader;
+        }
+        catch (boost::archive::archive_exception& e) {
+            g_consensus_console_logger->error("{} {}", __FUNCTION__, e.what());
+            return;
+        }
+
         T_SHA256 hyperblockhash = pConsensusStatus->GetConsensusPreHyperBlockHash();
         if (globalBuddyHeader.uiHyperBlockHash != hyperblockhash) {
             g_consensus_console_logger->warn("GlobalBuddyReq is refused for different hyper block hash");
@@ -153,12 +160,20 @@ void GlobalBuddyRspTask::exec()
 
         MergeChainsWithMine(globalBuddyHeader, ia);
 
+
+
         replyChildChains(globalBuddyHeader);
     }
     else {
+
+        if (pConsensusStatus->listLocalBuddyChainInfo.empty()) {
+            return;
+        }
+
         auto endItr = pConsensusStatus->listLocalBuddyChainInfo.end();
         endItr--;
 
+        NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
         DataBuffer<GlobalBuddySendTask> datamsgbuf(std::move(_buf));
         nodemgr->sendTo(endItr->GetPeer().GetPeerAddr()._nodeid, datamsgbuf);
     }
@@ -187,22 +202,30 @@ void GlobalBuddyRspTask::replyChildChains(T_P2PPROTOCOLGLOBALBUDDYHEADER &global
     P2pProtocolGlobalBuddyHeader.SetChainCount(tempNum);
 
     stringstream ssBuf;
-    boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
-    oa << P2pProtocolGlobalBuddyHeader;
+    try {
+        boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
+        oa << P2pProtocolGlobalBuddyHeader;
 
-    uint32_t chainNum = 0;
-    itrGlobal = pConsensusStatus->listGlobalBuddyChainInfo.begin();
-    for (; itrGlobal != pConsensusStatus->listGlobalBuddyChainInfo.end(); itrGlobal++) {
-        chainNum++;
-        auto subItr = itrGlobal->begin();
-        for (; subItr != itrGlobal->end(); subItr++) {
-            T_GLOBALCONSENSUS PeerInfos;
-            PeerInfos.SetLocalBlock((*subItr).GetLocalBlock());
-            PeerInfos.SetPeer((*subItr).GetPeer());
-            PeerInfos.SetChainNo(chainNum);
-            oa << PeerInfos;
+        uint32_t chainNum = 0;
+        itrGlobal = pConsensusStatus->listGlobalBuddyChainInfo.begin();
+        for (; itrGlobal != pConsensusStatus->listGlobalBuddyChainInfo.end(); itrGlobal++) {
+            chainNum++;
+            auto subItr = itrGlobal->begin();
+            for (; subItr != itrGlobal->end(); subItr++) {
+                T_GLOBALCONSENSUS PeerInfos;
+                PeerInfos.SetLocalBlock((*subItr).GetLocalBlock());
+                PeerInfos.SetPeer((*subItr).GetPeer());
+                PeerInfos.SetChainNo(chainNum);
+                oa << PeerInfos;
+            }
         }
     }
+    catch (boost::archive::archive_exception& e) {
+        g_consensus_console_logger->error("{} {}", __FUNCTION__, e.what());
+        return;
+    }
+
+
     DataBuffer<GlobalBuddyRspTask> msgbuf(move(ssBuf.str()));
 
     if (globalBuddyHeader.GetPeerAddr()._nodeid != me->getNodeId<CUInt128>()) {
@@ -230,8 +253,8 @@ void GlobalBuddyRspTask::execRespond()
     try {
         ia >> globalBuddyHeader;
     }
-    catch (runtime_error& e) {
-        g_consensus_console_logger->warn("{}", e.what());
+    catch (boost::archive::archive_exception& e) {
+        g_console_logger->error("{} {}", __FUNCTION__, e.what());
         return;
     }
 
@@ -277,19 +300,25 @@ void GlobalBuddySendTask::exec()
         blockCount, pConsensusStatus->listGlobalBuddyChainInfo.size());
 
     stringstream ssBuf;
-    boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
-    oa << P2pProtocolGlobalBuddyHeader;
+    try {
+        boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
+        oa << P2pProtocolGlobalBuddyHeader;
 
-    uint32_t chainNum = 0;
-    auto itrSend = pConsensusStatus->listGlobalBuddyChainInfo.begin();
-    for (; itrSend != pConsensusStatus->listGlobalBuddyChainInfo.end(); itrSend++) {
-        chainNum++;
-        auto subItr = itrSend->begin();
-        for (; subItr != itrSend->end(); subItr++) {
-            T_GLOBALCONSENSUS PeerInfos;
-            PeerInfos.SetGlobalconsenus((*subItr).GetPeer(), (*subItr).GetLocalBlock(), chainNum);
-            oa << PeerInfos;
+        uint32_t chainNum = 0;
+        auto itrSend = pConsensusStatus->listGlobalBuddyChainInfo.begin();
+        for (; itrSend != pConsensusStatus->listGlobalBuddyChainInfo.end(); itrSend++) {
+            chainNum++;
+            auto subItr = itrSend->begin();
+            for (; subItr != itrSend->end(); subItr++) {
+                T_GLOBALCONSENSUS PeerInfos;
+                PeerInfos.SetGlobalconsenus((*subItr).GetPeer(), (*subItr).GetLocalBlock(), chainNum);
+                oa << PeerInfos;
+            }
         }
+    }
+    catch (boost::archive::archive_exception& e) {
+        g_consensus_console_logger->error("{} {}", __FUNCTION__, e.what());
+        return;
     }
 
     DataBuffer<GlobalBuddySendTask> msgbuf(move(ssBuf.str()));

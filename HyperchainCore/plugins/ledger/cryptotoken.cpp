@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -30,6 +30,7 @@ DEALINGS IN THE SOFTWARE.
 #include "util.h"
 #include "cryptotoken.h"
 
+#include <assert.h>
 
 #ifndef __WXMSW__
 #include <sys/types.h>
@@ -44,8 +45,11 @@ using namespace std;
 #include <boost/program_options/detail/config_file.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
+namespace fs = boost::filesystem;
+namespace pod = boost::program_options::detail;
 
 #define GENESISBLOCK_VIN_COUNT 1
+#define GEN_BLK_PUBKEY "gbpublickey"
 
 extern string CreateChildDir(const string& childdir);
 extern bool ResolveBlock(CBlock& block, const char* payload, size_t payloadlen);
@@ -53,7 +57,6 @@ extern void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "");
 
 string GetKeyConfigFile()
 {
-    namespace fs = boost::filesystem;
     fs::path pathConfig;
 
     pathConfig = fs::path(GetHyperChainDataDir()) / "key.db";
@@ -62,9 +65,6 @@ string GetKeyConfigFile()
 
 bool ReadKeyFromFile(CKey& key)
 {
-    namespace fs = boost::filesystem;
-    namespace pod = boost::program_options::detail;
-
     //fs::ifstream streamConfig(GetKeyConfigFile("ledger"), std::ios::out | std::ios::binary);
     fs::ifstream streamConfig(GetKeyConfigFile());
     if (!streamConfig.good())
@@ -93,9 +93,6 @@ bool ReadKeyFromFile(CKey& key)
 
 bool WriteKeyToFile(const CKey& key)
 {
-    namespace fs = boost::filesystem;
-    namespace pod = boost::program_options::detail;
-
     fs::ofstream streamConfig(GetKeyConfigFile());
     if (!streamConfig.good())
         return false;
@@ -114,13 +111,12 @@ bool WriteKeyToFile(const CKey& key)
 
 CBlock CreateGenesisBlock(const string& name, const string& desc, vector<unsigned char> logo,
     const CScript& genesisOutputScript, uint32_t nTime,
-    int32_t nVersion, const int64_t& genesisSupply)
+    int32_t nVersion, const int64_t& genesisSupply, const GBPUBKEYS& vpubkeygenblk)
 {
     CTransaction txNew;
     txNew.nVersion = 1;
     txNew.vin.resize(GENESISBLOCK_VIN_COUNT);
     txNew.vout.resize(1);
-    
 
     //txNew.vin[0].scriptSig = CScript() << 486604799 << CBigNum(4)
     txNew.vin[0].scriptSig = CScript()
@@ -128,6 +124,20 @@ CBlock CreateGenesisBlock(const string& name, const string& desc, vector<unsigne
 
     txNew.vin[0].scriptSig
         << std::vector<unsigned char>((const unsigned char*)(&desc[0]), (const unsigned char*)(&desc[0]) + desc.size());
+
+    unsigned short n = vpubkeygenblk.size();
+    txNew.vin[0].scriptSig
+        << std::vector<unsigned char>((const unsigned char*)(&n), (const unsigned char*)(&n) + sizeof(n));
+
+
+    unsigned short i = 0;
+    for (auto &key : vpubkeygenblk) {
+        txNew.vin[0].scriptSig
+            << std::vector<unsigned char>((const unsigned char*)(&key[0]), (const unsigned char*)(&key[0]) + key.size());
+        if (++i == n) {
+            break;
+        }
+    }
 
     txNew.vin[0].scriptSig << logo;
 
@@ -157,35 +167,33 @@ CBlock CreateGenesisBlock(const string& name, const string& desc, vector<unsigne
  *   vMerkleTree: 4a5e1e
  */
 
-extern CWallet* pwalletMain;
 CBlock CreateGenesisBlock(uint32_t nTime, const string& name, const string& desc, vector<unsigned char> logo, int32_t nVersion,
-    const int64_t& genesisSupply, const std::vector<unsigned char>& newPublicKey)
+    const int64_t& genesisSupply, const GBPUBKEYS& vpubkeygenblk, const std::vector<unsigned char>& newPublicKey)
 {
     //const CScript genesisOutputScript = CScript()
     //    << ParseHex("04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f") << OP_CHECKSIG;
 
-    
 
     const CScript genesisOutputScript = CScript() << newPublicKey << OP_CHECKSIG;
 
-    return CreateGenesisBlock(name, desc, logo, genesisOutputScript, nTime, nVersion, genesisSupply);
+    return CreateGenesisBlock(name, desc, logo, genesisOutputScript, nTime, nVersion, genesisSupply, vpubkeygenblk);
 }
 
 CBlock SearchGenesisBlock(uint32_t nTime, const string& name, const string& desc, vector<unsigned char> logo, int32_t nVersion, const int64_t& genesisReward,
+    const GBPUBKEYS& vpubkeygenblk,
     const CKey& newKey)
 {
     CBlock genesis;
-    genesis = CreateGenesisBlock(nTime, name, desc, logo, nVersion, genesisReward, newKey.GetPubKey());
+    genesis = CreateGenesisBlock(nTime, name, desc, logo, nVersion, genesisReward, vpubkeygenblk, newKey.GetPubKey());
 
     return genesis;
 }
 
 
-
 void NewGenesisBlock(uint32_t nTime, const string& name, const string& desc, vector<unsigned char> logo, int32_t nVersion, const int64_t& genesisSupply,
-    CKey& newKey)
+    const GBPUBKEYS& vpubkeygenblk, CKey& newKey)
 {
-    CBlock genesis = SearchGenesisBlock(nTime, name, desc, logo, nVersion, genesisSupply, newKey);
+    CBlock genesis = SearchGenesisBlock(nTime, name, desc, logo, nVersion, genesisSupply, vpubkeygenblk, newKey);
 
     string strhash;
     string strMerkleRoothash;
@@ -214,7 +222,6 @@ void NewGenesisBlock(uint32_t nTime, const string& name, const string& desc, vec
 
 string GetTokenWalletFile(const string& name)
 {
-    namespace fs = boost::filesystem;
     fs::path pathConfig;
     pathConfig.append(name);
 
@@ -225,12 +232,7 @@ string GetTokenWalletFile(const string& name)
 
 string TokenConfigPath(const string& shorthash)
 {
-    const char* fmt = "%s";
-
-    int sz = std::snprintf(nullptr, 0, fmt, shorthash.c_str());
-    std::string relpath(sz, 0);
-    std::snprintf(&relpath[0], relpath.size() + 1, fmt, shorthash.c_str());
-
+    string relpath = StringFormat("%s", shorthash);
     return relpath;
 }
 
@@ -241,7 +243,6 @@ string CryptoToken::GetTokenConfigPath()
 
 string CryptoToken::GetTokenConfigFile(const string& shorthash)
 {
-    namespace fs = boost::filesystem;
     fs::path pathConfig;
 
     std::string relpath = TokenConfigPath(shorthash);
@@ -254,7 +255,6 @@ string CryptoToken::GetTokenConfigFile(const string& shorthash)
 
 string CryptoToken::GetTokenConfigFile()
 {
-    namespace fs = boost::filesystem;
     fs::path pathConfig;
 
     std::string relpath = GetTokenConfigPath();
@@ -263,6 +263,44 @@ string CryptoToken::GetTokenConfigFile()
     if (!pathConfig.is_complete())
         pathConfig = fs::path(GetHyperChainDataDir()) / pathConfig / "token.ini";
     return pathConfig.string();
+}
+
+bool CryptoToken::SearchPublicKeyIdx()
+{
+    int curr_pkidx = _npkidx;
+
+    CRITICAL_BLOCK(cs_main)
+        CRITICAL_BLOCK(pwalletMain->cs_wallet)
+    {
+        int i = 0;
+        for (auto& keystr : _vpublickeygenblk) {
+
+            CBitcoinAddress coinaddress = CBitcoinAddress(keystr);
+            if (pwalletMain->HaveKey(coinaddress)) {
+                _npkidx = i;
+                break;
+            }
+            i++;
+        }
+    }
+
+    if (_npkidx != curr_pkidx) {
+
+        return true;
+    }
+    return false;
+}
+
+
+std::string CryptoToken::ToString()
+{
+    ostringstream oss;
+    for (auto &elm : _mapSettings) {
+        oss << strprintf("%-28s %s\n",elm.first.c_str(), elm.second.c_str());
+    }
+
+    oss << strprintf("%-28s %u\n", "number of gbpublickeys", _vpublickeygenblk.size());
+    return oss.str();
 }
 
 bool CryptoToken::ParseTimestamp(const CBlock& genesis)
@@ -278,33 +316,52 @@ bool CryptoToken::ParseTimestamp(const CBlock& genesis)
     if (!scriptSig.GetOp(script_iter, opcode, vch)) {
         return false;
     }
-    mapSettings["name"] = string(vch.begin(), vch.end());
+    _mapSettings["name"] = string(vch.begin(), vch.end());
 
     vch.clear();
     if (!scriptSig.GetOp(script_iter, opcode, vch)) {
         return false;
     }
-    mapSettings["description"] = string(vch.begin(), vch.end());
+    _mapSettings["description"] = string(vch.begin(), vch.end());
+
 
     vch.clear();
     if (!scriptSig.GetOp(script_iter, opcode, vch)) {
         return false;
     }
-    mapSettings["logo"] = string(vch.begin(), vch.end());
+
+    assert(vch.size() == sizeof(unsigned short));
+    unsigned short n = 0;
+    memcpy(&n, vch.data(), sizeof(n));
+
+    unsigned short i = 0;
+    for (; i < n; i++) {
+        vch.clear();
+        if (!scriptSig.GetOp(script_iter, opcode, vch)) {
+            return false;
+        }
+        _vpublickeygenblk.push_back(vch);
+    }
+
+    vch.clear();
+    if (!scriptSig.GetOp(script_iter, opcode, vch)) {
+        return false;
+    }
+    _mapSettings["logo"] = string(vch.begin(), vch.end());
 
     return true;
 }
 
 bool CryptoToken::ParseToken(const CBlock& genesis)
 {
-    mapSettings["time"] = std::to_string(genesis.nTime);
-    mapSettings["version"] = std::to_string(genesis.nVersion);
+    _mapSettings["time"] = std::to_string(genesis.nTime);
+    _mapSettings["version"] = std::to_string(genesis.nVersion);
 
     try {
         if (!ParseTimestamp(genesis))
             return false;
 
-        mapSettings["supply"] = std::to_string(genesis.vtx[0].vout[0].nValue / COIN);
+        _mapSettings["supply"] = std::to_string(genesis.vtx[0].vout[0].nValue / COIN);
 
         opcodetype opcode;
         vector<unsigned char> vch;
@@ -314,15 +371,15 @@ bool CryptoToken::ParseToken(const CBlock& genesis)
             return false;
         }
 
-        mapSettings["publickey"] = HexStr(vch);
+        _mapSettings["publickey"] = HexStr(vch);
 
         std::vector<unsigned char> ownerPublicKey(vch.begin(), vch.end());
 
         CBitcoinAddress addr(ownerPublicKey);
-        mapSettings["address"] = addr.ToString();
+        _mapSettings["address"] = addr.ToString();
 
-        mapSettings["hashgenesisblock"] = genesis.GetHash().ToString();
-        mapSettings["hashmerkleroot"] = genesis.hashMerkleRoot.ToString();
+        _mapSettings["hashgenesisblock"] = genesis.GetHash().ToString();
+        _mapSettings["hashmerkleroot"] = genesis.hashMerkleRoot.ToString();
     }
     catch (std::exception & e) {
         std::printf("%s Failed %s\n", __FUNCTION__, e.what());
@@ -338,12 +395,8 @@ bool CryptoToken::IsSysToken(const string& shorthash)
 }
 
 
-
 bool CryptoToken::ReadTokenFile(const string& name, string& shorthash, string& errormsg)
 {
-    namespace fs = boost::filesystem;
-    namespace pod = boost::program_options::detail;
-
     if (shorthash.empty() && !name.empty()) {
         if (!SearchTokenByName(name, shorthash, errormsg)) {
             return false;
@@ -372,7 +425,11 @@ bool CryptoToken::ReadTokenFile(const string& name, string& shorthash, string& e
                 setOptions.insert("*");
 
                 for (pod::config_file_iterator it(streamConfig, setOptions), end; it != end; ++it) {
-                    mapSettings[it->string_key] = it->value[0];
+                    if (it->string_key == GEN_BLK_PUBKEY) {
+                        _vpublickeygenblk.push_back(ParseHex(it->value[0]));
+                        continue;
+                    }
+                    _mapSettings[it->string_key] = it->value[0];
                 }
                 return true;
             }
@@ -382,12 +439,72 @@ bool CryptoToken::ReadTokenFile(const string& name, string& shorthash, string& e
     return false;
 }
 
+
+bool CryptoToken::ReadIssCfg(const string& cfgfile, map<string, string>& mapGenenisBlkParams, vector<string>& vpublickey, string& errormsg)
+{
+    fs::path pathConfig;
+
+    fs::ifstream streamConfig(cfgfile);
+    if (!streamConfig.good()) {
+        pathConfig = fs::path(GetHyperChainDataDir()) / cfgfile;
+        streamConfig.open(pathConfig);
+        if (!streamConfig.good()) {
+            errormsg = strprintf("Cannot open file '%s'", cfgfile.c_str());
+            return false;
+        }
+    }
+
+    set<string> setOptions;
+    setOptions.insert("*");
+
+    for (pod::config_file_iterator it(streamConfig, setOptions), end; it != end; ++it) {
+        if (it->string_key == GEN_BLK_PUBKEY) {
+            vpublickey.push_back(it->value[0]);
+        }
+        else {
+            mapGenenisBlkParams[it->string_key] = it->value[0];
+        }
+    }
+
+    if (!mapGenenisBlkParams.count("name")) {
+        errormsg = "Token name cannot be empty";
+        return false;
+    }
+
+    if (vpublickey.size() < 2) {
+        errormsg = "Too few the public key provided ";
+        return false;
+    }
+
+    return true;
+}
+
+bool CryptoToken::GetAllTokens(vector<CryptoToken>& tokens)
+{
+    fs::directory_iterator item_begin(GetHyperChainDataDir());
+    fs::directory_iterator item_end;
+
+    std::list<string> listPath;
+    for (; item_begin != item_end; item_begin++) {
+        if (fs::is_directory(*item_begin)) {
+            string shorthash = item_begin->path().filename().string();
+            if (IsSysToken(shorthash)) {
+                continue;
+            }
+            CryptoToken cc;
+            string errmsg;
+            if (cc.ReadTokenFile("", shorthash, errmsg)) {
+                tokens.push_back(cc);
+            }
+        }
+    }
+
+    return true;
+}
+
 bool CryptoToken::SearchTokenByTriple(uint32_t hid, uint16 chainnum, uint16 localid,
     string& coinname, string& coinshorthash)
 {
-    namespace fs = boost::filesystem;
-    namespace pod = boost::program_options::detail;
-
     fs::directory_iterator item_begin(GetHyperChainDataDir());
     fs::directory_iterator item_end;
 
@@ -413,9 +530,6 @@ bool CryptoToken::SearchTokenByTriple(uint32_t hid, uint16 chainnum, uint16 loca
 
 bool CryptoToken::SearchTokenByName(const string& tokenname, string& tokenshorthash, string& errormsg)
 {
-    namespace fs = boost::filesystem;
-    namespace pod = boost::program_options::detail;
-
     fs::directory_iterator item_begin(GetHyperChainDataDir());
     fs::directory_iterator item_end;
 
@@ -446,64 +560,67 @@ bool CryptoToken::SearchTokenByName(const string& tokenname, string& tokenshorth
 
 bool CryptoToken::WriteTokenFile()
 {
-    namespace fs = boost::filesystem;
     CreateChildDir(GetTokenConfigPath());
     fs::ofstream streamConfig(GetTokenConfigFile());
     if (!streamConfig.good())
         return false;
 
-    for (auto& optional : mapSettings) {
+    for (auto& optional : _mapSettings) {
         streamConfig << optional.first << " = " << optional.second << endl;
     }
+
+    for (auto& optional : _vpublickeygenblk) {
+        streamConfig << GEN_BLK_PUBKEY << " = " << HexStr(optional) << endl;
+    }
+
     return true;
 }
 
 CBlock CryptoToken::GetGenesisBlock()
 {
-    string& logo = mapSettings["logo"];
+    string& logo = _mapSettings["logo"];
     vector<unsigned char> veclogo(logo.begin(), logo.end());
 
-    vector<unsigned char> pubkey = ParseHex(mapSettings["publickey"]);
+    vector<unsigned char> pubkey = ParseHex(_mapSettings["publickey"]);
 
-    return CreateGenesisBlock(std::stol(mapSettings["time"]),
-        mapSettings["name"],
-        mapSettings["description"],
+    return CreateGenesisBlock(std::stol(_mapSettings["time"]),
+        _mapSettings["name"],
+        _mapSettings["description"],
         veclogo,
-        std::stoi(mapSettings["version"]),
-        std::stoll(mapSettings["supply"]) * COIN, pubkey);
+        std::stoi(_mapSettings["version"]),
+        std::stoll(_mapSettings["supply"]) * COIN, _vpublickeygenblk, pubkey);
 }
-
 
 
 
 CBlock CryptoToken::MineGenesisBlock(const CKey& newKey)
 {
-    string& logo = mapSettings["logo"];
+    string& logo = _mapSettings["logo"];
     vector<unsigned char> veclogo(logo.begin(), logo.end());
 
     CBlock genesis = SearchGenesisBlock(
-        std::stol(mapSettings["time"]),
-        mapSettings["name"],
-        mapSettings["description"],
+        std::stol(_mapSettings["time"]),
+        _mapSettings["name"],
+        _mapSettings["description"],
         veclogo,
-        std::stoi(mapSettings["version"]),
-        std::stoll(mapSettings["supply"]) * COIN, newKey);
+        std::stoi(_mapSettings["version"]),
+        std::stoll(_mapSettings["supply"]) * COIN, _vpublickeygenblk, newKey);
 
     string strhash;
     string strMerkleRoothash;
 
-    mapSettings["hashgenesisblock"] = genesis.GetHash().ToString();
-    strhash = mapSettings["hashgenesisblock"];
+    _mapSettings["hashgenesisblock"] = genesis.GetHash().ToString();
+    strhash = _mapSettings["hashgenesisblock"];
 
-    mapSettings["hashmerkleroot"] = genesis.hashMerkleRoot.ToString();
-    strMerkleRoothash = mapSettings["hashmerkleroot"];
+    _mapSettings["hashmerkleroot"] = genesis.hashMerkleRoot.ToString();
+    strMerkleRoothash = _mapSettings["hashmerkleroot"];
 
     std::vector<unsigned char> newPublicKey = newKey.GetPubKey();
     CBitcoinAddress address(newPublicKey);
 
     string pubkey = HexStr(newPublicKey);
-    mapSettings["publickey"] = pubkey;
-    mapSettings["address"] = address.ToString();
+    _mapSettings["publickey"] = pubkey;
+    _mapSettings["address"] = address.ToString();
 
 
 #undef printf
@@ -519,9 +636,6 @@ CBlock CryptoToken::MineGenesisBlock(const CKey& newKey)
 
 bool CryptoToken::AddKeyToWallet(const CKey& newKey)
 {
-    
-
-    string currenttoken = g_cryptoToken.GetName();
 
     string strWallet = GetTokenWalletFile(GetTokenConfigPath());
     {
@@ -534,25 +648,22 @@ bool CryptoToken::AddKeyToWallet(const CKey& newKey)
         }
 
         std::vector<unsigned char> vchDefaultKey = newKey.GetPubKey();
-        wallet.SetDefaultKey(newKey.GetPubKey());
-        wallet.SetAddressBookName(CBitcoinAddress(vchDefaultKey), "");
+        if (wallet.SetDefaultKey(newKey.GetPubKey())) {
+            return wallet.SetAddressBookName(CBitcoinAddress(vchDefaultKey), "");
+        }
+        return false;
     }
 
-    /*namespace fs = boost::filesystem;
-    fs::path pathSrc = fs::path(GetHyperChainDataDir()) / currenttoken / strWallet;
-    fs::path pathDest = fs::path(GetHyperChainDataDir()) / mapSettings["name"] / "wallet.dat";
-
-
-    fs::copy_file(pathSrc, pathDest, fs::copy_option::overwrite_if_exists);
-    fs::remove(pathSrc);*/
-
     return true;
-
 }
 
 bool CryptoToken::ContainToken(const string& tokenhash)
 {
     bool isDefaultCoin = (tokenhash == GetHashPrefixOfSysGenesis());
+
+    if (isDefaultCoin) {
+        return true;
+    }
 
     CryptoToken currency(isDefaultCoin);
     currency.SelectNetWorkParas();
@@ -573,9 +684,9 @@ bool CryptoToken::ContainToken(const string& tokenhash)
 bool CryptoToken::CheckGenesisBlock()
 {
     T_LOCALBLOCKADDRESS addr;
-    addr.set(std::stol(mapSettings["hid"]),
-        std::stol(mapSettings["chainnum"]),
-        std::stol(mapSettings["localid"]));
+    addr.set(std::stol(_mapSettings["hid"]),
+        std::stol(_mapSettings["chainnum"]),
+        std::stol(_mapSettings["localid"]));
 
     if (!addr.isValid()) {
         return ERROR_FL("The genesis block address of cryptotoken is invalid");
@@ -595,7 +706,7 @@ bool CryptoToken::CheckGenesisBlock()
     }
 
     uint256 hashGenesis = genesis.GetHash();
-    uint256 hashG = uint256S(mapSettings["hashgenesisblock"].c_str());
+    uint256 hashG = uint256S(_mapSettings["hashgenesisblock"].c_str());
     if (hashGenesis != hashG) {
         return ERROR_FL("hashGenesis FAILED");
     }
@@ -605,7 +716,6 @@ bool CryptoToken::CheckGenesisBlock()
 
 string CryptoToken::GetPath()
 {
-    namespace fs = boost::filesystem;
     string apppath = (fs::path(GetHyperChainDataDir()) / GetTokenConfigPath()).string();
     return apppath;
 }
@@ -626,21 +736,19 @@ string CryptoToken::GetNameOfSysGenesis() {
 
 void CryptoToken::SetDefaultParas()
 {
-    mapSettings = { {"name", "ledger"},
+    _mapSettings = { {"name", "ledger"},
                        {"description","www.hyperchain.net"},
                        {"logo",""},
-                       {"version","1"},
-                       {"supply","100000000"},   
-
+                       {"version","2"},
+                       {"supply","100000000"},
                        {"time","1568277586"},
-                       {"address","1CJmHdwaCvzkoY4vGJTM9v8CCA9Ge1kLmw"}, 
-
+                       {"address","1CJmHdwaCvzkoY4vGJTM9v8CCA9Ge1kLmw"},
                        {"publickey","04ad943c2f812817b188e65b3ce7ee8c808ba14e146044ee8abf5926e371560807f37f28c84906e0779b3552425e9d804c068173154ca35c7a33e5579fab381307"},
-                       {"hashgenesisblock","eb524a61f15c88d165bbd9820c1a20a7465eb046b782f9b1f45e34373abf715e"},
+                       {"hashgenesisblock","f3cf23f0f7b4633aa5765cd79b8a50e8098ee31b338a4cb70ff4e6d0d83ad614"},
                        {"hashmerkleroot","d57bbb366497bd47c38ac2038bf3d8f4852e547d1d5438e6abc1b7751f50325c"},
                        {"hid","0"},
                        {"chainnum","1"},
-                       {"localid","3"},
+                       {"localid","0"},
     };
 }
 
@@ -650,27 +758,59 @@ void CryptoToken::SelectNetWorkParas()
     if (mapArgs.count("-model")) {
         model = mapArgs["-model"];
         if (model == "informal" || model == "formal") {
-            mapSettings = { {"name", "ledger"},
+            _mapSettings = { {"name", "ledger"},
                       {"description","www.hyperchain.net"},
                       {"logo",""},
-                      {"version","1"},
-                      {"supply","100000000"},                           
-
+                      {"version","2"},
+                      {"supply","100000000"},
                       {"time","1572531412"},
-                      {"address","1Ao8Rk36otR5uksWQffCgcvQ6Y5YNkDB8J"}, 
-
+                      {"address","1Ao8Rk36otR5uksWQffCgcvQ6Y5YNkDB8J"},
                       {"publickey","040b29eb299db9348698e3bad3fa0532e98a4ceccf4d55786ea97222647ad0bf3327fca5cfef0809638bb67c5f9ca0b5badad32ff78203408eef64b75702990ba8"},
-                      {"hashgenesisblock","9c7a96e0670a81e9071ae6cd438eb4579292bcc5046ed0233031ac3682431f7d"},
+                      {"hashgenesisblock","ffba651f664db75948190eaf9234a4b6646a1c6b98e5cbc74deda4a4668fb3aa"},
                       {"hashmerkleroot","bb076e94df2fc651e7040d2e7ba0232fc37b9b2bb511b33f967ce1d5b9cee4cd"},
                       {"hid","22030"},
-                      {"chainnum","1"},
-                      {"localid","2"},
+                      //{"chainnum","1"},
+                      {"chainnum","0"},
+                      {"localid","0"},
             };
             return;
         }
     }
-    
 
     SetDefaultParas();
 }
+
+uint256 CryptoToken::GetBlocksHash(const std::vector<CBlock>& vblock)
+{
+    uint256 hash;
+    SHA256_CTX ctx;
+    SHA256_Init(&ctx);
+    for (auto& blk : vblock) {
+        auto h = blk.GetHash();
+        SHA256_Update(&ctx, &h, sizeof(h));
+    }
+    SHA256_Final((unsigned char*)&hash, &ctx);
+    return hash;
+}
+
+
+bool CryptoToken::SignBlocks(std::vector<CBlock>& vblock, vector<unsigned char>& vchSig)
+{
+    uint256 hash;
+    hash = GetBlocksHash(vblock);
+    return GetSign(&hash, &hash, vchSig);
+}
+
+bool CryptoToken::VerifyBlocks(int pkidx, const vector<unsigned char>& vchSig, const std::vector<CBlock>& vblock)
+{
+    if (pkidx < 0 || pkidx >= (int)(_vpublickeygenblk.size())) {
+        return false;
+    }
+
+    uint256 h;
+    h = GetBlocksHash(vblock);
+    return Verify(pkidx, vchSig, &h, &h);
+}
+
+
 CryptoToken g_cryptoToken;

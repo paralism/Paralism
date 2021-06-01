@@ -1258,14 +1258,19 @@ void CppSQLite3DB::open(const char* szFile)
 {
     sqlite3_config(SQLITE_CONFIG_SERIALIZED);
 
+    const char* szError = nullptr;
     int nRet = sqlite3_open(szFile, &mpDB);
-    if (nRet != SQLITE_OK)
-    {
-        const char* szError = sqlite3_errmsg(mpDB);
-        throw CppSQLite3Exception(nRet, (char*)szError, DONT_DELETE_MSG);
+    if (nRet != SQLITE_OK) {
+        szError = "failed to call sqlite3_open";
+        goto excp;
     }
 
     setBusyTimeout(mnBusyTimeoutMs);
+    return;
+
+ excp:
+    //const char* szError = sqlite3_errmsg(mpDB);
+    throw CppSQLite3Exception(nRet, szError, DONT_DELETE_MSG);
 }
 
 

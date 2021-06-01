@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -86,7 +86,6 @@ void HCMQBroker::service_dispatch(service *srv, zmsg *msg)
         srv->m_requests.push_back(make_tuple(std::move(*msg), std::time(nullptr)));
     }
 
-    
 
     //if (srv->m_requests.size() > 50 && srv->m_waiting.empty()) {
     //    cout << time2string() << " " << srv->m_name << " very busy, too many requests :" << srv->m_requests.size()
@@ -94,7 +93,6 @@ void HCMQBroker::service_dispatch(service *srv, zmsg *msg)
     //}
 
     while (!srv->m_waiting.empty() && !srv->m_requests.empty()) {
-        
 
         auto wrk = srv->m_waiting.begin();
         auto next = wrk;
@@ -111,7 +109,6 @@ void HCMQBroker::service_dispatch(service *srv, zmsg *msg)
             auto &req = srv->m_requests.front();
             auto t = std::get<1>(req);
             if (t + ntimeout < now) {
-                
 
                 srv->m_requests.pop_front();
                 srv->m_req_abandoned++;
@@ -137,7 +134,6 @@ worker * HCMQBroker::worker_require(std::string identity)
 {
     assert(identity.length() != 0);
 
-    
 
     if (m_workers.count(identity)) {
         return m_workers.at(identity);
@@ -170,7 +166,6 @@ void HCMQBroker::worker_delete(worker *&wrk, int disconnect)
     }
     m_waiting.erase(wrk);
 
-    
 
     cout << "ZMQ:  worker_delete " << wrk->m_identity << endl;
     m_workers.erase(wrk->m_identity);
@@ -195,12 +190,10 @@ void HCMQBroker::worker_process(std::string sender, zmsg *msg)
         worker_waiting(wrk);
     }
     else if (command.compare(MDPW_READY) == 0) {
-        if (worker_ready) {              
-
+        if (worker_ready) {
             worker_delete(wrk, 1);
         }
         else {
-            
 
             std::string service_name = msg->pop_front();
             wrk->m_service = service_require(service_name);
@@ -212,9 +205,7 @@ void HCMQBroker::worker_process(std::string sender, zmsg *msg)
     else {
         if (command.compare(MDPW_REPLY) == 0) {
             if (worker_ready) {
-                
 
-                
 
                 std::string client = msg->unwrap();
                 msg->push_front(MDPC_CLIENT);
@@ -259,14 +250,12 @@ void HCMQBroker::worker_send(worker *worker, char *command, std::string option, 
         msg = &emptymsg;
     }
 
-    
 
     if (option.size() > 0) {
         msg->push_front((char*)option.c_str());
     }
     msg->push_front(command);
     msg->push_front((char*)MDPW_WORKER);
-    
 
     msg->wrap(worker->m_identity.c_str(), "");
 
@@ -308,7 +297,6 @@ void HCMQBroker::client_process(std::string sender, zmsg *msg)
     std::string service_name = msg->pop_front();
     service *srv = service_require(service_name);
     msg->wrap(sender.c_str(), "");
-    
 
     //if (service_name == NODE_SERVICE)
     //{
@@ -376,7 +364,6 @@ void HCMQBroker::broker_handler()
                 monitor_process(sender, &recvmsg);
             }
             else {
-                
 
                 recvmsg.dump();
             }

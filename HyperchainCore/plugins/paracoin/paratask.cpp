@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -60,7 +60,8 @@ int OperatorApplication(std::shared_ptr<OPAPP> parg)
 
     ShutdownExcludeRPCServer();
 
-    std:;deque<string> appli;
+
+    std::deque<string> appli;
 
     appli.push_front("hc");
 
@@ -138,7 +139,7 @@ bool PickupMessages(CDataStream& vSendStream, uint32_t nLimitSize, string &tskms
         }
 
         if (pstart - vSendStream.begin() > 0)
-            printf("\n\nPROCESSMESSAGE SKIPPED %d BYTES\n\n", pstart - vSendStream.begin());
+            WARNING_FL("\n\nPROCESSMESSAGE SKIPPED %d BYTES\n\n", pstart - vSendStream.begin());
         vSendStream.erase(vSendStream.begin(), pstart);
 
         // Read header
@@ -146,7 +147,6 @@ bool PickupMessages(CDataStream& vSendStream, uint32_t nLimitSize, string &tskms
         CMessageHeader hdr;
         vSendStream >> hdr;
         if (!hdr.IsValid()) {
-            printf("\n\nPROCESSMESSAGE: ERRORS IN HEADER %s\n\n\n", hdr.GetCommand().c_str());
             ERROR_FL("\n\nPROCESSMESSAGE: ERRORS IN HEADER %s\n\n\n", hdr.GetCommand().c_str());
             continue;
         }
@@ -172,17 +172,20 @@ bool PickupMessages(CDataStream& vSendStream, uint32_t nLimitSize, string &tskms
         //        outputlog(strprintf("Block message:  height is %d", 0));
         //}
 
+
         unsigned int nMessageSize = hdr.nMessageSize;
         if (nMessageSize > MAX_SIZE) {
-            printf("PickupMessages(%u bytes) : nMessageSize > MAX_SIZE\n", nMessageSize);
+            ERROR_FL("PickupMessages(%u bytes) : nMessageSize > MAX_SIZE\n", nMessageSize);
             continue;
         }
 
         if (nMessageSize > vSendStream.size() || (nSize > 0 && nSize + nMessageSize > nLimitSize)) {
+
             ERROR_FL("Rewind and wait for rest of message or reach size limit if append next message ");
             vSendStream.insert(vSendStream.begin(), vHeaderSave.begin(), vHeaderSave.end());
             break;
         }
+
 
         tskmsg.append(vHeaderSave.begin(), vHeaderSave.end());
         tskmsg.append(vSendStream.begin(), vSendStream.begin() + nMessageSize);
@@ -205,9 +208,14 @@ void sendToNode(CNode* pnode)
             if (nBytes > 0) {
 
 
+
+
+
+
                 sndbuf = string(vSend.begin(), vSend.begin() + nBytes);
                 vSend.erase(vSend.begin(), vSend.begin() + nBytes);
                 pnode->nLastSend = GetTime();
+
 
                 //if (PickupMessages(vSend, 4096, sndbuf)) {
                 //    pnode->nLastSend = GetTime();
@@ -215,7 +223,7 @@ void sendToNode(CNode* pnode)
             }
             if (vSend.size() > SendBufferSize()) {
                 if (!pnode->fDisconnect)
-                    printf("socket send flood control disconnect (%d bytes)\n", vSend.size());
+                    TRACE_FL("socket send flood control disconnect (%d bytes)\n", vSend.size());
                 pnode->CloseSocketDisconnect();
             }
         }
@@ -236,7 +244,7 @@ void recvFromNode(CNode* pnode, const char *pchBuf, size_t nBytes)
 
         if (nPos > ReceiveBufferSize()) {
             if (!pnode->fDisconnect)
-                printf("socket recv flood control disconnect (%d bytes)\n", vRecv.size());
+                TRACE_FL("socket recv flood control disconnect (%d bytes)\n", vRecv.size());
             pnode->CloseSocketDisconnect();
         }
         else {
@@ -249,7 +257,7 @@ void recvFromNode(CNode* pnode, const char *pchBuf, size_t nBytes)
             else if (nBytes == 0) {
                 // socket closed gracefully
                 if (!pnode->fDisconnect)
-                    printf("socket closed\n");
+                    TRACE_FL("socket closed\n");
                 pnode->CloseSocketDisconnect();
             }
             else if (nBytes < 0) {
@@ -257,7 +265,7 @@ void recvFromNode(CNode* pnode, const char *pchBuf, size_t nBytes)
                 int nErr = WSAGetLastError();
                 if (nErr != WSAEWOULDBLOCK && nErr != WSAEMSGSIZE && nErr != WSAEINTR && nErr != WSAEINPROGRESS) {
                     if (!pnode->fDisconnect)
-                        printf("socket recv error %d\n", nErr);
+                        TRACE_FL("socket recv error %d\n", nErr);
                     pnode->CloseSocketDisconnect();
                 }
             }
@@ -343,17 +351,17 @@ void ParaPingRspTask::execRespond()
     uint16 localid;
     apptype.get(hid, chainnum, localid);
     if (!g_cryptoCurrency.IsCurrencySame(hid,chainnum,localid)) {
-        printf("%s: application type is different.\n", __FUNCTION__);
+        TRACE_FL("application type is different.\n");
         return;
     }
 
     UdpAccessPoint udppoint("", 0);
     if (!_nodemgr->getNodeAP(_sentnodeid, &udppoint)) {
         if (!_nodemgr->parseNode(payload.substr(offset), &udppoint)) {
-            printf("%s: cannot find udp access point\n", __FUNCTION__);
+            TRACE_FL("cannot find udp access point\n");
             return;
         }
-        printf("%s: added a new ParaCoin node.\n", __FUNCTION__);
+        TRACE_FL("added a new ParaCoin node.\n");
     }
 
     CAddress addrConnect(udppoint.ip(), (int)udppoint.port());
@@ -371,7 +379,7 @@ void ParaPingRspTask::execRespond()
             }
 
         //no found
-        printf("Create a new outbound node and insert into Paracoin nodes.\n");
+        TRACE_FL("Create a new outbound node and insert into Paracoin nodes.\n");
         pNode = new CNode(-1, addrConnect, false);
         pNode->nodeid = _sentnodeid.ToHexString();
         pNode->nTimeConnected = GetTime();
@@ -383,7 +391,7 @@ void ParaPingRspTask::execRespond()
         pNode->GetChkBlock();
     }
 
-    printf("%s: reachable node %s\n", __FUNCTION__, addrConnect.ToString().c_str());
+    TRACE_FL("reachable node %s\n", addrConnect.ToString().c_str());
 }
 
 
@@ -466,6 +474,6 @@ void StartMQHandler()
 
 void StopMQHandler()
 {
-    g_sys_interrupted = 1;
+    //g_sys_interrupted = 1;
     paramsghandler.stop();
 }

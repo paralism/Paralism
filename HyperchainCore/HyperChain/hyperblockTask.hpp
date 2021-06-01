@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -76,10 +76,15 @@ public:
         T_HYPERBLOCK hyperblock;
 
         boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
-        {
+        try {
             sp->GetLatestHyperBlock(hyperblock);
             putStream(oa, hyperblock);
         }
+        catch (boost::archive::archive_exception& e) {
+            g_consensus_console_logger->error("{} {}", __FUNCTION__, e.what());
+            return;
+        }
+
         DataBuffer<BoardcastHyperBlockTask> msgbuf(std::move(ssBuf.str()));
 
         NodeManager *nodemgr = Singleton<NodeManager>::getInstance();
@@ -104,6 +109,7 @@ public:
 
             ostringstream oss;
             hyperblock.calculateHashSelf();
+            g_consensus_console_logger->debug("Received hyper block: {}", hyperblock.GetID());
             if (hash != hyperblock.GetHashSelf()) {
                 oss << "Received invalid hyper block: " << hyperblock.GetID() << " for hash error";
                 throw std::runtime_error(oss.str());
@@ -112,6 +118,10 @@ public:
                 oss << "Received invalid hyper block: " << hyperblock.GetID() << " for verification failed";
                 throw std::runtime_error(oss.str());
             }
+        }
+        catch (boost::archive::archive_exception& e) {
+            g_consensus_console_logger->error("{} {}", __FUNCTION__, e.what());
+            return;
         }
         catch (runtime_error& e) {
             g_consensus_console_logger->warn("{}", e.what());
@@ -136,23 +146,21 @@ public:
 class GetHyperBlockByNoReqTask : public ITask, public std::integral_constant<TASKTYPE, TASKTYPE::GET_HYPERBLOCK_BY_NO_REQ> {
 public:
     using ITask::ITask;
-    GetHyperBlockByNoReqTask(uint64 blockNum, string nodeid)
-    {
-        m_blockNum = blockNum;
-        m_nodeid = nodeid;
-    }
+    GetHyperBlockByNoReqTask(uint64 blockNum, const string &nodeid, uint32_t ncount = 1) :
+        m_blockNum(blockNum), m_nodeid(nodeid), m_ncount(ncount)
+    { }
 
     ~GetHyperBlockByNoReqTask() {};
 
     void exec() override
     {
-        if (m_blockNum == -1)
+        if (m_blockNum == UINT64_MAX)
             return;
 
         DataBuffer<GetHyperBlockByNoReqTask> msgbuf(sizeof(T_P2PPROTOCOLGETHYPERBLOCKBYNOREQ));
         T_PP2PPROTOCOLGETHYPERBLOCKBYNOREQ tGetHyperBlockByNoReq = reinterpret_cast<T_PP2PPROTOCOLGETHYPERBLOCKBYNOREQ>(msgbuf.payload());
         tGetHyperBlockByNoReq->SetP2pprotocolgethyperblockbynoreq(
-            T_P2PPROTOCOLTYPE(P2P_PROTOCOL_GET_HYPERBLOCK_BY_NO_REQ, CCommonStruct::gettimeofday_update()), m_blockNum);
+            T_P2PPROTOCOLTYPE(P2P_PROTOCOL_GET_HYPERBLOCK_BY_NO_REQ, CCommonStruct::gettimeofday_update()), m_blockNum, m_ncount);
 
         NodeManager *nodemgr = Singleton<NodeManager>::getInstance();
         nodemgr->sendTo(CUInt128(m_nodeid), msgbuf);
@@ -161,9 +169,10 @@ public:
     void execRespond() override
     {
         T_PP2PPROTOCOLGETHYPERBLOCKBYNOREQ pP2pProtocolGetHyperBlockByNoReq = (T_PP2PPROTOCOLGETHYPERBLOCKBYNOREQ)(_payload);
+        m_ncount = pP2pProtocolGetHyperBlockByNoReq->nBlockCount;
         uint64 reqblockNum = pP2pProtocolGetHyperBlockByNoReq->GetBlockNum();
 
-        if (reqblockNum == -1) {
+        if (reqblockNum == UINT64_MAX) {
             g_daily_logger->info("GetHyperBlockByNoReqTask, ignore invalid hyperblock id: [-1]");
             return;
         }
@@ -172,31 +181,39 @@ public:
         NodeManager *nodemgr = Singleton<NodeManager>::getInstance();
 
         T_HYPERBLOCK hyperBlock;
-        if (!sp->getHyperBlock(reqblockNum, hyperBlock)) {
-            
+        for (uint64 i = 0; i < m_ncount; ++i) {
+            if (!sp->getHyperBlock(reqblockNum + i, hyperBlock)) {
 
-            DataBuffer<NoHyperBlockRspTask> msgbuf(std::move(to_string(reqblockNum)));
+                DataBuffer<NoHyperBlockRspTask> msgbuf(std::move(to_string(reqblockNum + i)));
+                nodemgr->sendTo(_sentnodeid, msgbuf);
+                g_daily_logger->info("GetHyperBlockByNoReqTask, I haven't hyperblock: [{}], sentnodeid: [{}]", reqblockNum + i, _sentnodeid.ToHexString());
+                continue;
+            }
+
+
+            stringstream ssBuf;
+            boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
+            try {
+                putStream(oa, hyperBlock);
+            }
+            catch (boost::archive::archive_exception& e) {
+                g_consensus_console_logger->error("{} {}", __FUNCTION__, e.what());
+                continue;
+            }
+
+            DataBuffer<BoardcastHyperBlockTask> msgbuf(std::move(ssBuf.str()));
+
+
+            g_consensus_console_logger->debug("Send Hyperblock {}", hyperBlock.GetID());
             nodemgr->sendTo(_sentnodeid, msgbuf);
-            g_daily_logger->info("GetHyperBlockByNoReqTask, I haven't hyperblock: [{}], sentnodeid: [{}]", reqblockNum, _sentnodeid.ToHexString());
-            return;
         }
-
-        
-
-        stringstream ssBuf;
-        boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
-
-        putStream(oa, hyperBlock);
-        DataBuffer<BoardcastHyperBlockTask> msgbuf(std::move(ssBuf.str()));
-
-        
-
-        nodemgr->sendTo(_sentnodeid, msgbuf);
     }
 
 private:
     uint64_t m_blockNum;
+    uint32_t m_ncount;
     string m_nodeid;
+
 };
 
 class GetHyperBlockByPreHashReqTask : public ITask, public std::integral_constant<TASKTYPE, TASKTYPE::GET_HYPERBLOCK_BY_PREHASH_REQ> {
@@ -213,7 +230,7 @@ public:
 
     void exec() override
     {
-        string datamsg = m_prehash.toHexString();
+        string datamsg = to_string(m_blockNum) + ":" + m_prehash.toHexString();
         DataBuffer<GetHyperBlockByPreHashReqTask> msgbuf(std::move(datamsg));
 
         NodeManager *nodemgr = Singleton<NodeManager>::getInstance();
@@ -222,30 +239,42 @@ public:
 
     void execRespond() override
     {
-        string msg(_payload, _payloadlen);
-        T_SHA256 PreHash = CCommonStruct::StrToHash256(msg);
+        string msgbuffer(_payload, _payloadlen);
+        string::size_type ns = msgbuffer.find(":");
+        if ((ns == string::npos) || (ns == 0)) {
+
+            return;
+        }
+
+        uint64_t blockNum = stoull(msgbuffer.substr(0, ns));
+        T_SHA256 PreHash = CCommonStruct::StrToHash256(msgbuffer.substr(ns + 1, msgbuffer.length() - 1));
+
         NodeManager *nodemgr = Singleton<NodeManager>::getInstance();
 
         T_HYPERBLOCK hyperBlock;
         CHyperChainSpace * sp = Singleton<CHyperChainSpace, string>::getInstance();
-        if (!sp->getHyperBlockByPreHash(PreHash, hyperBlock)) {
-            
+        if (!sp->getHyperBlockByPreHash(blockNum, PreHash, hyperBlock)) {
 
-            DataBuffer<NoHyperBlockRspTask> msgbuf(std::move(to_string(m_blockNum)));
+            DataBuffer<NoHyperBlockRspTask> msgbuf(std::move(to_string(blockNum)));
             nodemgr->sendTo(_sentnodeid, msgbuf);
-            g_daily_logger->info("GetHyperBlockByPreHashReqTask, I haven't hyper block: [{}], sentnodeid: [{}]", m_blockNum, _sentnodeid.ToHexString());
+            g_daily_logger->info("GetHyperBlockByPreHashReqTask, I haven't hyper block: [{}], sentnodeid: [{}]", blockNum, _sentnodeid.ToHexString());
             return;
         }
 
-        
 
         stringstream ssBuf;
         boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
 
-        putStream(oa, hyperBlock);
+        try {
+            putStream(oa, hyperBlock);
+        }
+        catch (boost::archive::archive_exception& e) {
+            g_consensus_console_logger->error("{} {}", __FUNCTION__, e.what());
+            return;
+        }
+
         DataBuffer<BoardcastHyperBlockTask> msgbuf(std::move(ssBuf.str()));
 
-        
 
         nodemgr->sendTo(_sentnodeid, msgbuf);
     }

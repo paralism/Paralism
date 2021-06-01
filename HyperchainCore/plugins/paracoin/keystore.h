@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -70,6 +70,27 @@ public:
         }
         return false;
     }
+
+    template<class UnaryPredicate>
+    bool AllOfKeys(UnaryPredicate pred) const
+    {
+        CRITICAL_BLOCK(cs_KeyStore)
+        {
+            auto firstelm = mapKeys.cbegin();
+            auto last = mapKeys.cend();
+            while (firstelm != last) {
+                CKey key;
+                if (!GetKey(firstelm->first, key))
+                    return false;
+                if (!pred(key))
+                    return false;
+                ++firstelm;
+            }
+        }
+        return true;
+    }
+
+
 };
 
 typedef std::map<CBitcoinAddress, std::pair<std::vector<unsigned char>, std::vector<unsigned char> > > CryptedKeyMap;
@@ -138,6 +159,30 @@ public:
     }
     bool GetKey(const CBitcoinAddress &address, CKey& keyOut) const;
     bool GetPubKey(const CBitcoinAddress &address, std::vector<unsigned char>& vchPubKeyOut) const;
+
+    template<class UnaryPredicate>
+    bool AllOfKeys(UnaryPredicate pred) const
+    {
+        if (!IsCrypted()) {
+            return CBasicKeyStore::AllOfKeys(pred);
+        }
+
+        CRITICAL_BLOCK(cs_KeyStore)
+        {
+            auto firstelm = mapCryptedKeys.cbegin();
+            auto last = mapCryptedKeys.cend();
+            while (firstelm != last) {
+                CKey key;
+                if (!GetKey(firstelm->first, key))
+                    return false;
+                if (!pred(key))
+                    return false;
+                ++firstelm;
+            }
+        }
+        return true;
+    }
+
 };
 
 #endif

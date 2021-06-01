@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -32,6 +32,7 @@ DEALINGS IN THE SOFTWARE.
 #include "script.h"
 #include "db.h"
 #include "serialize.h"
+#include "bloomfilter.h"
 
 #include "node/Singleton.h"
 #include "HyperChain/HyperChainSpace.h"
@@ -44,7 +45,9 @@ DEALINGS IN THE SOFTWARE.
 #include <string>
 #include <vector>
 #include <memory>
+#include <future>
 
+#define COMMANDPREFIX "coin"
 
 static const unsigned int MAX_BLOCK_SIZE = 1000000;
 static const unsigned int MAX_BLOCK_SIZE_GEN = MAX_BLOCK_SIZE / 2;
@@ -56,9 +59,7 @@ static const int64 MIN_RELAY_TX_FEE = 10000;
 static const int64 MAX_MONEY = 210000000 * COIN;
 inline bool MoneyRange(int64 nValue) { return (nValue >= 0 && nValue <= MAX_MONEY); }
 
-static const int COINBASE_MATURITY = 20;//1500, 20 is for debug; 
-
-
+static const int COINBASE_MATURITY = 1500;
 
 static const int BLOCK_MATURITY = 10;
 
@@ -85,12 +86,9 @@ class CDiskTxPos
 public:
     T_LOCALBLOCKADDRESS addr;
     //unsigned int nFile;
-    //unsigned int nBlockPos;       
-
-    unsigned int nTxPos = 0;        
-
-    uint32_t nHeight = 0;           
-
+    //unsigned int nBlockPos;
+    unsigned int nTxPos = 0;
+    uint32_t nHeight = 0;
 
     CDiskTxPos()
     {
@@ -116,7 +114,7 @@ public:
     READWRITE(nHeight);
     //READWRITE(FLATDATA(*this));
     )
-        void SetNull() { nTxPos = 0; nHeight = 0; }
+    void SetNull() { nTxPos = 0; nHeight = 0; }
     bool IsNull() const { return (nTxPos == 0); }
 
     friend bool operator==(const CDiskTxPos& a, const CDiskTxPos& b)
@@ -165,7 +163,7 @@ public:
     COutPoint() { SetNull(); }
     COutPoint(uint256 hashIn, unsigned int nIn) { hash = hashIn; n = nIn; }
     IMPLEMENT_SERIALIZE(READWRITE(FLATDATA(*this)); )
-        void SetNull() { hash = 0; n = -1; }
+    void SetNull() { hash = 0; n = -1; }
     bool IsNull() const { return (hash == 0 && n == -1); }
 
     friend bool operator<(const COutPoint& a, const COutPoint& b)
@@ -228,11 +226,11 @@ public:
     IMPLEMENT_SERIALIZE
     (
         READWRITE(prevout);
-    READWRITE(scriptSig);
-    READWRITE(nSequence);
+        READWRITE(scriptSig);
+        READWRITE(nSequence);
     )
 
-        bool IsFinal() const
+    bool IsFinal() const
     {
         return (nSequence == UINT_MAX);
     }
@@ -293,11 +291,11 @@ public:
 
     IMPLEMENT_SERIALIZE
     (
-        READWRITE(nValue);
+    READWRITE(nValue);
     READWRITE(scriptPubKey);
     )
 
-        void SetNull()
+    void SetNull()
     {
         nValue = -1;
         scriptPubKey.clear();
@@ -360,13 +358,13 @@ public:
     IMPLEMENT_SERIALIZE
     (
         READWRITE(this->nVersion);
-    nVersion = this->nVersion;
-    READWRITE(vin);
-    READWRITE(vout);
-    READWRITE(nLockTime);
+        nVersion = this->nVersion;
+        READWRITE(vin);
+        READWRITE(vout);
+        READWRITE(nLockTime);
     )
 
-        void SetNull()
+    void SetNull()
     {
         nVersion = 1;
         vin.clear();
@@ -384,15 +382,10 @@ public:
         return SerializeHash(*this);
     }
 
-    
 
-    
 
-    
 
-    
 
-    
 
 
     bool IsFinal(int nBlockHeight = 0, int64 nBlockTime = 0) const
@@ -571,7 +564,7 @@ public:
     bool ReadFromDisk(CTxDB_Wrapper& txdb, COutPoint prevout);
     bool ReadFromDisk(COutPoint prevout);
     bool DisconnectInputs(CTxDB_Wrapper& txdb);
-    bool ConnectInputs(CTxDB_Wrapper& txdb, std::map<uint256, CTxIndex>& mapTestPool, CDiskTxPos posThisTx,
+    bool ConnectInputs(CTxDB_Wrapper& txdb, std::map<uint256, std::tuple<CTxIndex, CTransaction>>& mapTestPool, CDiskTxPos posThisTx,
         CBlockIndexSP pindexBlock, int64& nFees, bool fBlock, bool fMiner, int64 nMinFee = 0);
     bool ClientConnectInputs();
     bool CheckTransaction() const;
@@ -706,8 +699,7 @@ class CBlock
 public:
     // header
     int nVersion;
-    uint256 hashPrevBlock; 
-
+    uint256 hashPrevBlock;
     uint256 hashMerkleRoot;
 
     uint32_t nHeight;
@@ -718,13 +710,11 @@ public:
 
     uint32_t nPrevHID;
     uint256 hashPrevHyperBlock;
-    uint256 hashExternData = 0;         
-
+    uint256 hashExternData = 0;
 
     // network and disk
     std::vector<CTransaction> vtx;
 
-    
 
     std::vector<unsigned char> nSolution;  // Equihash solution.
 
@@ -775,13 +765,19 @@ public:
 
     IMPLEMENT_SERIALIZE
     (
-        READWRITE(nVersion);
+        READWRITE(this->nVersion);
+        if (fRead && this->nVersion == 40000) {
+
+
+            const_cast<CBlock*>(this)->nVersion = 1;
+        }
         READWRITE(hashPrevBlock);
         READWRITE(hashMerkleRoot);
         READWRITE(nHeight);
         for (size_t i = 0; i < (sizeof(nReserved) / sizeof(nReserved[0])); i++) {
             READWRITE(nReserved[i]);
         }
+
         READWRITE(nTime);
         READWRITE(nBits);
         READWRITE(nNonce);
@@ -924,7 +920,6 @@ public:
         return true;
     }
 
-    
 
     //bool ReadFromDisk(unsigned int nFile, unsigned int nBlockPos, bool fReadTransactions=true)
     //{
@@ -952,19 +947,22 @@ public:
     bool ReadFromDisk(const T_LOCALBLOCKADDRESS& addr, bool fReadTransactions = true)
     {
         SetNull();
+        if (!addr.isValid()) {
+            DEBUG_FL("block triple address invalid(%s)", addr.tostring().c_str());
+            return false;
+        }
 
-        
 
         CHyperChainSpace *hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
 
         string payload;
         if (!hyperchainspace->GetLocalBlockPayload(addr, payload)) {
-            return ERROR_FL("block(%s) isn't found in my local storage", addr.tostring().c_str());
+            DEBUG_FL("block(%s) isn't found in my local storage", addr.tostring().c_str());
+            return false;
         }
 
         try {
             CAutoBuffer autobuff(std::move(payload));
-            
 
             //if (!fReadTransactions)
             //    autobuff.nType |= SER_BLOCKHEADERONLY;
@@ -1005,10 +1003,11 @@ public:
             nTime, nBits, nNonce,
             vtx.size());
 
-        for (int i = 0; i < vtx.size(); i++) {
-            strResult += "\t";
-            strResult += vtx[i].ToString();
-        }
+
+        //for (int i = 0; i < vtx.size(); i++) {
+        //    strResult += "\t";
+        //    strResult += vtx[i].ToString();
+        //}
         strResult += "\tvMerkleTree: ";
         for (int i = 0; i < vMerkleTree.size(); i++)
             strResult += vMerkleTree[i].ToString().substr(0, 10);
@@ -1020,24 +1019,22 @@ public:
 
     void print() const
     {
-        printf(ToString().c_str());
+        DEBUG_FL("%s", ToString().c_str());
     }
 
 
     bool DisconnectBlock(CTxDB_Wrapper& txdb, CBlockIndexSP pindex);
     bool ConnectBlock(CTxDB_Wrapper& txdb, CBlockIndexSP pindex);
-    bool ReadFromDisk(const CBlockIndexSP pindex, bool fReadTransactions = true);
+    bool ReadFromDisk(const CBlockIndexSP& pindex, bool fReadTransactions = true);
     bool ReadFromDisk(const CBlockIndexSimplified* pindex);
     bool SetBestChain(CTxDB_Wrapper& txdb, CBlockIndexSP pindexNew);
 
-    
 
     bool AddToBlockIndex(const T_LOCALBLOCKADDRESS& addr);
     bool UpdateToBlockIndex(CBlockIndexSP pIndex, const T_LOCALBLOCKADDRESS& addr);
 
     bool IsMine() const;
 
-    
 
     int CheckHyperBlockConsistence(CNode* pfrom) const;
     bool CheckExternalData() const;
@@ -1048,11 +1045,15 @@ public:
     bool AcceptBlock();
 
     bool AddToMemoryPool();
+    bool AddToMemoryPool(const uint256 &nBlockHash);
     bool RemoveFromMemoryPool();
     bool ReadFromMemoryPool(uint256 nBlockHash);
 
     bool CheckTrans();
     bool CheckProgPow() const;
+
+private:
+    bool NewBlockFromString(const CBlockIndexSP& pindex, string&& payload);
 
 };
 
@@ -1070,20 +1071,15 @@ public:
 class CBlockIndex : public std::enable_shared_from_this<CBlockIndex>
 {
 public:
-    uint256 hashBlock = 0;  
-
+    uint256 hashBlock = 0;
     uint256 hashPrev = 0;
     uint256 hashNext = 0;
-    //unsigned int nFile;     
-
-    //unsigned int nBlockPos; 
-
+    //unsigned int nFile;
+    //unsigned int nBlockPos;
     int nHeight;
-    CBigNum bnChainWork;    
+    CBigNum bnChainWork;
 
-
-    T_LOCALBLOCKADDRESS addr; 
-
+    T_LOCALBLOCKADDRESS addr;
 
     // block header
     int nVersion;
@@ -1098,8 +1094,7 @@ public:
     uint32 nPrevHID;
     uint256 hashPrevHyperBlock;
 
-    uint256 hashExternData = 0;                 
-
+    uint256 hashExternData = 0;
     CUInt128 ownerNodeID = CUInt128(true);
 
     CBlockIndex()
@@ -1197,13 +1192,18 @@ public:
         return (int64)nTime;
     }
 
-    CBigNum GetBlockWork() const
+    static CBigNum GetBlockWork(unsigned int nBlkBits)
     {
         CBigNum bnTarget;
-        bnTarget.SetCompact(nBits);
+        bnTarget.SetCompact(nBlkBits);
         if (bnTarget <= 0)
             return 0;
         return (CBigNum(1) << 256) / (bnTarget + 1);
+    }
+
+    CBigNum GetBlockWork() const
+    {
+        return GetBlockWork(nBits);
     }
 
     bool IsInMainChain() const;
@@ -1220,6 +1220,7 @@ public:
     std::string ToString() const
     {
         return strprintf("CBlockIndex: \n"
+            "Version=%d"
             "\tHeight=%d"
             "\tAddr=%s\n"
             "\tPrevHID: %d\n"
@@ -1230,7 +1231,7 @@ public:
             "\tmerkle=%s\n"
             "\thashBlock=%s ******\n"
             "\thashPrevBlock=%s\n"
-            "\thashNextBlock=%s\n",
+            "\thashNextBlock=%s\n", nVersion,
             nHeight,
             addr.tostring().c_str(),
             nPrevHID, hashPrevHyperBlock.ToString().c_str(),
@@ -1243,7 +1244,7 @@ public:
 
     void print() const
     {
-        printf("%s\n", ToString().c_str());
+        DEBUG_FL("%s\n", ToString().c_str());
     }
 
     bool operator<(const CBlockIndex &st) const
@@ -1327,6 +1328,92 @@ inline shared_ptr_proxy<_Ty> make_shared_proxy(_Types&&... _Args)
     _Ret.reset(_Rx);
     return (_Ret);
 }
+
+using CBlockSP = std::shared_ptr<CBlock>;
 using CBlockIndexSP = shared_ptr_proxy<CBlockIndex>;
+
+
+
+
+class CBlockBloomFilter
+{
+public:
+    CBlockBloomFilter();
+    virtual ~CBlockBloomFilter() {};
+
+    bool contain(const uint256& hashBlock)
+    {
+        return _filter.contain((char*)hashBlock.begin(), 32);
+    }
+
+    bool insert(const uint256& hashBlock)
+    {
+        _filter.insert((char*)hashBlock.begin(), 32);
+        return true;
+    }
+
+    void clear()
+    {
+        _filter.clear();
+    }
+
+    CBlockBloomFilter& operator =(const CBlockBloomFilter& fl)
+    {
+        if (&fl == this) {
+            return *this;
+        }
+        _filter = fl._filter;
+        return *this;
+    }
+
+    CBlockBloomFilter& operator |(const CBlockBloomFilter& fl)
+    {
+        _filter | fl._filter;
+        return *this;
+    }
+
+protected:
+    BloomFilter _filter;
+};
+
+
+class CBlockCacheLocator
+{
+public:
+    CBlockCacheLocator() {}
+    ~CBlockCacheLocator() {}
+
+    void setFilterReadCompleted();
+
+    bool contain(const uint256& hashBlock);
+
+    bool insert(const uint256& hashBlock)
+    {
+        return _filterBlock.insert(hashBlock);
+    }
+
+    bool insert(const uint256& hashBlock, const CBlock& blk);
+
+    void clear();
+
+
+    bool erase(const uint256& hashBlock);
+
+    const CBlock& operator[](const uint256& hashBlock);
+
+    std::future<CBlockBloomFilter> blk_bf_future;
+
+private:
+    const size_t _capacity = 200;
+
+    CBlockBloomFilter _filterBlock;
+
+    std::atomic_bool _filterCacheReadReady = false;
+
+    bool _filterReady = false;
+
+    std::map<uint256, CBlock> _mapBlock;
+    std::map<int64, uint256> _mapTmJoined;
+};
 
 #endif

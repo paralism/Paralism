@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -78,10 +78,8 @@ public:
         string ip(_payload + sizeof(uint32_t), _payloadlen - sizeof(uint32_t));
         nodemanager->updateNode(_sentnodeid, ip, port);
 
-        nodemanager->EnableNodeActive(_sentnodeid, true);   
-
-        nodeUpkeep->RemoveNodeFromPingList(_sentnodeid);    
-
+        nodemanager->EnableNodeActive(_sentnodeid, true);
+        nodeUpkeep->RemoveNodeFromPingList(_sentnodeid);
     };
 private:
 };

@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -29,6 +29,7 @@ DEALINGS IN THE SOFTWARE.
 #include "node/mdp.h"
 #include "p2pprotocol.h"
 #include "node/ITask.hpp"
+
 
 #include <thread>
 #include <memory>
@@ -133,10 +134,30 @@ private:
     array<TASKTYPE, 100>::iterator tail;
 };
 
+typedef struct _tagCONSENSUSNOTIFYSTATE
+{
+    CONSENSUSNOTIFY notify_fns;
+    bool unreging = false;           //whether application is unregistering
+
+public:
+
+    _tagCONSENSUSNOTIFYSTATE(const CONSENSUSNOTIFY &notify) : notify_fns(notify)
+    { }
+
+    _tagCONSENSUSNOTIFYSTATE(_tagCONSENSUSNOTIFYSTATE&&src) {
+        notify_fns = src.notify_fns;
+        unreging = src.unreging;
+    }
+
+} CONSENSUSNOTIFYSTATE;
+
+using CONSENSUSNOTIFYSTATESP = std::shared_ptr<CONSENSUSNOTIFYSTATE>;
+
 typedef struct _tp2pmanagerstatus
 {
     std::thread::id threadid;
     bool bStartGlobalFlag;
+    bool bGlobalChainChangeFlag;
 
     std::atomic<bool> bHaveOnChainReq;
     std::atomic<uint64> uiConsensusBlockNum;
@@ -164,6 +185,10 @@ typedef struct _tp2pmanagerstatus
 
     T_SHA256 latestHyperBlockHash;
     uint64 latestHyperblockId = 0;
+    uint64 latestHyperblockCTime = 0;
+
+    bool bHyperBlockCreated;
+    T_HYPERBLOCK tHyperBlock;
 
     void ClearStatus();
 
@@ -172,9 +197,32 @@ typedef struct _tp2pmanagerstatus
         ClearStatus();
     }
 
+    void SetConsensusTime(uint32 l, uint32 g, uint32 nxt)
+    {
+        _LOCALBUDDYTIME = l;
+        _GLOBALBUDDYTIME = g;
+        _NEXTBUDDYTIME = nxt;
+    }
+
+    void GetConsensusTime(uint32 &l, uint32 &g, uint32 &nxt)
+    {
+        l = _LOCALBUDDYTIME;
+        g = _GLOBALBUDDYTIME;
+        nxt = _NEXTBUDDYTIME;
+    }
+
+    void SetGloblChainsChanged(bool changed) {
+        bGlobalChainChangeFlag = changed;
+    }
+
+    bool GloblChainsChanged() {
+        return bGlobalChainChangeFlag;
+    }
+
     bool StartGlobalFlag()const;
 
     bool HaveOnChainReq()const;
+
 
     T_SHA256 GetConsensusPreHyperBlockHash()const;
 
@@ -208,7 +256,7 @@ typedef struct _tp2pmanagerstatus
 
     void SetBuddyInfo(T_STRUCTBUDDYINFO info);
 
-    void SetLatestHyperBlock(uint64 hyperid,  const T_SHA256 &hhash);
+    void SetLatestHyperBlock(uint64 hyperid,  const T_SHA256 &hhash, uint64 hyperctime);
 
     inline uint64 GetLatestHyperBlockId() const { return latestHyperblockId; };
 
@@ -225,6 +273,7 @@ typedef struct _tp2pmanagerstatus
 
     void CleanConsensusEnv();
 
+
     void TrackLocalBlock(const T_LOCALBLOCK& localblock);
     void InitOnChainingState(uint64 hid);
     void RehandleOnChainingState(uint64 hid);
@@ -235,8 +284,15 @@ typedef struct _tp2pmanagerstatus
     template<cbindex I, typename... Args>
     bool AllAppCallback(Args&... args)
     {
-        for (auto appnoti : _mapcbfn) {
-            auto fn = std::get<static_cast<size_t>(I)>(appnoti.second);
+
+
+        auto tmpmapcbfn = _mapcbfn;
+
+        for (auto &appnoti : tmpmapcbfn) {
+            if (appnoti.second->unreging) {
+                continue;
+            }
+            auto fn = std::get<static_cast<size_t>(I)>(appnoti.second->notify_fns);
             if (fn) {
                 fn(args...);
             }
@@ -247,9 +303,16 @@ typedef struct _tp2pmanagerstatus
     template<cbindex I, typename... Args>
     CBRET AppCallback(const T_APPTYPE& app, Args&... args)
     {
+
+
         if (_mapcbfn.count(app)) {
-            auto& noti = _mapcbfn.at(app);
-            auto fn = std::get<static_cast<size_t>(I)>(noti);
+
+            if (_mapcbfn[app]->unreging) {
+                return CBRET::UNREGISTERED;
+            }
+
+            auto spnotistate = _mapcbfn.at(app);
+            auto fn = std::get<static_cast<size_t>(I)>(spnotistate->notify_fns);
             if (fn) {
                 return fn(args...) ? (CBRET::REGISTERED_TRUE) : (CBRET::REGISTERED_FALSE);
             }
@@ -263,7 +326,10 @@ private:
 
 private:
 
-    unordered_map<T_APPTYPE, CONSENSUSNOTIFY> _mapcbfn;
+    unordered_map<T_APPTYPE, CONSENSUSNOTIFYSTATESP> _mapcbfn;
+    uint32 _NEXTBUDDYTIME = NEXTBUDDYTIME;
+    uint32 _LOCALBUDDYTIME = LOCALBUDDYTIME;
+    uint32 _GLOBALBUDDYTIME = GLOBALBUDDYTIME;
 
 }T_P2PMANAGERSTATUS, * T_PP2PMANAGERSTATUS;
 

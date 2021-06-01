@@ -22,6 +22,7 @@ using MAPMULTIARGS = std::map<std::string, std::vector<std::string>>;
 
 extern MAPARGS mapHCArgs;
 extern MAPMULTIARGS mapHCMultiArgs;
+extern std::vector<std::string> vHCCommands;
 
 class AppPlugins
 {
@@ -119,47 +120,11 @@ public:
         boost::function<bool(const string&, string&)> appTurnOnOffDebugOutput;
         boost::function<string(string& payload)> appGetGenesisBlock;
 
-        bool load(const string& appname)
-        {
-            boost::filesystem::path pathHC = boost::filesystem::system_complete(".");
-            pathHC /= appname;
+        boost::function<bool(const list<string>&, string&, string&)> appConsoleCmd;
 
-            try {
-                applib.load(pathHC, boost::dll::load_mode::append_decorations);
-                appInfo = applib.get<void(string&)>("AppInfo");
-                appRunningArg = applib.get<void(int&, string&)>("AppRunningArg");
-                appIsStopped = applib.get<bool()>("IsStopped");
+        bool load(const string& appname);
+        void unload();
 
-                appStart = applib.get<bool(PluginContext *)>("StartApplication");
-                appStop = applib.get<void()>("StopApplication");
-                appRegisterTask = applib.get<bool(void*)>("RegisterTask");
-                appUnregisterTask = applib.get<void(void*)>("UnregisterTask");
-                appResolveHeight = applib.get<bool(int, string&)>("ResolveHeight");
-                appResolvePayload = applib.get<bool(const string&, string&)>("ResolvePayload");
-                appTurnOnOffDebugOutput = applib.get<bool(const string&, string&)>("TurnOnOffDebugOutput");
-                appGetGenesisBlock = applib.get<string(string & payload)>("GetGenesisBlock");
-                return true;
-            }
-            catch (boost::system::system_error& e) {
-                std::fprintf(stderr, "(%s) : %s %s \n", __FUNCTION__, appname.c_str(), e.what());
-            }
-            return false;
-        }
-
-        void unload()
-        {
-            appInfo.clear();
-            appRunningArg.clear();
-            appStart.clear();
-            appIsStopped.clear();
-            appStop.clear();
-            appRegisterTask.clear();
-            appUnregisterTask.clear();
-            appResolveHeight.clear();
-            appTurnOnOffDebugOutput.clear();
-            appGetGenesisBlock.clear();
-            applib.unload();
-        }
     } APPFUNC;
 
     APPFUNC* operator [](const string& appname) {

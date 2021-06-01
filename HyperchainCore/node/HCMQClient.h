@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -50,12 +50,10 @@ protected:
 
  private:
 
-    zmq::context_t * m_context = nullptr;
     int m_socktype;
-    int m_timeout;                
-
-    int m_retries;                
-
+    zmq::context_t * m_context = nullptr;
+    int m_timeout;
+    int m_retries;
     std::shared_ptr<zmq::socket_t> m_client;
 };
 

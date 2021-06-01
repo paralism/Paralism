@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -113,7 +113,7 @@ CUInt128& CUInt128::SetValueBE(const uint8_t *valueBE) throw()
     return *this;
 }
 
-CUInt128& CUInt128::SetHexString(const std::string & s) throw()
+CUInt128& CUInt128::SetHexString(const std::string & s)
 {
     if (s.size() != 2 * sizeof(m_data.u32_data[0]) * sizeof(m_data.u32_data) / sizeof(m_data.u32_data[0])) {
         throw std::runtime_error("invalid Node ID");

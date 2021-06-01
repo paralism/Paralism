@@ -15,8 +15,53 @@
 
 MAPARGS mapHCArgs;
 MAPMULTIARGS mapHCMultiArgs;
+std::vector<std::string> vHCCommands;
 
 AppPlugins* g_appPlugin = nullptr;
+
+
+bool AppPlugins::APPFUNC::load(const string& appname)
+{
+    boost::filesystem::path pathHC(appname);
+
+    try {
+        applib.load(pathHC, boost::dll::load_mode::append_decorations);
+        appInfo = applib.get<void(string&)>("AppInfo");
+        appRunningArg = applib.get<void(int&, string&)>("AppRunningArg");
+        appIsStopped = applib.get<bool()>("IsStopped");
+
+        appStart = applib.get<bool(PluginContext *)>("StartApplication");
+        appStop = applib.get<void()>("StopApplication");
+        appRegisterTask = applib.get<bool(void*)>("RegisterTask");
+        appUnregisterTask = applib.get<void(void*)>("UnregisterTask");
+        appResolveHeight = applib.get<bool(int, string&)>("ResolveHeight");
+        appResolvePayload = applib.get<bool(const string&, string&)>("ResolvePayload");
+        appTurnOnOffDebugOutput = applib.get<bool(const string&, string&)>("TurnOnOffDebugOutput");
+        appGetGenesisBlock = applib.get<string(string & payload)>("GetGenesisBlock");
+        appConsoleCmd = applib.get<bool(const list<string>&, string&, string&)>("ConsoleCmd");
+
+        return true;
+    }
+    catch (boost::system::system_error& e) {
+        std::fprintf(stderr, "(%s) : %s %s \n", __FUNCTION__, appname.c_str(), e.what());
+    }
+    return false;
+}
+
+void AppPlugins::APPFUNC::unload()
+{
+    appInfo.clear();
+    appRunningArg.clear();
+    appStart.clear();
+    appIsStopped.clear();
+    appStop.clear();
+    appRegisterTask.clear();
+    appUnregisterTask.clear();
+    appResolveHeight.clear();
+    appTurnOnOffDebugOutput.clear();
+    appGetGenesisBlock.clear();
+    applib.unload();
+}
 
 void AppPlugins::Init()
 {
@@ -29,11 +74,15 @@ void AppPlugins::Init()
 
 void AppPlugins::AddApplication(const string& appname)
 {
-    boost::filesystem::path pathHC = boost::filesystem::system_complete(".");
+    boost::filesystem::path pathHC(_argv[0]);
+    pathHC = boost::filesystem::system_complete(pathHC.branch_path());
     pathHC /= appname;
+
+    cout << "Load module: " <<  pathHC << endl;
+
     if (_mapAppFunc.count(appname) == 0) {
         APPFUNC f;
-        if (f.load(appname)) {
+        if (f.load(pathHC.string())) {
             _mapAppFunc[appname] = f;
         }
     }
@@ -68,7 +117,6 @@ void AppPlugins::StartApp(const string& appname)
     if (_mapAppFunc.count(appname)) {
         auto & f = _mapAppFunc[appname];
 
-        
 
         int app_argc = _argc + f.appargv.size();
         std::shared_ptr<char*> app_argv(new char*[app_argc]);
@@ -77,10 +125,13 @@ void AppPlugins::StartApp(const string& appname)
         int j = 0;
         char ** p = app_argv.get();
         for (; i < _argc; i++) {
-        
 
             if (string(_argv[i]).find("-with") == 0 ||
                 string(_argv[i]).find("-seedserver") == 0 ||
+                string(_argv[i]).find("-connect") == 0 ||
+                string(_argv[i]).find("-server") == 0 ||
+                string(_argv[i]).find("-consensus") == 0 ||
+                string(_argv[i]).find("-conf") == 0 ||
                 string(_argv[i]).find("-me") == 0 ) {
                 continue;
             }
@@ -126,7 +177,6 @@ void AppPlugins::StopApp(const string& appname, bool isErase)
             std::cout << "Module " << appname << " has stopped" << endl;
         }
         f.appUnregisterTask(handler);
-        
 
         if (isErase) {
             f.unload();
@@ -134,7 +184,7 @@ void AppPlugins::StopApp(const string& appname, bool isErase)
         }
     }
     else {
-        std::cout << "Module " << appname << " without running"<< endl;
+        std::cout << "Module " << appname << " hasn't started"<< endl;
     }
 }
 

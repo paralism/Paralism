@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -44,7 +44,9 @@ DEALINGS IN THE SOFTWARE.
 #define strnicmp strncasecmp
 #endif
 
+#ifdef WIN32
 #pragma comment(lib, "Ws2_32.lib")
+#endif
 
 
 BaseSock::BaseSock()
@@ -187,7 +189,6 @@ long BaseSock::Send(const char* buf, long buflen)
         return -1;
     }
 
-    int start = 0;
     int sended = 0;
     do
     {

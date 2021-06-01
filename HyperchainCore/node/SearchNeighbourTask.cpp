@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -52,7 +52,6 @@ namespace SEED {
 
             minutes timespan = std::chrono::duration_cast<minutes>(curr - _tp);
             if (timespan.count() > 3) {
-                
 
                 return true;
             }
@@ -108,7 +107,6 @@ int SearchNeighbourRspTask::getPeerList(CUInt128 nodeid, const string& targetid,
 }
 
 
-
 void SearchNeighbourRspTask::exec()
 {
     string nodeid(_fromNodeId.ToHexString());
@@ -121,6 +119,8 @@ void SearchNeighbourRspTask::exec()
 
     DataBuffer<SearchNeighbourRspTask> datamsgbuf(std::move(msgbuf));
     nodemgr->sendTo(_fromNodeId, datamsgbuf);
+
+    g_console_logger->debug("SearchNeighbourRspTask::exec(), reply peer={}", nodeid);
 }
 
 void SearchNeighbourRspTask::execRespond()
@@ -130,26 +130,24 @@ void SearchNeighbourRspTask::execRespond()
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
     NodeUPKeepThreadPool* nodeUpkeep = Singleton<NodeUPKeepThreadPool>::instance();
 
-    
 
     vector<CUInt128> vecNewNode;
     nodemgr->ParseNodeList(msg, vecNewNode);
-    nodeUpkeep->AddToPingList(vecNewNode); 
+    nodeUpkeep->AddToPingList(vecNewNode);
 
-
-    g_console_logger->debug("SearchNeighbourRspTask::execRespond(), Nodes Num = {} from peer= {}", vecNewNode.size(), _sentnodeid.ToHexString());
+    g_console_logger->debug("SearchNeighbourRspTask::execRespond(), Nodes Num = {} from peer= {}",
+        vecNewNode.size(),
+        _sentnodeid.ToHexString());
 }
 
 void SearchNeighbourTask::exec()
 {
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
     HCNodeSH toServer = nodemgr->getNode(_toNodeId);
-    if (toServer == 0)
+    if (!toServer)
         return;
 
-    
 
-    //CUInt128 _targetNodeId = nodemgr->myself()->getNodeId<CUInt128>();
     CUInt128 _targetNodeId = _toNodeId;
 
     string msgbuf = nodemgr->myself()->serialize();
@@ -160,7 +158,9 @@ void SearchNeighbourTask::exec()
     DataBuffer<SearchNeighbourTask> datamsgbuf(std::move(msgbuf));
     nodemgr->sendTo(toServer, datamsgbuf);
 
-    g_console_logger->debug("SearchNeighbourTask::exec(),toID = {}, targetID = {}", _toNodeId.ToHexString(), strID);
+    g_console_logger->debug("SearchNeighbourTask::exec(), targetID: {} {}",
+        strID,
+        toServer->serializeAP());
 }
 
 void SearchNeighbourTask::execRespond()

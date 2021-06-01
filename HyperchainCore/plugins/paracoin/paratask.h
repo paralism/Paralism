@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -39,7 +39,6 @@ using namespace std;
 
 
 
-
 enum class PARA_TASKTYPE : unsigned char
 {
     BASETYPE = 0,
@@ -67,7 +66,6 @@ public:
     IParaTask() {}
     IParaTask(TASKBUF && recvbuf) : ITask(std::forward<TASKBUF>(recvbuf))
     {
-        
 
         _payload++;
         _payloadlen--;

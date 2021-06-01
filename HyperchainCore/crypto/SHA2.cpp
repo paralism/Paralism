@@ -1,9 +1,9 @@
-﻿/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this 
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
 software and associated documentation files (the "Software"), to deal in the Software
 without restriction, including without limitation the rights to use, copy, modify, merge,
 publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons
@@ -12,7 +12,7 @@ to whom the Software is furnished to do so, subject to the following conditions:
 The above copyright notice and this permission notice shall be included in all copies or
 substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, 
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
 INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
 PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
 FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
@@ -24,7 +24,7 @@ DEALINGS IN THE SOFTWARE.
 
 #ifndef _MSC_VER
 #include <inttypes.h>
-#else 
+#else
 typedef unsigned __int32 uint32_t;
 #endif
 
@@ -62,7 +62,7 @@ const char ALPHABET_MAP[128] = {
 };
 
 // result must be declared: char result[len * 137 / 100];
-int EncodeBase58(const unsigned char *bytes, int len, unsigned char result[]) 
+int EncodeBase58(const unsigned char *bytes, int len, unsigned char result[])
 {
 	unsigned char *digits = new unsigned char[len * 2];
 	memset(digits,0,len*2);
@@ -94,7 +94,7 @@ int EncodeBase58(const unsigned char *bytes, int len, unsigned char result[])
 }
 
 // result must be declared (for the worst case): char result[len * 2];
-int DecodeBase58(const unsigned char *str, int len, unsigned char *result) 
+int DecodeBase58(const unsigned char *str, int len, unsigned char *result)
 {
 	result[0] = 0;
 	int resultlen = 1;

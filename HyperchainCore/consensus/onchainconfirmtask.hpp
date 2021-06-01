@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -56,7 +56,6 @@ public:
     {
         g_consensus_console_logger->info("Send OnChainConfirmRspTask to {}\n", _peerid.ToHexString().c_str());
 
-        
 
         T_PP2PPROTOCOLONCHAINCONFIRMRSP pP2pProtocolOnChainConfirmRsp = nullptr;
 
@@ -213,9 +212,7 @@ public:
         std::find_if(pConsensusStatus->listCurBuddyReq.begin(), pConsensusStatus->listCurBuddyReq.end(), f);
         if (isFind) {
             if (!isconfirming || currBuddyHash == confirmbuddyhash) {
-                
 
-                
 
                 g_consensus_console_logger->info("confirm from {}: will makebuddy, isconfirming:{}", _sentnodeid.ToHexString(), isconfirming);
 
@@ -225,7 +222,6 @@ public:
             }
         }
         else {
-            
 
             SendWaitRsp(confirmbuddyhash);
         }
@@ -257,7 +253,6 @@ private:
 };
 
 
-
 class CopyBlockTask : public ITask, public std::integral_constant<TASKTYPE, TASKTYPE::COPY_BLOCK> {
 public:
     using ITask::ITask;
@@ -277,7 +272,7 @@ public:
         size_t nodeSize = pConsensusStatus->listLocalBuddyChainInfo.size();
         if (nodeSize > NOT_START_BUDDY_NUM) {
             uint16 num = 0;
-            for (auto &b : pConsensusStatus->listLocalBuddyChainInfo) {
+            for (auto& b : pConsensusStatus->listLocalBuddyChainInfo) {
                 if ((b.GetLocalBlock().GetUUID() == _localBlock.GetLocalBlock().GetUUID())) {
                     continue;
                 }
@@ -287,35 +282,41 @@ public:
                 }
             }
 
+            T_P2PPROTOCOLCOPYBLOCKREQ P2pProtocolCopyBlockReq;
             stringstream ssBuf;
             boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
 
-            T_P2PPROTOCOLCOPYBLOCKREQ P2pProtocolCopyBlockReq;
-            P2pProtocolCopyBlockReq.SetType(T_P2PPROTOCOLTYPE(P2P_PROTOCOL_COPY_BLOCK_REQ, CCommonStruct::gettimeofday_update()));
-            P2pProtocolCopyBlockReq.uiBuddyNum = num;
-            oa << P2pProtocolCopyBlockReq;
+            try{
+                P2pProtocolCopyBlockReq.SetType(T_P2PPROTOCOLTYPE(P2P_PROTOCOL_COPY_BLOCK_REQ, CCommonStruct::gettimeofday_update()));
+                P2pProtocolCopyBlockReq.uiBuddyNum = num;
 
-            T_LOCALCONSENSUS LocalBlockInfo;
-            LocalBlockInfo.SetLocalBlock(_localBlock.GetLocalBlock());
-            LocalBlockInfo.SetPeer(_localBlock.GetPeer());
-            oa << LocalBlockInfo;
+                oa << P2pProtocolCopyBlockReq;
 
-            
+                T_LOCALCONSENSUS LocalBlockInfo;
+                LocalBlockInfo.SetLocalBlock(_localBlock.GetLocalBlock());
+                LocalBlockInfo.SetPeer(_localBlock.GetPeer());
+                oa << LocalBlockInfo;
 
 
-            uint16 i = 0;
-            for (auto &b : pConsensusStatus->listLocalBuddyChainInfo) {
-                if ((b.GetLocalBlock().GetUUID() == _localBlock.GetLocalBlock().GetUUID())) {
-                    continue;
+
+                uint16 i = 0;
+                for (auto& b : pConsensusStatus->listLocalBuddyChainInfo) {
+                    if ((b.GetLocalBlock().GetUUID() == _localBlock.GetLocalBlock().GetUUID())) {
+                        continue;
+                    }
+                    string uuid = b.GetLocalBlock().GetUUID();
+                    uint32 uuidSize = static_cast<uint32>(uuid.size());
+                    oa << uuidSize;
+                    oa << boost::serialization::make_binary_object(uuid.data(), uuidSize);
+                    i++;
+                    if (i >= nodeSize) {
+                        break;
+                    }
                 }
-                string uuid = b.GetLocalBlock().GetUUID();
-                uint32 uuidSize = static_cast<uint32>(uuid.size());
-                oa << uuidSize;
-                oa << boost::serialization::make_binary_object(uuid.data(), uuidSize);
-                i++;
-                if (i >= nodeSize) {
-                    break;
-                }
+            }
+            catch (boost::archive::archive_exception& e) {
+                g_consensus_console_logger->error("{} {}", __FUNCTION__, e.what());
+                return;
             }
 
             DataBuffer<CopyBlockTask> msgbuf(std::move(ssBuf.str()));
@@ -353,8 +354,8 @@ public:
             ia >> P2pProtocolCopyBlockReqRecv;
             ia >> LocalBlockTemp;
         }
-        catch (runtime_error& e) {
-            g_consensus_console_logger->warn("{}", e.what());
+        catch (boost::archive::archive_exception& e) {
+            g_console_logger->error("{} {}", __FUNCTION__, e.what());
             return;
         }
 
@@ -391,7 +392,6 @@ public:
         }
         g_consensus_console_logger->info("CopyBlockTask: recv {} copy block data,{} block is same.",
             P2pProtocolCopyBlockReqRecv.uiBuddyNum, num);
-        
 
         if (num < 2) {
             g_consensus_console_logger->warn("CopyBlockTask: cannot accept the copy data,maybe I have entered next phase.");

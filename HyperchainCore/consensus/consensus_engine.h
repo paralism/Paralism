@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -35,21 +35,30 @@ DEALINGS IN THE SOFTWARE.
 using namespace std;
 
 enum class ONCHAINSTATUS :char {
-    queueing,       
-    onchaining1,    
-    onchaining2,    
-    onchained,      
-    matured,        
-    nonexistent,    
-    failed,         
-    unknown,       
-    pending,       
+    queueing,
+    onchaining1,
+    onchaining2,
+    onchained,
+    matured,
+    nonexistent,
+    failed,
+    unknown,
+    pending,
 };
 
 class HCMQWrk;
 class zmsg;
 
 struct _tp2pmanagerstatus;
+
+typedef struct
+{
+    string hashMTRoot;
+    vector<string> vecMT;
+    string payload;
+    CUInt128 nodeid;
+} PostingBlock;
+
 
 class ConsensusEngine {
 public:
@@ -63,6 +72,7 @@ public:
     {
         return _msghandler.details();
     }
+
 
     void startTest() {
         if (_testthread) {
@@ -89,10 +99,10 @@ public:
         return false;
     }
 
-    uint32 AddNewBlockEx(const T_APPTYPE &app, const string& MTRootHash,
-        const string &strdata, string& requestid);
-    uint32 AddChainEx(const T_APPTYPE & app, const vector<string>& vecMTRootHash,
-        const vector<string>& vecpayload, const vector<CUInt128>& vecNodeId);
+    bool AddNewBlockEx(const SubmitData& data, string& requestid, uint32& nOrder, string& excp_desc);
+
+
+    uint32 AddChainEx(const T_APPTYPE& app, vector<PostingBlock>& postingchain);
 
     void RegisterAppCallback(const T_APPTYPE &app, const CONSENSUSNOTIFY &notify);
     void UnregisterAppCallback(const T_APPTYPE &app);
@@ -148,6 +158,7 @@ public:
     void ReOnChainFun();
 
     void GetOnChainInfo();
+    void TryCreateHyperBlock();
     bool CreateHyperBlock(T_HYPERBLOCK &tHyperBlock);
 
     void StartMQHandler();
@@ -164,7 +175,7 @@ private:
     {
         GetOnChainState = 1,
         AddNewBlockEx,
-        AddChainEx,      
+        AddChainEx,
         HyperBlockUpdated,
         GetStateOfCurrentConsensus,
         GetDetailsOfCurrentConsensus,

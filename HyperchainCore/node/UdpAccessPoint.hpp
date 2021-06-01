@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -23,7 +23,6 @@ DEALINGS IN THE SOFTWARE.
 
 #include "Singleton.h"
 #include "IAccessPoint.h"
-//#include "UdpThreadPool.h"
 #include "UdtThreadPool.h"
 #include "../wnd/common.h"
 #include <cpprest/json.h>
@@ -67,7 +66,6 @@ public:
     int write(const char *buf, size_t len) override
     {
         UdtThreadPool *pUdpThreadPool = Singleton<UdtThreadPool, const char*, uint32_t>::getInstance();
-        //UdpThreadPool *pUdpThreadPool = Singleton<UdpThreadPool, const char*, uint32_t>::getInstance();
         if (pUdpThreadPool == nullptr) {
             return -1;
         }

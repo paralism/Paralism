@@ -1,4 +1,4 @@
-#Copyright 2016-2020 hyperchain.net (Hyperchain)
+#Copyright 2016-2021 hyperchain.net (Hyperchain)
 #Distributed under the MIT software license, see the accompanying
 #file COPYING or https://opensource.org/licenses/MIT.
 
@@ -22,7 +22,7 @@
 
 CMAKE_MINIMUM_REQUIRED(VERSION 3.7)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 
 if(UNIX)
 
@@ -44,7 +44,7 @@ endif()
 PROJECT(stat)
 
 IF( NOT CMAKE_BUILD_TYPE )
-   SET( CMAKE_BUILD_TYPE Release)
+   SET(CMAKE_BUILD_TYPE Release)
 ENDIF()
 message(STATUS "Build Type: " "${CMAKE_BUILD_TYPE}")
 
@@ -68,20 +68,20 @@ endif()
 #find_package (Boost REQUIRED COMPONENTS system program_options date_time filesystem thread serialization)
 
 
-FILE(GLOB tools_SRC "*.cpp" "../../../newLog.cpp")
+FILE(GLOB tools_SRC  "../../../newLog.cpp")
 FILE(GLOB tools_HEAD "*.h" )
 
 
 #All source files
 set(final_HEAD
 	${common_HEAD}
-        ${tools_HEAD}
+	${tools_HEAD}
 	${paracoin_HEAD}
 	)
 
 set(final_SRC
 	${common_SRC}
-        ${tools_SRC}
+	${tools_SRC}
 	${paracoin_SRC}
 	${node_SRC}
 	${udt_SRC}
@@ -89,16 +89,31 @@ set(final_SRC
 	)
 
 
-add_executable(${PROJECT_NAME} ${final_SRC} ${final_HEAD} ${WRAP_FILES})
-
+add_executable(${PROJECT_NAME} "stat.cpp" ${final_SRC} ${final_HEAD} ${WRAP_FILES})
 target_link_libraries(${PROJECT_NAME} Oracle::BerkeleyDB OpenSSL::Crypto hyperchainspace)
-target_link_libraries(${PROJECT_NAME} Boost::system Boost::program_options Boost::serialization Boost::filesystem Boost::thread Boost::fiber)
+target_link_libraries(${PROJECT_NAME} Boost::system Boost::program_options Boost::serialization Boost::iostreams Boost::filesystem Boost::thread Boost::fiber Boost::chrono)
 target_link_libraries(${PROJECT_NAME} ethash)
 
+SET(MIGR migr)
+add_executable(${MIGR} "migr.cpp" ${final_SRC} ${final_HEAD} ${WRAP_FILES})
+target_link_libraries(${MIGR} Oracle::BerkeleyDB OpenSSL::Crypto hyperchainspace)
+target_link_libraries(${MIGR} Boost::system Boost::program_options Boost::serialization Boost::iostreams Boost::filesystem Boost::thread Boost::fiber Boost::chrono)
+target_link_libraries(${MIGR} ethash)
+
+SET(WALLET_MGR walletmgr)
+add_executable(${WALLET_MGR} "walletmgr.cpp" ${final_SRC} ${final_HEAD} ${WRAP_FILES})
+target_link_libraries(${WALLET_MGR} Oracle::BerkeleyDB OpenSSL::Crypto hyperchainspace)
+target_link_libraries(${WALLET_MGR} Boost::system Boost::program_options Boost::serialization Boost::iostreams Boost::filesystem Boost::thread Boost::fiber Boost::chrono)
+target_link_libraries(${WALLET_MGR} ethash)
+
 if(UNIX)
-target_link_libraries(${PROJECT_NAME} dl)
+target_link_libraries(${PROJECT_NAME} dl ssl)
+target_link_libraries(${MIGR} dl ssl)
+target_link_libraries(${WALLET_MGR} dl ssl)
 endif()
 
 configure_file (
-"${PROJECT_SOURCE_DIR}/../../../config.h.in"
-"${PROJECT_BINARY_DIR}/config.h")
+"${PROJECT_SOURCE_DIR}/../../../globalconfig.h.in"
+"${PROJECT_BINARY_DIR}/globalconfig.h")
+
+install(TARGETS ${WALLET_MGR} DESTINATION bin COMPONENT ${CORECOMPONET})

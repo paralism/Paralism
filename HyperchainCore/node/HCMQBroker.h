@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -39,12 +39,9 @@ static constexpr int maximum_process_ability = 20;
 
 struct worker
 {
-    std::string m_identity;   
-
-    service * m_service;      
-
-    int64_t m_expiry;         
-
+    std::string m_identity;
+    service * m_service;
+    int64_t m_expiry;
     int32_t m_process_ability = 0;
 
     worker(std::string identity, service * service = 0, int64_t expiry = 0)
@@ -54,7 +51,6 @@ struct worker
         m_expiry = expiry;
     }
 
-    
 
     inline void idle()
     {
@@ -66,7 +62,6 @@ struct worker
         return m_process_ability > 0;
     }
 
-    
 
     inline void become_stronger()
     {
@@ -92,18 +87,12 @@ struct service
     ~service()
     {}
 
-    std::string m_name;                 
-
-    std::deque<std::tuple<zmsg,std::time_t>> m_requests;        
-
-    std::set<worker*> m_waiting;        
-
-    size_t m_workers = 0;               
-
-    size_t m_req_handled = 0;           
-
-    size_t m_req_abandoned= 0;          
-
+    std::string m_name;
+    std::deque<std::tuple<zmsg,std::time_t>> m_requests;
+    std::set<worker*> m_waiting;
+    size_t m_workers = 0;
+    size_t m_req_handled = 0;
+    size_t m_req_abandoned= 0;
 
     service(std::string name)
     {

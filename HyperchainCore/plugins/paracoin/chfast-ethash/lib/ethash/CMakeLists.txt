@@ -8,6 +8,12 @@ include(GNUInstallDirs)
 
 set(include_dir ${PROJECT_SOURCE_DIR}/include)
 
+if(WIN32)
+
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /MD")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Zi /Od /MDd")
+
+endif()
 
 
 add_library(

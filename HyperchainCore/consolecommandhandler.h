@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -22,6 +22,10 @@ DEALINGS IN THE SOFTWARE.
 
 #pragma once
 
+#include "headers/inter_public.h"
+#include "node/zmsg.h"
+
+#include <streambuf>
 #include <iostream>
 #include <functional>
 #include <vector>
@@ -38,21 +42,88 @@ using namespace std;
 string GetHyperChainDataDir();
 string CreateChildDir(const string& childdir);
 
+class SocketClientStreamBuf : public std::streambuf
+{
+public:
+    SocketClientStreamBuf(const string& strIP, int port);
+    ~SocketClientStreamBuf();
+
+    void get(string& strIP, int &port);
+    void set(const string& strIP, int port);
+protected:
+    int_type overflow(int_type c);
+    int sync();
+
+private:
+    void connect_to();
+    int  FlushBuffer();
+
+private:
+    zmq::context_t* m_context;
+    std::shared_ptr<zmq::socket_t> m_client;
+
+    string m_ip;
+    int m_port;
+
+    string m_buffer;
+    bool m_isstopped = false;
+};
+
+class ConsoleCommNetServer
+{
+public:
+    ConsoleCommNetServer(zmq::context_t *ctx)
+    {
+        m_context = ctx;
+    }
+
+    ~ConsoleCommNetServer()
+    {
+        stop();
+    }
+
+    void start(int port);
+    void stop();
+
+protected:
+
+    void request_process(std::string &sender, zmsg* msg);
+    void msg_handler();
+
+    zmq::context_t* m_context;
+    std::shared_ptr<zmq::socket_t> m_socket;
+    std::unique_ptr<std::thread> m_pollthread;
+    bool m_isbinded = false;
+    int m_port;
+};
 
 class ConsoleCommandHandler
 {
 
 public:
-    explicit ConsoleCommandHandler();
+    explicit ConsoleCommandHandler(std::streambuf* in_smbuf, std::streambuf *out_smbuf);
     ~ConsoleCommandHandler();
 
-    void run();
+    enum class role : char
+    {
+        CLIENT,
+        SERVER,
+        DAEMON
+    };
+    role _r = role::SERVER;
+
+    void run(role r);
+    void run_as_client();
+
+
+    void handleCommand(const string &command, string &savingcommand);
+    void stop();
 
 private:
 
     struct cmdstruct {
     public:
-        cmdstruct(const char *keystring, std::function<void(const list<string> &)> f) {
+        cmdstruct(const char *keystring, std::function<void(const list<string> &, string&)> f) {
             key = keystring;
             func = f;
         }
@@ -61,15 +132,21 @@ private:
         }
 
         const char *key;
-        std::function<void(const list<string> &)> func;
+        std::function<void(const list<string> &, string& savingcommand)> func;
     };
 
-    std::vector<cmdstruct> _commands;
     bool _isRunning;
+    std::istream _istream;
+    std::ostream _ostream;
+    std::vector<cmdstruct> _commands;
+    std::map<std::string, std::string> _mapSettings;
 
 private:
 
-    void handleCommand(const string &command);
+    void loadSettings();
+    void writeSettings();
+    void insertRemoteServer(string& ip, int port);
+    string GetConfigFile();
 
     void exit();
     void showUsages();
@@ -78,6 +155,10 @@ private:
     void showHyperChainSpace();
     void showHyperChainSpaceMore(const list<string> &commlist);
     void showLocalData();
+
+    void showUdpDetails();
+    void showHyperBlock(uint64 hid, bool isShowDetails);
+
     void downloadHyperBlock(const list<string> &commlist);
     void downloadBlockHeader(const list<string> &commlist);
     void searchLocalHyperBlock(const list<string> &commlist);
@@ -94,11 +175,29 @@ private:
 
     void enableTest(const list<string> &onoff);
 
-    inline void showPrompt() {
-        cout << "hc $ ";
-        cout.flush();
-    }
+    void submitData(const list<string>& cmdlist);
+    void queryOnchainState(const list<string>& cmdlist);
 
+    void switchRemoteServer(const list<string>& cmdlist);
+
+    string extractScriptDataFromFile(const string& filename);
+    void showVMUsage();
+    void handleVM(const list<string> &vmcmdlist);
+
+    void appConsoleCmd(const string& appname, const list<string>& cmdlist, string& savingcommand);
+    void handleToken(const list<string>& cmdlist, string& savingcommand);
+    void handleCoin(const list<string>& cmdlist, string& savingcommand);
+
+
+    void simulateHyperBlkUpdated(const list<string>& cmdlist);
+
+};
+
+class ProgramConfigFile
+{
+public:
+    static string GetCfgFile(const string& cfgfile = "hc.cfg");
+    static void LoadSettings(const string& cfgfile = "hc.cfg");
 };
 
 

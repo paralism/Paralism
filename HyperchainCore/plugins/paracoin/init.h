@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -37,6 +37,9 @@ extern "C" BOOST_SYMBOL_EXPORT void AppInfo(string&);
 extern "C" BOOST_SYMBOL_EXPORT void AppRunningArg(int&, string&);
 extern "C" BOOST_SYMBOL_EXPORT bool ResolveHeight(int, string&);
 extern "C" BOOST_SYMBOL_EXPORT bool ResolvePayload(const string&, string&);
+
+extern "C" BOOST_SYMBOL_EXPORT bool ConsoleCmd(const list<string> & cmdlist, string & info, string & savingcommand);
+
 
 void Shutdown(void* parg);
 bool AppInit2(int argc, char* argv[]);

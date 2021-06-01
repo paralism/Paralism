@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -43,8 +43,6 @@ DEALINGS IN THE SOFTWARE.
 #include "includeComm.h"
 #include "shastruct.h"
 
-using namespace std;
-
 
 
 #define MAX_SECS_COUNTER (9999999999)
@@ -56,9 +54,9 @@ using namespace std;
 #define MAX_RECV_UDP_BUF_LEN			(64*1024)
 #define	MAX_NATTRAVERSAL_PERIOD					(10*60)
 #define RANDTIME						(60)
-#define LOCALBUDDYTIME                  (1*60)
-#define GLOBALBUDDYTIME                 (2*60)
-#define NEXTBUDDYTIME					(3*60-30)
+#define LOCALBUDDYTIME                  (2*60)
+#define GLOBALBUDDYTIME                 (4*60)
+#define NEXTBUDDYTIME					(5*60)
 #define LIST_BUDDY_RSP_NUM				(3)
 #define BUDDYSCRIPT						("buddy_script")
 #define AUTHKEY							("auth_key")
@@ -89,26 +87,16 @@ using namespace std;
 enum _ePoeReqState
 {
     DEFAULT_REGISREQ_STATE = 0,
-    RECV,													
-
-    SEND,													
-
-    STOP,													
-
-    CONFIRMING,												
-
-    CONFIRMED,												
-
-    REJECTED,												
-
-//	OTHERREFUSEME,											
-
-//	ALLCONFIRMED,											
-
-//	ALLOTHERREFUSEME,										
-
-//	ALLMYREFUSEOTHER										
-
+    RECV,
+    SEND,
+    STOP,
+    CONFIRMING,
+    CONFIRMED,
+    REJECTED,
+//	OTHERREFUSEME,
+//	ALLCONFIRMED,
+//	ALLOTHERREFUSEME,
+//	ALLMYREFUSEOTHER
 };
 
 enum _eblocktype
@@ -120,31 +108,49 @@ enum _eblocktype
 enum _eNodeState
 {
     DEFAULT_NODE_STATE = 0,
-    SYNC_DATA_STATE,		
-
-    IDLE_STATE,				
-
-    LOCAL_BUDDY_STATE,		
-
-    GLOBAL_BUDDY_STATE,		
-
-    ON_CHAIN_SUCCESS,		
-
-    ON_CHAIN_FAILED,		
-
-    NODE_MALICE				
-
+    SYNC_DATA_STATE,
+    IDLE_STATE,
+    LOCAL_BUDDY_STATE,
+    GLOBAL_BUDDY_STATE,
+    ON_CHAIN_SUCCESS,
+    ON_CHAIN_FAILED,
+    NODE_MALICE
 };
 
 
 enum _eChainState
 {
     CHAIN_DEFAULT_STATE = 0,
-    CHAIN_CONFIRMING,				
-
-    CHAIN_CONFIRMED					
-
+    CHAIN_CONFIRMING,
+    CHAIN_CONFIRMED
 };
+
+inline
+char const* StringConvertToCharBuf(const std::string& cpp)
+{
+    return cpp.c_str();
+}
+
+template <typename T>
+T StringConvertToCharBuf(const T& t)
+{
+    return t;
+}
+
+template<class... Args>
+std::string StringFormat(const char* fmt, Args&&... args)
+{
+    size_t expandedlen = std::snprintf(nullptr, 0, fmt, StringConvertToCharBuf(args)...);
+
+    std::string buf(expandedlen + 1, 0);
+    std::snprintf(&buf[0], buf.size(), fmt, StringConvertToCharBuf(args)...);
+
+
+    buf.pop_back();
+
+    return buf;
+}
+
 #pragma pack(push,1)
 
 
@@ -153,12 +159,9 @@ enum _eChainState
 
 typedef struct _tLocalChain
 {
-    uint16	iId;							
-
-    uint64	iAllChainNodeNum;				
-
-    _eChainState	eState;					
-
+    uint16	iId;
+    uint64	iAllChainNodeNum;
+    _eChainState	eState;
 
     void Set(uint16 id, uint64 allChainNodeNum, _eChainState state);
 
@@ -171,25 +174,16 @@ typedef struct _tLocalChain
 }TGETFRIENDCHAININFO, *P_TGETFRIENDCHAININFO;
 
 
-
 typedef struct _tPoeInfo
 {
-    string				cFileName;			
-
-    string				cCustomInfo;		
-
-    string				cRightOwner;		
-
-    string				cFileHash;			
-
-    int16				iFileState;			
-
-    uint64				tRegisTime;			
-
-    uint64				iFileSize;			
-
-    uint64				iBlocknum;			
-
+    string				cFileName;
+    string				cCustomInfo;
+    string				cRightOwner;
+    string				cFileHash;
+    int16				iFileState;
+    uint64				tRegisTime;
+    uint64				iFileSize;
+    uint64				iBlocknum;
 
     _tPoeInfo()
     {
@@ -220,21 +214,14 @@ typedef struct _tPoeInfo
 }TEVIDENCEINFO, *P_TEVIDENCEINFO;
 
 
-
 typedef struct _tChainQueryStru
 {
-    uint64		iBlockNo;								
-
-    uint64		iJoinedNodeNum;							
-
-    uint64		iLocalBlockNum;							
-
-    uint16		iLocalChainNum;							
-
-    //uint16		iLongestChain;						
-
-    uint64		tTimeStamp;								
-
+    uint64		iBlockNo;
+    uint64		iJoinedNodeNum;
+    uint64		iLocalBlockNum;
+    uint16		iLocalChainNum;
+    //uint16		iLongestChain;
+    uint64		tTimeStamp;
     _tPoeInfo tPoeRecordInfo;
 
     _tChainQueryStru()
@@ -266,7 +253,6 @@ typedef struct _tChainQueryStru
 #pragma pack(pop)
 
 
-
 typedef struct _tUpqueue
 {
     uint64 uiID;
@@ -276,12 +262,10 @@ typedef struct _tUpqueue
 
 typedef struct _tlocalblockaddress
 {
-    uint64 hid = 0;            
-
+    uint64 hid = 0;
     uint16 chainnum = 0;
     uint16 id = 0;
-    string ns;                  
-
+    string ns;
 
     void set(uint64 uihid, uint16 chain, uint16 uiid, string nspace ="") {
         hid = uihid;
@@ -289,23 +273,21 @@ typedef struct _tlocalblockaddress
         id = uiid;
         ns = nspace;
     }
+
     bool isValid() const {
-        return hid >= uint64(0) && id > (uint16)0 && chainnum > (uint16)0;
+        return hid >= uint64(0) && id > (uint16)0 && id < 10000 &&
+            chainnum > (uint16)0 && chainnum < 5000;
     }
+
     string tostring() const {
-        const char *fmt = "[%lld,%d,%d]";
-        int sz = std::snprintf(nullptr, 0, fmt, hid, chainnum, id);
-        std::string buf(sz, 0);
-        std::snprintf(&buf[0], buf.size()+1, fmt, hid, chainnum, id);
-        return buf;
+        return StringFormat("[%lld,%d,%d]", hid, chainnum, id);
     }
 
     bool fromstring(const string& addr)
     {
-        
 
         //return (std::sscanf(addr.c_str(),"[%lld,%d,%d]",&hid,&chainnum,&id) !=3);
-        return (std::sscanf(addr.c_str(),"[%" PRId64 ",%hd,%hd]",&hid,&chainnum,&id) !=3);
+        return (std::sscanf(addr.c_str(),"[%" PRId64 ",%hd,%hd]", &hid, &chainnum, &id) !=3);
     }
 
     bool operator <(const _tlocalblockaddress &addr) const
@@ -329,6 +311,7 @@ typedef struct _tlocalblockaddress
         }
         return false;
     }
+
     bool operator >=(const _tlocalblockaddress &addr) const
     {
         if (hid > addr.hid) {
@@ -373,7 +356,6 @@ typedef struct _tlocalblockaddress
     }
 
 }T_LOCALBLOCKADDRESS, *P_TLOCALBLOCKADDRESS;
-
 
 
 
@@ -429,24 +411,10 @@ typedef struct _tNodeInfo
 
 }TNODEINFO, *P_TNODEINFO;
 
-typedef vector<P_TBLOCKINFO>					VEC_T_BLOCKINFO;
-typedef VEC_T_BLOCKINFO::iterator				ITR_VEC_T_BLOCKINFO;
-
-typedef vector<TNODEINFO>						VEC_T_NODEINFO;
-typedef VEC_T_NODEINFO::iterator				ITR_VEC_T_NODEINFO;
-
-typedef vector<TBROWSERSHOWINFO>				VEC_T_BROWSERSHOWINFO;
-typedef VEC_T_BROWSERSHOWINFO::iterator			ITR_VEC_T_BROWSERSHOWINFO;
-
-typedef vector<P_TEVIDENCEINFO>					VEC_T_EVIDENCEINFO;
-typedef VEC_T_EVIDENCEINFO::iterator			ITR_VEC_T_EVIDENCEINFO;
 
 
 
-typedef vector<P_TUPQUEUE>						VEC_T_UPQUEUEINFO;
-typedef VEC_T_UPQUEUEINFO::iterator				ITR_VEC_T_UPQUEUEINFO;
 
-typedef vector<P_THBLOCKDLGINFO>				VEC_T_HBLOCKDLGINFO;
-typedef VEC_T_HBLOCKDLGINFO::iterator			ITR_VEC_T_HBLOCKDLGINFO;
+
 
 #endif

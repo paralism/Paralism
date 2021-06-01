@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -56,27 +56,29 @@ enum class TASKTYPE : unsigned char
     BOARDCAST_HYPER_BLOCK,
     GET_HYPERBLOCK_BY_NO_REQ,
     GET_HYPERBLOCK_BY_PREHASH_REQ,
-    GET_HEADERHASH_BY_NO_REQ,
-    GET_HEADERHASH_BY_NO_RSP,
+    GET_HEADERHASHMTROOT_REQ,
+    GET_HEADERHASHMTROOT_RSP,
+    NO_HEADERHASHMTROOT_RSP,
+    GET_HEADERHASH_REQ,
+    GET_HEADERHASH_RSP,
+    NO_HEADERHASH_RSP,
     GET_BLOCKHEADER_REQ,
     GET_BLOCKHEADER_RSP,
     NO_BLOCKHEADER_RSP,
 
     HYPER_CHAIN_SPACE_PULL,
     HYPER_CHAIN_SPACE_PULL_RSP,
-	HYPER_CHAIN_HYPERDATA_PULL,
-	HYPER_CHAIN_HYPERDATA_PULL_RSP,
+    HYPER_CHAIN_HYPERDATA_PULL,
+    HYPER_CHAIN_HYPERDATA_PULL_RSP,
     SEARCH_NEIGHBOUR,
     SEARCH_NEIGHBOUR_RSP,
 
-	PING_PONG,
-	PING_PONG_RSP,
+    PING_PONG,
+    PING_PONG_RSP,
 
-    
 
     LEDGER,
 
-    
 
     PARACOIN,
 
@@ -84,7 +86,6 @@ enum class TASKTYPE : unsigned char
     APP_CHAIN_RSP,
     APP_ACTION,
 
-    
 
     ACTIVE_NODE = 0xfa
 };

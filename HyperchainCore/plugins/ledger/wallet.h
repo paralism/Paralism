@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -76,7 +76,8 @@ public:
     }
 
     std::map<uint256, CWalletTx> mapWallet;
-    std::vector<uint256> vWalletUpdated;
+
+    //std::vector<uint256> vWalletUpdated;
 
     std::map<uint256, int> mapRequestCount;
 
@@ -202,8 +203,8 @@ public:
 
     void UpdatedTransaction(const uint256 &hashTx)
     {
-        CRITICAL_BLOCK(cs_wallet)
-            vWalletUpdated.push_back(hashTx);
+        //CRITICAL_BLOCK(cs_wallet)
+        //    vWalletUpdated.push_back(hashTx);
     }
 
     void PrintWallet(const CBlock& block);
@@ -422,6 +423,17 @@ public:
         }
     }
 
+    void UnmarkSpent(unsigned int nOut)
+    {
+        if (nOut >= vout.size())
+            throw std::runtime_error("CWalletTx::UnmarkSpent() : nOut out of range");
+        vfSpent.resize(vout.size());
+        if (!vfSpent[nOut]) {
+            vfSpent[nOut] = false;
+            fAvailableCreditCached = false;
+        }
+    }
+
     bool IsSpent(unsigned int nOut) const
     {
         if (nOut >= vout.size())
@@ -549,12 +561,12 @@ public:
     int64 GetTxTime() const;
     int GetRequestCount() const;
 
-    void AddSupportingTransactions(CTxDB& txdb);
+    void AddSupportingTransactions(CTxDB_Wrapper &txdb);
 
-    bool AcceptWalletTransaction(CTxDB& txdb, bool fCheckInputs=true);
+    bool AcceptWalletTransaction(CTxDB_Wrapper &txdb, bool fCheckInputs=true);
     bool AcceptWalletTransaction();
 
-    void RelayWalletTransaction(CTxDB& txdb);
+    void RelayWalletTransaction(CTxDB_Wrapper& txdb);
     void RelayWalletTransaction();
 };
 

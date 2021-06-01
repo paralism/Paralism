@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -23,7 +23,7 @@ DEALINGS IN THE SOFTWARE.
 class NonCopyable
 {
 public:
-	NonCopyable(const NonCopyable&) = delete; 
-	NonCopyable& operator = (const NonCopyable&) = delete; 
-	NonCopyable() = default; 
+	NonCopyable(const NonCopyable&) = delete;
+	NonCopyable& operator = (const NonCopyable&) = delete;
+	NonCopyable() = default;
 };

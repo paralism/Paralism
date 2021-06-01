@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -28,6 +28,7 @@ DEALINGS IN THE SOFTWARE.
 
 #include "headers/inter_public.h"
 #include "key.h"
+#include "utilc.h"
 
 #include <map>
 #include <string>
@@ -45,22 +46,27 @@ class CWallet;
 class CAccount;
 class CAccountingEntry;
 class CBlockLocator;
+class CBlock;
+class CBlockIndex;
+class BLOCKTRIPLEADDRESS;
 
+class CBlockBloomFilter;
 
 extern unsigned int nWalletDBUpdated;
-extern DbEnv* dbenv;
+
+extern boost::shared_ptr<DbEnv> dbenv;
 
 
 extern void DBFlush(bool fShutdown);
 void ThreadFlushWalletDB(void* parg);
-bool BackupWallet(const CWallet& wallet, const std::string& strDest);
-
-
+bool BackupWallet(const CWallet& wallet, const std::string& strDest, string& errmsg);
 
 
 class CDB
 {
 protected:
+    boost::shared_ptr<DbEnv> m_dbenv;
+    boost::shared_ptr<CCriticalSection> internal_cs_db;
     Db* pdb;
     std::string strFile;
     std::vector<DbTxn*> vTxn;
@@ -75,6 +81,51 @@ private:
     void operator=(const CDB&);
 
 protected:
+
+    bool Load(const std::string& key, const uint256& hash, std::function<bool(CDataStream&, CDataStream&)> f)
+    {
+        // Get database cursor
+        Dbc* pcursor = GetCursor();
+        if (!pcursor)
+            return false;
+
+        // Load mapBlockIndex
+        unsigned int fFlags = DB_SET_RANGE;
+        for (; !fShutdown;) {
+            // Read next record
+            CDataStream ssKey;
+            if (fFlags == DB_SET_RANGE)
+                ssKey << make_pair(key, hash);
+            CDataStream ssValue;
+            int ret = ReadAtCursor(pcursor, ssKey, ssValue, fFlags);
+            fFlags = DB_NEXT;
+            if (ret == DB_NOTFOUND)
+                break;
+            else if (ret != 0)
+                return false;
+
+            // Unserialize
+            string strType;
+            uint256 hash;
+            ssKey >> strType;
+
+            if (strType == key) {
+                if (!f(ssKey, ssValue)) break;
+            }
+            else {
+                break;
+            }
+        }
+        pcursor->close();
+
+        return true;
+    }
+
+    bool Load(const std::string& key, std::function<bool(CDataStream&, CDataStream&)> f)
+    {
+        return Load(key, uint256(0), f);
+    }
+
     template<typename K, typename T>
     bool Read(const K& key, T& value)
     {
@@ -240,7 +291,7 @@ public:
         if (!pdb)
             return false;
         DbTxn* ptxn = NULL;
-        int ret = dbenv->txn_begin(GetTxn(), &ptxn, DB_TXN_NOSYNC);
+        int ret = m_dbenv->txn_begin(GetTxn(), &ptxn, DB_TXN_NOSYNC);
         if (!ptxn || ret != 0)
             return false;
         vTxn.push_back(ptxn);
@@ -286,43 +337,248 @@ public:
 
 
 
-
-
+class CTxDB_Wrapper;
 class CTxDB : public CDB
 {
 public:
-    CTxDB(const char* pszMode="r+") : CDB("blkindex.dat", pszMode) { }
+    friend class CTxDB_Wrapper;
+
 private:
+    CTxDB(const char* pszMode = "r+") : CDB("blkindex.dat", pszMode) { }
     CTxDB(const CTxDB&);
     void operator=(const CTxDB&);
-public:
-    bool ReadTxIndex(uint256 hash, CTxIndex& txindex);
-    bool UpdateTxIndex(uint256 hash, const CTxIndex& txindex);
+
+ public:
+    bool ReadTxIndex(const uint256& hash, CTxIndex& txindex);
+    bool UpdateTxIndex(const uint256& hash, const CTxIndex& txindex);
     bool AddTxIndex(const CTransaction& tx, const CDiskTxPos& pos, int nHeight);
     bool EraseTxIndex(const CTransaction& tx);
-    bool ContainsTx(uint256 hash);
-    bool ReadOwnerTxes(uint160 hash160, int nHeight, std::vector<CTransaction>& vtx);
-    bool ReadDiskTx(uint256 hash, CTransaction& tx, CTxIndex& txindex);
-    bool ReadDiskTx(uint256 hash, CTransaction& tx);
-    bool ReadDiskTx(COutPoint outpoint, CTransaction& tx, CTxIndex& txindex);
-    bool ReadDiskTx(COutPoint outpoint, CTransaction& tx);
+    bool ContainsTx(const uint256& hash);
+    bool ReadOwnerTxes(const uint160& hash160, int nHeight, std::vector<CTransaction>& vtx);
+    bool ReadDiskTx(const uint256& hash, CTransaction& tx, CTxIndex& txindex);
+    bool ReadDiskTx(const uint256& hash, CTransaction& tx);
+    bool ReadDiskTx(COutPoint& outpoint, CTransaction& tx, CTxIndex& txindex);
+    bool ReadDiskTx(COutPoint& outpoint, CTransaction& tx);
+
+    bool ReadBlockIndex(const uint256& hash, CDiskBlockIndex& blockindex);
     bool WriteBlockIndex(const CDiskBlockIndex& blockindex);
     bool EraseBlockIndex(uint256 hash);
     bool ReadHashBestChain(uint256& hashBestChain);
     bool WriteHashBestChain(uint256 hashBestChain);
-    
-
+    //HC
     bool ReadAddrMaxChain(T_LOCALBLOCKADDRESS& addrMax);
     bool WriteAddrMaxChain(const T_LOCALBLOCKADDRESS& addrMax);
 
     bool ReadBestInvalidWork(CBigNum& bnBestInvalidWork);
     bool WriteBestInvalidWork(CBigNum bnBestInvalidWork);
     bool LoadBlockIndex();
+
+
+private:
+    bool CheckBestBlockIndex();
+};
+
+extern thread_local boost::shared_ptr<CTxDB> tls_txdb_instance;
+
+class CTxDB_Wrapper
+{
+public:
+    CTxDB_Wrapper(const char* pszMode = "r+")
+    {
+        if (tls_txdb_instance.get()) {
+            _dbptr = tls_txdb_instance;
+        }
+        else {
+            tls_txdb_instance.reset(new CTxDB(pszMode));
+            _dbptr = tls_txdb_instance;
+        }
+    }
+
+    ~CTxDB_Wrapper()
+    {}
+
+    inline bool TxnBegin() { return _dbptr->TxnBegin(); }
+    inline bool TxnCommit() { return _dbptr->TxnCommit(); }
+    inline bool TxnAbort() { return _dbptr->TxnAbort(); }
+    inline bool ReadVersion(int& nVersion) { return _dbptr->ReadVersion(nVersion); }
+    inline bool WriteVersion(int nVersion) { return _dbptr->WriteVersion(nVersion); }
+    inline void Close() { _dbptr->Close(); }
+
+    inline bool ReadTxIndex(const uint256& hash, CTxIndex& txindex) { return _dbptr->ReadTxIndex(hash, txindex); }
+    inline bool UpdateTxIndex(const uint256& hash, const CTxIndex& txindex) { return _dbptr->UpdateTxIndex(hash, txindex); }
+    inline bool AddTxIndex(const CTransaction& tx, const CDiskTxPos& pos, int nHeight) { return _dbptr->AddTxIndex(tx, pos, nHeight); }
+    inline bool EraseTxIndex(const CTransaction& tx) { return _dbptr->EraseTxIndex(tx); }
+    inline bool ContainsTx(const uint256& hash) { return _dbptr->ContainsTx(hash); }
+    inline bool ReadOwnerTxes(uint160& hash160, int nHeight, std::vector<CTransaction>& vtx) { return _dbptr->ReadOwnerTxes(hash160, nHeight, vtx); }
+    inline bool ReadDiskTx(uint256& hash, CTransaction& tx, CTxIndex& txindex) { return _dbptr->ReadDiskTx(hash, tx, txindex); }
+    inline bool ReadDiskTx(uint256& hash, CTransaction& tx) { return _dbptr->ReadDiskTx(hash, tx); }
+    inline bool ReadDiskTx(COutPoint& outpoint, CTransaction& tx, CTxIndex& txindex) {
+        return  _dbptr->ReadDiskTx(outpoint, tx, txindex);
+    }
+    inline bool ReadDiskTx(COutPoint& outpoint, CTransaction& tx) { return _dbptr->ReadDiskTx(outpoint, tx); }
+
+    inline bool ReadBlockIndex(const uint256& hash, CDiskBlockIndex& blockindex) { return _dbptr->ReadBlockIndex(hash, blockindex); }
+    inline bool WriteBlockIndex(const CDiskBlockIndex& blockindex) { return _dbptr->WriteBlockIndex(blockindex); }
+    inline bool EraseBlockIndex(uint256& hash) { return _dbptr->EraseBlockIndex(hash); }
+    inline bool ReadHashBestChain(uint256& hashBestChain) { return _dbptr->ReadHashBestChain(hashBestChain); }
+    inline bool WriteHashBestChain(uint256& hashBestChain) { return _dbptr->WriteHashBestChain(hashBestChain); }
+    //HC
+    inline bool ReadAddrMaxChain(T_LOCALBLOCKADDRESS& addrMax) { return _dbptr->ReadAddrMaxChain(addrMax); }
+    inline bool WriteAddrMaxChain(const T_LOCALBLOCKADDRESS& addrMax) { return _dbptr->WriteAddrMaxChain(addrMax); }
+
+    inline bool ReadBestInvalidWork(CBigNum& bnBestInvalidWork) { return _dbptr->ReadBestInvalidWork(bnBestInvalidWork); }
+    inline bool WriteBestInvalidWork(CBigNum bnBestInvalidWork) { return _dbptr->WriteBestInvalidWork(bnBestInvalidWork); }
+    inline bool LoadBlockIndex() { return _dbptr->LoadBlockIndex(); }
+
+
+private:
+    boost::shared_ptr<CTxDB> _dbptr;
 };
 
 
+class CBlockDB : public CDB
+{
+public:
+    CBlockDB(const char* pszMode = "r+", const char* filename = "block.dat") : CDB(filename, pszMode) { }
+private:
+    CBlockDB(const CBlockDB&);
+    void operator=(const CBlockDB&);
+public:
+    bool LoadBlockUnChained(CBlockBloomFilter& filterBlk);
+    bool LoadBlockUnChained(const uint256& hash, std::function<bool(CDataStream&, CDataStream&)> f);
+    bool ReadBlock(const uint256& hash, CBlock& block);
+    bool WriteBlock(const CBlock& block);
+    bool WriteBlock(const uint256& hash, const CBlock& block);
+    bool EraseBlock(uint256 hash);
+};
 
 
+extern thread_local boost::shared_ptr<CBlockDB> tls_blkdb_instance;
+
+class CBlockDB_Wrapper
+{
+public:
+    CBlockDB_Wrapper(const char* pszMode = "r+", const char* filename = "block.dat")
+    {
+        if (tls_blkdb_instance.get()) {
+            _dbptr = tls_blkdb_instance;
+        }
+        else {
+            tls_blkdb_instance.reset(new CBlockDB(pszMode, filename));
+            _dbptr = tls_blkdb_instance;
+        }
+    }
+
+    ~CBlockDB_Wrapper()
+    {
+    }
+
+    inline bool TxnBegin() { return _dbptr->TxnBegin(); }
+    inline bool TxnCommit() { return _dbptr->TxnCommit(); }
+    inline bool TxnAbort() { return _dbptr->TxnAbort(); }
+    inline bool ReadVersion(int& nVersion) { return _dbptr->ReadVersion(nVersion); }
+    inline bool WriteVersion(int nVersion) { return _dbptr->WriteVersion(nVersion); }
+    inline void Close() { _dbptr->Close(); }
+
+    inline bool LoadBlockUnChained(CBlockBloomFilter& filterBlk) {
+        return _dbptr->LoadBlockUnChained(filterBlk);
+    }
+
+    inline bool LoadBlockUnChained(const uint256& hash, std::function<bool(CDataStream&, CDataStream&)> f) {
+        return _dbptr->LoadBlockUnChained(hash, f);
+    }
+
+    inline bool ReadBlock(const uint256& hash, CBlock& block) {
+        return _dbptr->ReadBlock(hash, block);
+    }
+
+    inline bool WriteBlock(const CBlock& block) {
+        return _dbptr->WriteBlock(block);
+    }
+
+    inline bool WriteBlock(const uint256& hash, const CBlock& block) {
+        return _dbptr->WriteBlock(hash, block);
+    }
+
+    inline bool EraseBlock(uint256 hash) {
+        return _dbptr->EraseBlock(hash);
+    }
+
+private:
+    boost::shared_ptr<CBlockDB> _dbptr;
+};
+
+class COrphanBlockDB : public CBlockDB
+{
+public:
+    COrphanBlockDB(const char* pszMode = "cr+") : CBlockDB(pszMode, "orphanblock.dat") { }
+private:
+    COrphanBlockDB(const COrphanBlockDB&);
+    void operator=(const COrphanBlockDB&);
+};
+
+
+extern thread_local boost::shared_ptr<COrphanBlockDB> tls_orphanblkdb_instance;
+
+class COrphanBlockDB_Wrapper
+{
+public:
+    COrphanBlockDB_Wrapper(const char* pszMode = "cr+")
+    {
+        if (tls_orphanblkdb_instance.get()) {
+            _dbptr = tls_orphanblkdb_instance;
+        }
+        else {
+            tls_orphanblkdb_instance.reset(new COrphanBlockDB(pszMode));
+            _dbptr = tls_orphanblkdb_instance;
+        }
+    }
+
+    ~COrphanBlockDB_Wrapper()
+    {
+    }
+
+    inline bool ReadBlock(const uint256& hash, CBlock& block) {
+        return _dbptr->ReadBlock(hash, block);
+    }
+
+    inline bool WriteBlock(const CBlock& block) {
+        return _dbptr->WriteBlock(block);
+    }
+
+    inline bool EraseBlock(uint256 hash)
+    {
+        return _dbptr->EraseBlock(hash);
+    }
+
+
+private:
+    boost::shared_ptr<COrphanBlockDB> _dbptr;
+};
+
+class CBlockTripleAddressDB : public CDB
+{
+public:
+    CBlockTripleAddressDB(const char* pszMode = "r+", const char* pszFile= "blocktripleaddress.dat") : CDB(pszFile, pszMode) {}
+private:
+    CBlockTripleAddressDB(const CBlockTripleAddressDB&);
+    void operator=(const CBlockTripleAddressDB&);
+public:
+    bool LoadBlockTripleAddress();
+
+    bool ReadMaxHID(uint32& maxhid);
+    bool WriteMaxHID(uint32 hid);
+
+    bool ReadBlockTripleAddress(const uint256& hash, BLOCKTRIPLEADDRESS& addr);
+    bool WriteBlockTripleAddress(const uint256& hash, const BLOCKTRIPLEADDRESS& addr);
+    bool EraseBlockTripleAddress(const uint256& hash);
+};
+
+class COrphanBlockTripleAddressDB : public CBlockTripleAddressDB
+{
+public:
+    COrphanBlockTripleAddressDB(const char* pszMode = "r+") : CBlockTripleAddressDB(pszMode, "orphanblocktripleaddr.dat") {}
+};
 
 class CAddrDB : public CDB
 {
@@ -381,7 +637,7 @@ enum DBErrors
 class CWalletDB : public CDB
 {
 public:
-    CWalletDB(std::string strFilename, const char* pszMode="r+") : CDB(strFilename.c_str(), pszMode)
+    CWalletDB(const std::string &strFilename, const char* pszMode="r+") : CDB(strFilename.c_str(), pszMode)
     {
     }
 private:
@@ -507,5 +763,160 @@ public:
 
     int LoadWallet(CWallet* pwallet);
 };
+
+
+extern thread_local boost::shared_ptr<CWalletDB> tls_walletdb_instance;
+
+class CWalletDB_Wrapper
+{
+public:
+    CWalletDB_Wrapper(const std::string &strFilename, const char* pszMode = "r+")
+    {
+        if (tls_walletdb_instance.get()) {
+            _dbptr = tls_walletdb_instance;
+        }
+        else {
+            tls_walletdb_instance.reset(new CWalletDB(strFilename, pszMode));
+            _dbptr = tls_walletdb_instance;
+        }
+    }
+
+    ~CWalletDB_Wrapper()
+    {}
+
+public:
+
+    inline bool TxnBegin() { return _dbptr->TxnBegin(); }
+    inline bool TxnCommit() { return _dbptr->TxnCommit(); }
+    inline bool TxnAbort() { return _dbptr->TxnAbort(); }
+    inline bool ReadVersion(int& nVersion) { return _dbptr->ReadVersion(nVersion); }
+    inline bool WriteVersion(int nVersion) { return _dbptr->WriteVersion(nVersion); }
+    inline void Close() { _dbptr->Close(); }
+
+    inline bool ReadName(const std::string& strAddress, std::string& strName) {
+        return tls_walletdb_instance->ReadName(strAddress, strName);
+    }
+
+    inline bool WriteName(const std::string& strAddress, const std::string& strName) {
+        return tls_walletdb_instance->WriteName(strAddress, strName);
+    }
+
+    inline bool EraseName(const std::string& strAddress) {
+        return tls_walletdb_instance->EraseName(strAddress);
+    }
+
+    inline bool ReadTx(uint256 hash, CWalletTx& wtx) {
+        return tls_walletdb_instance->ReadTx(hash, wtx);
+    }
+
+    inline bool WriteTx(uint256 hash, const CWalletTx& wtx) {
+        return tls_walletdb_instance->WriteTx(hash, wtx);
+    }
+
+    inline bool EraseTx(uint256 hash) {
+        return tls_walletdb_instance->EraseTx(hash);
+    }
+
+    inline bool ReadKey(const std::vector<unsigned char>& vchPubKey, CPrivKey& vchPrivKey) {
+        return tls_walletdb_instance->ReadKey(vchPubKey, vchPrivKey);
+    }
+
+    inline bool WriteKey(const std::vector<unsigned char>& vchPubKey, const CPrivKey& vchPrivKey) {
+        return tls_walletdb_instance->WriteKey(vchPubKey, vchPrivKey);
+    }
+
+    inline bool WriteCryptedKey(const std::vector<unsigned char>& vchPubKey, const std::vector<unsigned char>& vchCryptedSecret, bool fEraseUnencryptedKey = true) {
+        return tls_walletdb_instance->WriteCryptedKey(vchPubKey, vchCryptedSecret, fEraseUnencryptedKey);
+    }
+
+    inline bool WriteMasterKey(unsigned int nID, const CMasterKey& kMasterKey) {
+        return tls_walletdb_instance->WriteMasterKey(nID, kMasterKey);
+    }
+
+    inline bool WriteBestBlock(const CBlockLocator& locator) {
+        return tls_walletdb_instance->WriteBestBlock(locator);
+    }
+
+    inline bool ReadBestBlock(CBlockLocator& locator) {
+        return tls_walletdb_instance->ReadBestBlock(locator);
+    }
+
+    inline bool ReadDefaultKey(std::vector<unsigned char>& vchPubKey) {
+        return tls_walletdb_instance->ReadDefaultKey(vchPubKey);
+    }
+
+    inline bool WriteDefaultKey(const std::vector<unsigned char>& vchPubKey) {
+        return tls_walletdb_instance->WriteDefaultKey(vchPubKey);
+    }
+
+    inline bool ReadPool(int64 nPool, CKeyPool& keypool) {
+        return tls_walletdb_instance->ReadPool(nPool, keypool);
+    }
+
+    inline bool WritePool(int64 nPool, const CKeyPool& keypool) {
+        return tls_walletdb_instance->WritePool(nPool, keypool);
+    }
+
+    inline bool ErasePool(int64 nPool) {
+        return tls_walletdb_instance->ErasePool(nPool);
+    }
+
+    template<typename T>
+    inline bool ReadSetting(const std::string& strKey, T& value)
+    {
+        return tls_walletdb_instance->ReadSetting(strKey, value);
+    }
+
+    template<typename T>
+    inline bool WriteSetting(const std::string& strKey, const T& value)
+    {
+        return tls_walletdb_instance->WriteSetting(strKey, value);
+    }
+
+    inline bool ReadAccount(const std::string& strAccount, CAccount& account) {
+        return tls_walletdb_instance->ReadAccount(strAccount, account);
+    }
+
+    inline bool WriteAccount(const std::string& strAccount, const CAccount& account) {
+        return tls_walletdb_instance->WriteAccount(strAccount, account);
+    }
+
+    inline bool WriteAccountingEntry(const CAccountingEntry& acentry) {
+        return tls_walletdb_instance->WriteAccountingEntry(acentry);
+    }
+
+    inline int64 GetAccountCreditDebit(const std::string& strAccount) {
+        return tls_walletdb_instance->GetAccountCreditDebit(strAccount);
+    }
+
+    inline void ListAccountCreditDebit(const std::string& strAccount, std::list<CAccountingEntry>& acentries) {
+        tls_walletdb_instance->ListAccountCreditDebit(strAccount, acentries);
+    }
+
+    inline int LoadWallet(CWallet* pwallet) {
+        return tls_walletdb_instance->LoadWallet(pwallet);
+    }
+
+private:
+    class _internal
+    {
+    public:
+        _internal() {}
+        ~_internal()
+        {
+
+
+
+            if (tls_walletdb_instance.unique()) {
+                tls_walletdb_instance.reset();
+            }
+        }
+    };
+
+    _internal _i;
+    boost::shared_ptr<CWalletDB> _dbptr;
+
+};
+
 
 #endif

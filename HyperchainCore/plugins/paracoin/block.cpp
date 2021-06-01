@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -27,6 +27,34 @@ DEALINGS IN THE SOFTWARE.
 #include "headers.h"
 #include "block.h"
 
+
+bool CBlock::AddToMemoryPool(const uint256 &nBlockHash)
+{
+    return mapBlocks.insert(nBlockHash, *this);
+}
+
+bool CBlock::AddToMemoryPool()
+{
+    uint256 hash = GetHash();
+    return AddToMemoryPool(hash);
+}
+
+bool CBlock::RemoveFromMemoryPool()
+{
+    uint256 hash = GetHash();
+    return mapBlocks.erase(hash);
+}
+
+bool CBlock::ReadFromMemoryPool(uint256 nBlockHash)
+{
+    SetNull();
+
+    if (mapBlocks.contain(nBlockHash)) {
+        *this = mapBlocks[nBlockHash];
+        return true;
+    }
+    return false;
+}
 
 CBlockIndexSP CBlockIndex::pprev() const
 {
@@ -67,5 +95,112 @@ int64 CBlockIndex::GetMedianTime() const
 bool CBlockIndex::IsInMainChain() const
 {
     return (pnext() || this == pindexBest.get());
+}
+
+//////////////////////////////////////////////////////////////////////////
+CBlockBloomFilter::CBlockBloomFilter() : _filter()
+{
+}
+
+
+//////////////////////////////////////////////////////////////////////////
+//CBlockCacheLocator
+
+void CBlockCacheLocator::setFilterReadCompleted()
+{
+    _filterCacheReadReady = true;
+}
+
+bool CBlockCacheLocator::contain(const uint256& hashBlock)
+{
+    if (!_filterReady) {
+        if (_filterCacheReadReady) {
+
+            _filterBlock = _filterBlock | blk_bf_future.get();
+            _filterReady = true;
+            cout << "Paracoin: read block cache completely\n";
+        }
+    }
+
+    if (_filterReady && !_filterBlock.contain(hashBlock))
+        return false;
+
+    if (_mapBlock.count(hashBlock)) {
+        return true;
+    }
+
+
+    CBlockDB_Wrapper blockdb;
+    CBlock blk;
+    if (blockdb.ReadBlock(hashBlock, blk)) {
+        return true;
+    }
+    return false;
+}
+
+bool CBlockCacheLocator::insert(const uint256& hashBlock, const CBlock& blk)
+{
+    CBlockDB_Wrapper blockdb;
+    blockdb.TxnBegin();
+    blockdb.WriteBlock(hashBlock, blk);
+    if (!blockdb.TxnCommit())
+        return ERROR_FL("%s : TxnCommit failed", __FUNCTION__);
+
+    if (_mapBlock.size() > _capacity) {
+        _mapBlock.erase(_mapTmJoined.begin()->second);
+        _mapTmJoined.erase(_mapTmJoined.begin());
+    }
+
+    _mapTmJoined[GetTime()] = hashBlock;
+    _mapBlock[hashBlock] = blk;
+
+    insert(hashBlock);
+    return true;
+}
+
+void CBlockCacheLocator::clear()
+{
+    _filterBlock.clear();
+    _mapBlock.clear();
+    _mapTmJoined.clear();
+}
+
+
+bool CBlockCacheLocator::erase(const uint256& hashBlock)
+{
+    return true;
+
+    //CBlockDB_Wrapper blockdb;
+    //blockdb.TxnBegin();
+    //blockdb.EraseBlock(hashBlock);
+    //if (!blockdb.TxnCommit())
+    //    return ERROR_FL("%s : TxnCommit failed", __FUNCTION__);
+
+    //_mapBlock.erase(hashBlock);
+    //std::remove_if(_mapTmJoined.begin(), _mapTmJoined.end(), [&hashBlock](const auto& x) { return x.second == hashBlock; });
+
+    //return true;
+}
+
+const CBlock& CBlockCacheLocator::operator[](const uint256& hashBlock)
+{
+    if (_mapBlock.count(hashBlock)) {
+        return _mapBlock[hashBlock];
+    }
+
+    CBlockDB_Wrapper blockdb;
+    CBlock blk;
+    if (!blockdb.ReadBlock(hashBlock, blk)) {
+        throw runtime_error(strprintf("Failed to Read block: %s", hashBlock.ToPreViewString().c_str()));
+    }
+
+    if (_mapBlock.size() > _capacity) {
+        _mapBlock.erase(_mapTmJoined.begin()->second);
+        _mapTmJoined.erase(_mapTmJoined.begin());
+    }
+
+    _mapTmJoined[GetTime()] = hashBlock;
+    _mapBlock[hashBlock] = blk;
+    return _mapBlock[hashBlock];
 }
 

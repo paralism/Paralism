@@ -1,4 +1,4 @@
-#Copyright 2016-2020 hyperchain.net (Hyperchain)
+#Copyright 2016-2021 hyperchain.net (Hyperchain)
 #Distributed under the MIT software license, see the accompanying
 #file COPYING or https://opensource.org/licenses/MIT.
 
@@ -22,7 +22,7 @@
 
 CMAKE_MINIMUM_REQUIRED(VERSION 3.7)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 
 if(UNIX)
 
@@ -163,9 +163,9 @@ endif()
 target_link_libraries(${PROJECT_NAME} cpprestsdk::cpprest OpenSSL::Crypto ${BerkeleyDB_LIBRARIES} ${SQLITE3_LIBRARIES})
 target_link_libraries(${PROJECT_NAME} Boost::system Boost::program_options Boost::serialization Boost::filesystem Boost::thread)
 target_link_libraries(${PROJECT_NAME} cppzmq libzmq cppzmq-static libzmq-static)
-target_link_libraries(${PROJECT_NAME} ${Libcopp_LIBRARIES})
+target_link_libraries(${PROJECT_NAME} vm)
 
 
 configure_file (
-"${PROJECT_SOURCE_DIR}/../config.h.in"
-"${PROJECT_BINARY_DIR}/config.h")
+"${PROJECT_SOURCE_DIR}/../globalconfig.h.in"
+"${PROJECT_BINARY_DIR}/globalconfig.h")

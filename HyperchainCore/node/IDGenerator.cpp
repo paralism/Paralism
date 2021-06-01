@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -25,7 +25,7 @@ DEALINGS IN THE SOFTWARE.
 //atomic_uint64_t IDGenerator::_currid = { 0 };
 std::atomic<uint64_t> IDGenerator::_currid = { 0 };
 
-int64_t IDGenerator::getId() 
+int64_t IDGenerator::getId()
 {
 	_currid++;
 	return _currid;

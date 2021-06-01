@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -259,10 +259,11 @@ _tp2pprotocolgethyperblockbynoreq& _tp2pprotocolgethyperblockbynoreq::operator =
     return *this;
 }
 
-void _tp2pprotocolgethyperblockbynoreq::SetP2pprotocolgethyperblockbynoreq(T_P2PPROTOCOLTYPE Type, uint64 BlockNum)
+void _tp2pprotocolgethyperblockbynoreq::SetP2pprotocolgethyperblockbynoreq(T_P2PPROTOCOLTYPE Type, uint64 BlockNum, uint32_t Cnt)
 {
     tType = Type;
     uiBlockNum = BlockNum;
+    nBlockCount = Cnt;
 }
 
 void _tp2pprotocolgethyperblockbynoreq::SetType(T_P2PPROTOCOLTYPE Type)

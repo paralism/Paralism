@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -27,6 +27,7 @@ DEALINGS IN THE SOFTWARE.
 #define BITCOIN_UTIL_H
 
 #include "uint256.h"
+#include "plcommon.h"
 
 #ifndef __WXMSW__
 #include <sys/types.h>
@@ -36,6 +37,7 @@ DEALINGS IN THE SOFTWARE.
 #include <map>
 #include <vector>
 #include <string>
+#include <thread>
 
 #include <boost/thread/thread.hpp>
 #include <boost/interprocess/sync/interprocess_recursive_mutex.hpp>
@@ -43,7 +45,6 @@ DEALINGS IN THE SOFTWARE.
 #include <boost/date_time/posix_time/posix_time_types.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/ini_parser.hpp>
-
 
 #include <openssl/sha.h>
 #include <openssl/ripemd.h>
@@ -170,6 +171,11 @@ extern std::map<std::string, std::vector<std::string> > mapMultiArgs;
 extern bool fDebug;
 extern bool fPrintToConsole;
 extern bool fPrintToDebugFile;
+
+extern bool fPrintBacktracking;
+extern bool fPrintBacktracking_node;
+extern std::string strBacktracking_node;
+
 extern bool fPrintToDebugger;
 extern char pszSetDataDir[MAX_PATH];
 extern bool fRequestShutdown;
@@ -187,9 +193,9 @@ extern bool fLogTimestamps;
 void RandAddSeed();
 void RandAddSeedPerfmon();
 int OutputDebugStringF(const char* pszFormat, ...);
-std::string strprintf(const char* format, ...);
 
-#define __format(fmt) "(%s:%d) " fmt "\n"
+void LogBacktracking(const char* format, ...);
+void LogBacktrackingFromNode(const string &fromnode, const char* format, ...);
 
 
 void LogException(std::exception* pex, const char* pszThread);
@@ -210,33 +216,8 @@ void GetDataDir(char* pszDirRet);
 std::string GetConfigFile();
 
 std::string GetPidFile();
+std::string& replace_all(std::string& str, const std::string& old_value, const std::string& new_value);
 
-
-template<const char* C, bool R>
-bool log_output(const char* format, ...)
-{
-    char buffer[50000];
-    int limit = sizeof(buffer);
-    va_list arg_ptr;
-    va_start(arg_ptr, format);
-    int ret = _vsnprintf(buffer, limit, format, arg_ptr);
-    va_end(arg_ptr);
-    if (ret < 0 || ret >= limit)
-    {
-        ret = limit - 1;
-        buffer[limit - 1] = 0;
-    }
-    fprintf(stdout, "%s: %s\n", C, buffer);
-    return R;
-}
-
-extern char log_prefix_i[];
-extern char log_prefix_e[];
-extern char log_prefix_w[];
-
-#define INFO_FL(fmt, ...) log_output<log_prefix_i, true>(__format(fmt), __FUNCTION__, __LINE__, ##__VA_ARGS__)
-#define WARNING_FL(fmt, ...) log_output<log_prefix_w, false>(__format(fmt), __FUNCTION__, __LINE__, ##__VA_ARGS__)
-#define ERROR_FL(fmt, ...) log_output<log_prefix_e, false>(__format(fmt), __FUNCTION__, __LINE__, ##__VA_ARGS__)
 
 #ifndef __WXMSW__
 void CreatePidFile(std::string pidFile, pid_t pid);
@@ -289,7 +270,7 @@ protected:
     boost::interprocess::interprocess_recursive_mutex mutex;
 public:
     explicit CCriticalSection() { }
-    ~CCriticalSection() { }
+    ~CCriticalSection();
     void Enter(const char* pszName, const char* pszFile, int nLine);
     void Leave();
     bool TryEnter(const char* pszName, const char* pszFile, int nLine);
@@ -340,6 +321,89 @@ public:
     }
 };
 
+template<const char* NAME>
+class CCriticalBlockT
+{
+public:
+    CCriticalSection* _pcs;
+    static string _file;
+    static int _nLine;
+    static std::thread::id _tid;
+    bool _isLocked = false;
+
+public:
+    explicit CCriticalBlockT(CCriticalSection& csIn, const char* pszFile, int nLine) :
+        _pcs(&csIn)
+    {}
+
+    ~CCriticalBlockT()
+    {
+        Leave();
+    }
+
+    bool Enter(const char* pszFile, int nLine)
+    {
+        _pcs->Enter(NAME, pszFile, nLine);
+        _file = pszFile;
+        _nLine = nLine;
+        _tid = std::this_thread::get_id();
+        _isLocked = true;
+        return true;
+    }
+
+    void Leave()
+    {
+        if (_isLocked) {
+            _isLocked = false;
+            _file.clear();
+            _nLine = 0;
+
+            _pcs->Leave();
+        }
+    }
+
+    bool TryEnter(const char* pszFile, int nLine)
+    {
+        if (_pcs->TryEnter(NAME, pszFile, nLine)) {
+            _file = pszFile;
+            _nLine = nLine;
+            _tid = std::this_thread::get_id();
+            _isLocked = true;
+            return true;
+        }
+        return false;
+    }
+
+    static string ToString()
+    {
+        stringstream ss;
+        ss << _tid;
+        return strprintf("%s is taken by TID:%s (%s %d)", NAME, ss.str().c_str(), _file.c_str(), _nLine);
+    }
+};
+
+template<const char* NAME>
+class CUnCriticalBlockT
+{
+protected:
+    CCriticalSection* _pcs;
+
+public:
+    explicit CUnCriticalBlockT(CCriticalSection& csIn, const char* pszFile, int nLine) :
+        _pcs(&csIn)
+    {
+        csIn.Leave();
+        CCriticalBlockT<NAME>::_file.clear();
+        CCriticalBlockT<NAME>::_nLine = 0;
+    }
+
+    ~CUnCriticalBlockT()
+    {
+        CCriticalBlockT<NAME> cb(*_pcs, __FILE__, __LINE__);
+		cb.Enter(__FILE__, __LINE__);
+    }
+};
+
 // WARNING: This will catch continue and break!
 // break is caught with an assertion, but there's no way to detect continue.
 // I'd rather be careful than suffer the other more error prone syntax.
@@ -347,6 +411,20 @@ public:
 #define CRITICAL_BLOCK(cs)     \
     for (bool fcriticalblockonce=true; fcriticalblockonce; assert(("break caught by CRITICAL_BLOCK!" && !fcriticalblockonce)), fcriticalblockonce=false) \
         for (CCriticalBlock criticalblock(cs, #cs, __FILE__, __LINE__); fcriticalblockonce; fcriticalblockonce=false)
+
+extern char pcstName[];
+#define CRITICAL_BLOCK_T_MAIN(cs)     \
+    for (bool fcriticalblockonce=true; fcriticalblockonce; assert(("break caught by CRITICAL_BLOCK_T!" && !fcriticalblockonce)), fcriticalblockonce=false) \
+        for (CCriticalBlockT<pcstName> criticalblock(cs, __FILE__, __LINE__); fcriticalblockonce && (fcriticalblockonce = criticalblock.Enter(__FILE__, __LINE__)); fcriticalblockonce=false)
+
+#define UNCRITICAL_BLOCK(cs)     \
+    for (bool fcriticalblockonce=true; fcriticalblockonce; assert(("break caught by UNCRITICAL_BLOCK!" && !fcriticalblockonce)), fcriticalblockonce=false) \
+        for (CUnCriticalBlock criticalblock(cs, #cs, __FILE__, __LINE__); fcriticalblockonce; fcriticalblockonce=false)
+
+#define UNCRITICAL_BLOCK_T_MAIN(cs)     \
+    for (bool fcriticalblockonce=true;  fcriticalblockonce; assert(("break caught by UNCRITICAL_BLOCK_T!" && !fcriticalblockonce)), fcriticalblockonce=false) \
+        for (CUnCriticalBlockT<pcstName> criticalblock(cs, __FILE__, __LINE__); fcriticalblockonce; fcriticalblockonce=false)
+
 
 class CTryCriticalBlock
 {
@@ -372,6 +450,11 @@ public:
     for (bool fcriticalblockonce=true; fcriticalblockonce; assert(("break caught by TRY_CRITICAL_BLOCK!" && !fcriticalblockonce)), fcriticalblockonce=false) \
         for (CTryCriticalBlock criticalblock(cs, #cs, __FILE__, __LINE__); fcriticalblockonce && (fcriticalblockonce = criticalblock.Entered()); fcriticalblockonce=false)
 
+#define TRY_CRITICAL_BLOCK_T_MAIN(cs)     \
+    for (bool fcriticalblockonce=true; fcriticalblockonce; assert(("break caught by TRY_CRITICAL_BLOCK_T!" && !fcriticalblockonce)), fcriticalblockonce=false) \
+        for (CCriticalBlockT<pcstName> criticalblock(cs, __FILE__, __LINE__); fcriticalblockonce && (fcriticalblockonce = criticalblock.TryEnter(__FILE__, __LINE__)); fcriticalblockonce=false)
+
+
 inline std::string i64tostr(int64 n)
 {
     return strprintf("%" PRI64d "", n);
@@ -391,7 +474,6 @@ inline int64 atoi64(const char* psz)
 #endif
 }
 
-int64 atoi64(const std::string& str);
 inline int64 atoi64(const std::string& str)
 {
 #ifdef _MSC_VER
@@ -401,7 +483,6 @@ inline int64 atoi64(const std::string& str)
 #endif
 }
 
-int atoi(const std::string& str);
 inline int atoi(const std::string& str)
 {
     return atoi(str.c_str());

@@ -1,4 +1,4 @@
-/*Copyright 2016-2020 hyperchain.net (Hyperchain)
+/*Copyright 2016-2021 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -33,7 +33,7 @@ SOFTWARE.
 
 using namespace std;
 
-static unsigned int SDBMHash(const char* str, int len)
+static unsigned int SDBMHash(const char* str, size_t len)
 {
     unsigned int hash = 0;
 
@@ -43,7 +43,7 @@ static unsigned int SDBMHash(const char* str, int len)
     return (hash & 0x7FFFFFFF);
 }
 
-static unsigned int RSHash(const char* str, int len)
+static unsigned int RSHash(const char* str, size_t len)
 {
     unsigned int b = 378551;
     unsigned int a = 63689;
@@ -56,7 +56,7 @@ static unsigned int RSHash(const char* str, int len)
     return (hash & 0x7FFFFFFF);
 }
 
-static unsigned int JSHash(const char* str, int len)
+static unsigned int JSHash(const char* str, size_t len)
 {
     unsigned int hash = 1315423911;
 
@@ -66,7 +66,7 @@ static unsigned int JSHash(const char* str, int len)
     return (hash & 0x7FFFFFFF);
 }
 
-static unsigned int PJWHash(const char* str, int len)
+static unsigned int PJWHash(const char* str, size_t len)
 {
     unsigned int BitsInUnignedInt = (unsigned int)(sizeof(unsigned int) * 8);
     unsigned int ThreeQuarters = (unsigned int)((BitsInUnignedInt * 3) / 4);
@@ -84,7 +84,7 @@ static unsigned int PJWHash(const char* str, int len)
     return (hash & 0x7FFFFFFF);
 }
 
-static unsigned int APHash(const char* str, int len)
+static unsigned int APHash(const char* str, size_t len)
 {
     unsigned int hash = 0;
     int i;
@@ -100,7 +100,7 @@ static unsigned int APHash(const char* str, int len)
     return (hash & 0x7FFFFFFF);
 }
 
-static unsigned int DJBHash(const char* str, int len)
+static unsigned int DJBHash(const char* str, size_t len)
 {
     unsigned int hash = 5381;
 
@@ -110,7 +110,7 @@ static unsigned int DJBHash(const char* str, int len)
     return (hash & 0x7FFFFFFF);
 }
 
-static unsigned int ELFHash(const char* str, int len)
+static unsigned int ELFHash(const char* str, size_t len)
 {
     unsigned int hash = 0;
     unsigned int x = 0;
@@ -125,7 +125,7 @@ static unsigned int ELFHash(const char* str, int len)
     return (hash & 0x7FFFFFFF);
 }
 
-static unsigned int BKDRHash(const char* str, int len)
+static unsigned int BKDRHash(const char* str, size_t len)
 {
     unsigned int seed = 131; // 31 131 1313 13131 131313 etc..
     unsigned int hash = 0;
@@ -136,20 +136,37 @@ static unsigned int BKDRHash(const char* str, int len)
     return (hash & 0x7FFFFFFF);
 }
 
-BloomFilter::BloomFilter(size_t hash_func_count)
-    : _hash_func_count(hash_func_count),
+BloomFilter::BloomFilter()
+    : _sp_md5_store(new bit_pool),
     _object_count(0)
-    //_md5_hash_result(std::unique_ptr<unsigned char[]>(new unsigned char[_md5_result_size_bytes]))
 {
     hashtable_init();
     _vec_bit_pool.resize(_hashfunctable.size());
 
-    if (0 == hash_func_count) {
-        throw std::invalid_argument("Bloomfilter could not be initialized: hash_func_count must be larger than 0");
+}
+
+BloomFilter& BloomFilter::operator =(const BloomFilter& bf)
+{
+    if (&bf == this) {
+        return *this;
     }
-    if (_md5_result_size_bytes < _hash_func_count * _bytes_per_hash_func) {
-        throw std::invalid_argument("Bloomfilter could not be initialized: hash_func_count too large, hash_func_count *  bytes_per_hash_function must be smaller or equal to MD5_result_size_bytes");
+    _md5_store_front = bf._md5_store_front;
+    *_sp_md5_store = *bf._sp_md5_store;
+    _vec_bit_pool = bf._vec_bit_pool;
+    _object_count = bf._object_count;
+    return *this;
+}
+
+BloomFilter& BloomFilter::operator |(const BloomFilter& bf)
+{
+    _md5_store_front |= bf._md5_store_front;
+    *_sp_md5_store |= *bf._sp_md5_store;
+    size_t len = bf._vec_bit_pool.size();
+    for (size_t idx = 0; idx < len; ++idx) {
+        _vec_bit_pool[idx] |= bf._vec_bit_pool[idx];
     }
+    _object_count += bf._object_count;
+    return *this;
 }
 
 void BloomFilter::insert(const char* object, int len)
@@ -162,23 +179,24 @@ void BloomFilter::insert(const std::string& object)
     int  hashval;
     for (int i = 0; i != _hashfunctable.size(); i++) {
         hashval = _hashfunctable[i](object.c_str(), object.size());
-        _vec_bit_pool[i][hashval & 0xFF] = true;
-        _vec_bit_pool[i][hashval >> 16] = true;
+        _vec_bit_pool[i][hashval & 0xFFFFFF] = true;
+        //_vec_bit_pool[i][hashval >> 16] = true;
     }
 
     md5hash(object);
-    const uint16_t* const object_hashes = reinterpret_cast<const uint16_t* const>(_md5_hash_result);
+    const uint8_t* const obj_h = reinterpret_cast<const uint8_t* const>(_md5_hash_result);
 
-    for (size_t i = 0; i < _hash_func_count; i++) {
-        const uint16_t index_to_set = object_hashes[i];
-        _md5_store[index_to_set] = true;
-    }
+    _md5_store_front[*obj_h] = true;
+
+    const uint32_t index_to_set = obj_h[1] << 16 | obj_h[2] << 8 | obj_h[3];
+    (*_sp_md5_store)[index_to_set] = true;
     ++_object_count;
 }
 
 void BloomFilter::clear()
 {
-    _md5_store.reset();
+    _md5_store_front.reset();
+    _sp_md5_store->reset();
     for (auto& elm : _vec_bit_pool) {
         elm.reset();
     }
@@ -196,21 +214,21 @@ bool BloomFilter::contain(const std::string& object) const
     for (int i = 0; i != _hashfunctable.size(); i++) {
         hashval = _hashfunctable[i](object.c_str(), object.size());
 
-        if (!_vec_bit_pool[i][hashval & 0xFF] || !_vec_bit_pool[i][hashval >> 16]) {
+        if (!_vec_bit_pool[i][hashval & 0xFFFFFF]) {
             return false;
         }
     }
 
-    
 
     md5hash(object);
-    const uint16_t* const object_hashes = reinterpret_cast<const uint16_t* const>(_md5_hash_result);
 
-    for (size_t i = 0; i < _hash_func_count; i++) {
-        const uint16_t index_to_get = object_hashes[i];
-        if (!_md5_store[index_to_get]) {
-            return false;
-        }
+    const uint8_t* const obj_h = reinterpret_cast<const uint8_t* const>(_md5_hash_result);
+    if(!_md5_store_front.test(*obj_h))
+        return false;
+
+    const uint32_t index_to_get = obj_h[1] << 16 | obj_h[2] << 8 | obj_h[3];
+    if (!_sp_md5_store->test(index_to_get)) {
+        return false;
     }
 
     return true;
@@ -227,16 +245,15 @@ bool BloomFilter::empty() const
 }
 
 
-int BloomFilter::hashtable_init()
+void BloomFilter::hashtable_init()
 {
     _hashfunctable.push_back(*PJWHash);
     _hashfunctable.push_back(*JSHash);
     _hashfunctable.push_back(*RSHash);
-    _hashfunctable.push_back(*SDBMHash);
-    _hashfunctable.push_back(*APHash);
-    _hashfunctable.push_back(*DJBHash);
-    _hashfunctable.push_back(*BKDRHash);
-    _hashfunctable.push_back(*ELFHash);
-    return _hashfunctable.size();
 
+    //_hashfunctable.push_back(*SDBMHash);
+    //_hashfunctable.push_back(*APHash);
+    //_hashfunctable.push_back(*DJBHash);
+    //_hashfunctable.push_back(*BKDRHash);
+    //_hashfunctable.push_back(*ELFHash);
 }
