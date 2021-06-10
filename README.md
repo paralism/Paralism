@@ -8,12 +8,13 @@ Paralism is an new economy infrastructure based on Parallel Blockchain Technolog
 # Community Publishes
 * Community Web site [paralism.com >>](https://www.paralism.com)
 * Community Blog [visit >>](https://www.paralism.com/blog)
+* Technical Reference [visit >>](https://www.paralism.com/info/)
 
 ## Social Connects
 * [Facebook >>](https://www.facebook.com/Paralism)
 * [Twitter >>](https://twitter.com/para_platform)
 * [Reddit >>](https://www.reddit.com/r/Paralism/)
-* [telegram >>](http://t.me/paralismglobal)
+* [telegram >>](https://t.me/paralism_info)
 * [Weibo >>](https://www.weibo.com/u/6938603985)
 
 ## Fork of Hyperchain-Core  
@@ -28,6 +29,11 @@ Paralism is an new economy infrastructure based on Parallel Blockchain Technolog
 ### Linux:
     CppRestSDK 2.9.1 and above
     sqlite 3 and above
+    
+## latest Release
+### 2021.05.24 Paralism node Professional Release 0.7.2
+* CentOS-64bit-0.7.2 https://www.paralism.com/download/Paralism-0.7.2-professional-CentOs64.zip
+* Windows-x64-0.7.2  https://www.paralism.com/download/Paralism-0.7.2-Professional-Win64.zip
 
 ## Nightly build
 ### 2018.11.30 Paralism Rel 0.1.1
