@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -59,11 +59,12 @@ public:
     void registerWorker(const char* servicename, std::function<void(void*, zmsg*)> func);
     size_t registerTimer(int delaymilliseconds, std::function<void()> func, bool isticket = false);
 
-
+    //HC: Notice: at first register workers, then register other zmq sockets.
     void registerSocket(std::function<zmq::socket_t*()> sockcreatefunc, std::function<void(void*, zmsg*)> func);
 
     void start();
     void stop();
+    bool isstopped();
 
     inline void addfiber() { _fiber_count_created_++; }
 
@@ -125,7 +126,9 @@ private:
 
 
 inline void MQMsgPush(zmsg *msg)
-{}
+{
+    (void)(msg);
+}
 
 template<typename... Args>
 inline void MQMsgPush(zmsg *msg, const string& str, Args... args)
@@ -178,7 +181,9 @@ inline void MQRequestNoWaitResult(const char *servicename, int nReq, Args... arg
 
 
 inline void MQMsgParseHlp(zmsg *rspmsg)
-{}
+{
+    (void)(rspmsg);
+}
 
 template<typename... Args>
 inline void MQMsgParseHlp(zmsg *rspmsg, string &str, Args&... args)

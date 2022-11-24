@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -25,9 +25,11 @@ SOFTWARE.
 
 #include <cstdarg>
 #include <string>
+#include <vector>
 
 std::string strprintf(const char* fmt, ...);
 std::string currentTime();
+int64_t currentMillisecond();
 
 template<class Container>
 std::string ToHexString(const Container& container)
@@ -47,6 +49,9 @@ std::string ToHexString(const Container& container)
 /// log
 void log_output_nowrap(const char* format, ...);
 
+extern bool fPrintgrep;
+extern std::vector<std::string> vecgreps;
+
 
 extern int OutputDebugStringF(const char* pszFormat, ...);
 
@@ -62,6 +67,18 @@ bool vlog_output(const char* format, va_list arg_ptr)
     std::vsnprintf(&buf[0], sz + 1, format, argstmp);
     va_end(argstmp);
 
+    if (fPrintgrep) {
+        bool isOutput = false;
+        for (auto & str : vecgreps) {
+            if (buf.find(str) != std::string::npos) {
+                isOutput = true;
+                break;
+            }
+        }
+        if (!isOutput) {
+            return R;
+        }
+    }
     OutputDebugStringF("%s: %s\n", C, buf.c_str());
     return R;
 }
@@ -96,32 +113,48 @@ extern char log_prefix_e[];
 extern char log_prefix_w[];
 extern char mdname[]; //module name
 
+extern bool fPrintToConsole;
+extern bool fPrintToDebugFile;
+
+inline bool canDump()
+{
+    return fPrintToConsole || fPrintToDebugFile;
+}
 
 #define __formatex(fmt) "%s (%s!%s:%d) " fmt, currentTime().c_str(), mdname, __FUNCTION__, __LINE__
 
-#define TRACE_NOWRAP(fmt, ...) if(floglevel >= LOGLEVEL::L_TRACE) log_output_nowrap((fmt), ##__VA_ARGS__)
+#define TRACE_NOWRAP(fmt, ...) if(floglevel <= LOGLEVEL::L_TRACE && canDump()) log_output_nowrap((fmt), ##__VA_ARGS__)
 
-#define DEBUG_NOWRAP(fmt, ...) if(floglevel >= LOGLEVEL::L_DEBUG) log_output_nowrap((fmt), ##__VA_ARGS__)
+#define DEBUG_NOWRAP(fmt, ...) if(floglevel <= LOGLEVEL::L_DEBUG && canDump()) log_output_nowrap((fmt), ##__VA_ARGS__)
 
-#define INFO_NOWRAP(fmt, ...) if(floglevel >= LOGLEVEL::L_INFO) log_output_nowrap((fmt), ##__VA_ARGS__)
+#define INFO_NOWRAP(fmt, ...) if(floglevel <= LOGLEVEL::L_INFO && canDump()) log_output_nowrap((fmt), ##__VA_ARGS__)
 
 #define TRACE_FL(fmt, ...) \
-    (floglevel <= LOGLEVEL::L_TRACE) ? \
+    (floglevel <= LOGLEVEL::L_TRACE && canDump()) ? \
         log_output<log_prefix_t, true>(__formatex(fmt), ##__VA_ARGS__) : true
 
 #define DEBUG_FL(fmt, ...) \
-    (floglevel <= LOGLEVEL::L_DEBUG) ? \
+    (floglevel <= LOGLEVEL::L_DEBUG && canDump()) ? \
         log_output<log_prefix_d, true>(__formatex(fmt), ##__VA_ARGS__) : true
 
 #define INFO_FL(fmt, ...) \
-    (floglevel <= LOGLEVEL::L_INFO) ? \
+    (floglevel <= LOGLEVEL::L_INFO && canDump()) ? \
         log_output<log_prefix_i, true>(__formatex(fmt), ##__VA_ARGS__) : true
 
 #define WARNING_FL(fmt, ...) \
-    (floglevel <= LOGLEVEL::L_WARNING) ? \
+    (floglevel <= LOGLEVEL::L_WARNING && canDump()) ? \
         log_output<log_prefix_w, false>(__formatex(fmt), ##__VA_ARGS__) : false
 
 #define ERROR_FL(fmt, ...) \
-    (floglevel <= LOGLEVEL::L_ERROR) ? \
+    (canDump() && floglevel <= LOGLEVEL::L_ERROR) ? \
         log_output<log_prefix_e, false>(__formatex(fmt), ##__VA_ARGS__) : false
 
+#define LogRequestFromNode(fromnode, fmt, ...) \
+    if(fPrintBacktracking_node && fromnode == strBacktracking_node) { \
+        LogBacktracking(__formatex(fmt), ##__VA_ARGS__); \
+    }
+
+#define LogRequest(fmt, ...) \
+    if(fPrintBacktracking) { \
+        LogBacktracking(__formatex(fmt), ##__VA_ARGS__); \
+    }

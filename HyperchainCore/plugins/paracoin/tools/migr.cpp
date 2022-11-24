@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -25,7 +25,7 @@ DEALINGS IN THE SOFTWARE.
 #include "../dllmain.h"
 #include "../../node/defer.h"
 
-
+//HC: two ways for display the progress: percent and already handled
 class CommadLineProgressX
 {
 public:
@@ -61,7 +61,7 @@ public:
     }
 
     //
-    void PrintStatus(int nAddCount, const string &msg = "")
+    void PrintStatus(int nAddCount, const string& msg = "")
     {
         //[ 145668   176(s)   18776(n/s) ] (msg)
         cout << "\r"             //Bring cursor to start of line
@@ -72,7 +72,7 @@ public:
         if (ms == 0) {
             ms = 1; //1ms
         }
-        cout << strprintf(" %d   %d(s)   %d(n/s)", _ncount, ms/1000, _ncount * 1000/ms);
+        cout << strprintf(" %d   %d(s)   %d(n/s)", _ncount, ms / 1000, _ncount * 1000 / ms);
 
         cout << strprintf(" %s   ( %s )", lastPartOfpBar.c_str(), msg.c_str())
             << flush;
@@ -94,7 +94,7 @@ private:
     int _ncount;
 };
 
-
+//HC: the following class is a implement of old version for CDiskBlockIndex
 class CDiskBlockIndex2020 : public CBlockIndex
 {
 public:
@@ -111,12 +111,13 @@ public:
         READWRITE(hashNext);
         READWRITE(nHeight);
 
-        uint32_t* hid = (uint32_t*)(&addr.hid);
+        uint32_t* hid = (uint32_t*)(&triaddr.hid);
         READWRITE(*hid);
 
-        READWRITE(addr.chainnum);
-        READWRITE(addr.id);
-        READWRITE(addr.ns);
+        READWRITE(triaddr.chainnum);
+        READWRITE(triaddr.id);
+        string ns;
+        READWRITE(ns);
 
         // block header
         READWRITE(this->nVersion);
@@ -139,7 +140,7 @@ public:
         READWRITE(ownerNodeID.High64());
     )
 
-    uint256 GetBlockHash() const
+        uint256 GetBlockHash() const
     {
         CBlock block;
         block.nVersion = nVersion;
@@ -170,10 +171,37 @@ public:
 
 };
 
+//HC: v0.7.2 2021Âπ¥7Êúà14Êó•ÂâçÁâàÊú¨
+class BLOCKTRIPLEADDRESSV72
+{
+public:
+    uint32 hid = 0;            //HC: hyper block id
+    uint16 chainnum = 0;
+    uint16 id = 0;
+
+public:
+    BLOCKTRIPLEADDRESSV72() {}
+
+    BLOCKTRIPLEADDRESSV72(const T_LOCALBLOCKADDRESS& addr)
+    {
+        hid = addr.hid;
+        chainnum = addr.chainnum;
+        id = addr.id;
+    }
+
+    IMPLEMENT_SERIALIZE
+    (
+        READWRITE(hid);
+        READWRITE(chainnum);
+        READWRITE(id);
+    )
+};
+
+
 
 std::multimap<int, CDiskBlockIndex2020> mapMigrBlockIndex;
 
-class CMgrTxDB : public CTxDB
+class CMgrTxDB_Tool : public CTxDB
 {
 public:
     using CTxDB::CTxDB;
@@ -192,8 +220,8 @@ public:
         int nCount = 0, i, j, ret = 0;
 
         int dlen = 16 * 1024 * 1024;
-        char *data_buf = (char*)malloc(dlen);
-        defer {
+        char* data_buf = (char*)malloc(dlen);
+        defer{
             free(data_buf);
         };
 
@@ -218,14 +246,14 @@ public:
                 ThrowException(-1, "DB->cursor");
 
             bool isLoadCompleted = false;
-            for (;!isLoadCompleted;) {
+            for (; !isLoadCompleted;) {
 
                 key.set_data(&ssKey[0]);
                 key.set_size(ssKey.size());
                 memset(data_buf, 0, dlen);
 
                 int nAdd = 0;
-
+                //HC: Notice, duplicate block index will be read which is last one for last time
                 if ((ret = dbcp->get(&key, &data, flags)) != 0)
                     ThrowException(ret, "DBC->get");
 
@@ -263,7 +291,7 @@ public:
                 ssKey.clear();
                 uint256 currhash = diskindex.GetBlockHash();
                 ssKey << make_pair(string("blockindex"), currhash);
-                progress.PrintStatus(nAdd, strprintf("blockindex : %s" , currhash.ToPreViewString().c_str()));
+                progress.PrintStatus(nAdd, strprintf("blockindex : %s", currhash.ToPreViewString().c_str()));
             }
             cout << "\n Check(blockindex) : " << nCount << endl;
 
@@ -333,6 +361,64 @@ public:
     }
 
 
+    bool LoadBlockIndex_nohhash(map<uint256, CBlockIndexV72>& mapBlkIndex)
+    {
+        // Get database cursor
+        Dbc* pcursor = GetCursor();
+        if (!pcursor)
+            return false;
+
+        const int nConstStep = 1000;
+        int nCount = 0;
+        int nStep = nConstStep;
+
+        // Load mapBlockIndex
+        unsigned int fFlags = DB_SET_RANGE;
+        loop
+        {
+            // Read next record
+            CDataStream ssKey;
+            if (fFlags == DB_SET_RANGE)
+                ssKey << make_pair(string("blockindex"), uint256(0));
+            CDataStream ssValue;
+            int ret = ReadAtCursor(pcursor, ssKey, ssValue, fFlags);
+            fFlags = DB_NEXT;
+            if (ret == DB_NOTFOUND)
+                break;
+            else if (ret != 0)
+                return false;
+
+            // Unserialize
+            string strType;
+            ssKey >> strType;
+            if (strType == "blockindex") {
+                //HC: 50000 is a key, which it is not read hhash
+                uint256 blkhash;
+                ssKey >> blkhash;
+
+                CBlockIndexV72 blkindex;
+                CDiskBlockIndexV72 diskindex(&blkindex);
+                ssValue >> diskindex;
+
+                nCount++;
+                nStep--;
+                if (nStep == 0) {
+                    cout << ".";
+                    nStep = nConstStep;
+                }
+                mapBlkIndex.insert({ blkhash, *diskindex.GetBlockIndex() });
+            }
+            else {
+                break;
+            }
+        }
+        pcursor->close();
+        cout << "\n Sum(blockindex) : " << nCount << endl;
+        return true;
+    }
+
+
+    //HC: after format conversion, check every block index if data format is right
     bool CheckBlockIndex()
     {
         // Get database cursor
@@ -397,7 +483,7 @@ public:
         return true;
     }
 
-
+    //HC: c++ style version
     bool bulkUpdate_cpp()
     {
         Dbt key, data;
@@ -409,10 +495,10 @@ public:
 
         char* key_buf, * data_buf;
 
-
+        //HC: why size need to + 8 and +4, see DB_MULTIPLE_WRITE_NEXT
         const int suffix = 8;
         int KEY_T_SIZE = 0;
-        for (auto& ssKey: m_keybuf) {
+        for (auto& ssKey : m_keybuf) {
             KEY_T_SIZE += ssKey.size() + suffix;
         }
         KEY_T_SIZE += 4;
@@ -444,7 +530,7 @@ public:
          * Dbt. With DB_MULTIPLE_KEY, all key/data pairs are constructed in the
          * key Dbt. We use DB_MULTIPLE mode when there are duplicate records.
          */
-
+         //HC: Here use DB_MULTIPLE mode to handle any case
         flag = DB_MULTIPLE;
         ptrk = new DbMultipleDataBuilder(key);
         ptrd = new DbMultipleDataBuilder(data);
@@ -483,7 +569,7 @@ public:
         return true;
     }
 
-
+    //HC: c style version
     bool bulkUpdate_c()
     {
         if (!pdb)
@@ -492,20 +578,20 @@ public:
         DBT key, data;
         int i, ret, op_flag;
 
-        char* key_buf, *data_buf;
+        char* key_buf, * data_buf;
 
         /* Initialize structs and arrays */
         memset(&key, 0, sizeof(DBT));
         memset(&data, 0, sizeof(DBT));
 
-
+        //HC: why size need to + 8 and +4, see DB_MULTIPLE_WRITE_NEXT
         const int suffix = 8;
         int KEY_SIZE = m_keybuf[0].size();
         int KEY_T_SIZE = (KEY_SIZE + suffix) * m_keybuf.size() + 4;
         key_buf = (char*)malloc(KEY_T_SIZE);
 
         int DATA_T_SIZE = 0;
-        for (auto & ssValue : m_databuf) {
+        for (auto& ssValue : m_databuf) {
             DATA_T_SIZE += ssValue.size() + suffix;
         }
         DATA_T_SIZE += 4;
@@ -514,8 +600,8 @@ public:
         memset(data_buf, 0, DATA_T_SIZE);
 
         /*
-        * ≥ı ºªØBulk buffer. π”√≈˙¡ø≤Ÿ◊˜(bulk operations) “≤æÕ « * ≈˙¡ø≤Â»Î/…æ≥˝/∏¸–¬/∂¡»°µƒ ±∫Ú£¨±ÿ–Î π”√”√ªßÃ·π©µƒƒ⁄¥Ê°£
-        * À˘“‘–Ë“™…Ë÷√DBT∂‘œÛµƒflagsŒ™DB_DBT_USERMEM£¨≤¢«“…Ë÷√ulen≥…‘±∂¯≤ª «size≥…‘±°£
+        * ÂàùÂßãÂåñBulk buffer.‰ΩøÁî®ÊâπÈáèÊìç‰Ωú(bulk operations) ‰πüÂ∞±ÊòØ * ÊâπÈáèÊèíÂÖ•/Âà†Èô§/Êõ¥Êñ∞/ËØªÂèñÁöÑÊó∂ÂÄôÔºåÂøÖÈ°ª‰ΩøÁî®Áî®Êà∑Êèê‰æõÁöÑÂÜÖÂ≠ò„ÄÇ
+        * ÊâÄ‰ª•ÈúÄË¶ÅËÆæÁΩÆDBTÂØπË±°ÁöÑflags‰∏∫DB_DBT_USERMEMÔºåÂπ∂‰∏îËÆæÁΩÆulenÊàêÂëòËÄå‰∏çÊòØsizeÊàêÂëò„ÄÇ
         */
         key.data = key_buf;
         key.ulen = KEY_T_SIZE;
@@ -524,18 +610,18 @@ public:
         data.ulen = DATA_T_SIZE;
         data.flags = DB_DBT_USERMEM;
 
-        op_flag = DB_MULTIPLE; /* ’‚∏ˆflag∏¯put/get/del ±Ì æ÷¥––≈˙¡ø≤Â»Î/∏¸–¬/∂¡»°/…æ≥˝°£ */
+        op_flag = DB_MULTIPLE; /* Ëøô‰∏™flagÁªôput/get/del Ë°®Á§∫ÊâßË°åÊâπÈáèÊèíÂÖ•/Êõ¥Êñ∞/ËØªÂèñ/Âà†Èô§„ÄÇ */
 
         /*
-        * ÃÓ≥‰bulk buffer DBT ∂‘œÛ. œ»µ˜”√DB_MULTIPLE_WRITE_INIT≥ı ºªØ∏√ * DBT°£±ÿ–Î¥´»Î“ª∏ˆπ§◊˜÷∏’Îp∫Õdata buffer DBT ∂‘œÛ°£
-        * p:  «’‚∏ˆ∫Íƒ⁄≤ø π”√µƒπ§◊˜±‰¡ø£¨”…DB_MULTIPLE_WRITE_INIT≥ı ºªØ£¨≤¢«“±ÿ–Î‘⁄¥À¥¶“ª÷± π”√°£
+        * Â°´ÂÖÖbulk buffer DBT ÂØπË±°. ÂÖàË∞ÉÁî®DB_MULTIPLE_WRITE_INITÂàùÂßãÂåñËØ• * DBT„ÄÇÂøÖÈ°ª‰º†ÂÖ•‰∏Ä‰∏™Â∑•‰ΩúÊåáÈíàpÂíådata buffer DBT ÂØπË±°„ÄÇ
+        * p: ÊòØËøô‰∏™ÂÆèÂÜÖÈÉ®‰ΩøÁî®ÁöÑÂ∑•‰ΩúÂèòÈáèÔºåÁî±DB_MULTIPLE_WRITE_INITÂàùÂßãÂåñÔºåÂπ∂‰∏îÂøÖÈ°ªÂú®Ê≠§Â§Ñ‰∏ÄÁõ¥‰ΩøÁî®„ÄÇ
         */
         void* p;
         DB_MULTIPLE_WRITE_INIT(p, &data);
         for (i = 0; i < m_databuf.size(); i++) {
             /*
-            * ∏˜≤Œ ˝Àµ√˜£∫ data:  «data buffer DBT∂‘œÛ°£
-            * —≠ª∑Ω· ¯∫ÛÃÓ≥‰ÕÍ≥…£¨’‚∏ˆdata bufferµ±÷–”–bulk_size∏ˆdata£¨
+            * ÂêÑÂèÇÊï∞ËØ¥ÊòéÔºö data: ÊòØdata buffer DBTÂØπË±°„ÄÇ
+            * Âæ™ÁéØÁªìÊùüÂêéÂ°´ÂÖÖÂÆåÊàêÔºåËøô‰∏™data bufferÂΩì‰∏≠Êúâbulk_size‰∏™dataÔºå
             */
             auto& dataelm = m_databuf[i];
             DB_MULTIPLE_WRITE_NEXT(p, &data, &dataelm[0], dataelm.size());
@@ -550,22 +636,22 @@ public:
         bool result = false;
         DB* dbp = pdb->get_DB();
 
-        //≈˙¡ø≤Â»Îkey/data pairs.
-        /* ∆Ù∂Ø ¬ŒÒ◊º±∏≈˙¡ø≤Â»Î°£ */
+        //ÊâπÈáèÊèíÂÖ•key/data pairs.
+        /* ÂêØÂä®‰∫ãÂä°ÂáÜÂ§áÊâπÈáèÊèíÂÖ•„ÄÇ */
         if (!TxnBegin()) {
             m_dbenv->err(-1, "[insert] DB_ENV->txn_begin");
             goto inserterr;
         }
 
         switch (ret = dbp->put(dbp, GetTxn()->get_DB_TXN(), &key, &data, op_flag)) {
-        case 0: /* ≈˙¡ø≤Â»Î≤Ÿ◊˜≥…π¶£¨Ã·Ωª ¬ŒÒ°£*/
+        case 0: /* ÊâπÈáèÊèíÂÖ•Êìç‰ΩúÊàêÂäüÔºåÊèê‰∫§‰∫ãÂä°„ÄÇ*/
             if (!TxnCommit()) {
                 m_dbenv->err(ret, "[insert] DB_TXN->commit");
             }
             result = true;
             break;
         case DB_LOCK_DEADLOCK:
-            /* »Áπ˚ ˝æ›ø‚≤Ÿ◊˜∑¢…˙À¿À¯£¨ƒ«√¥±ÿ–Îabort ¬ŒÒ°£»ª∫Û£¨ø…“‘—°‘Ò÷ÿ–¬÷¥––∏√≤Ÿ◊˜°£*/
+            /* Â¶ÇÊûúÊï∞ÊçÆÂ∫ìÊìç‰ΩúÂèëÁîüÊ≠ªÈîÅÔºåÈÇ£‰πàÂøÖÈ°ªabort‰∫ãÂä°„ÄÇÁÑ∂ÂêéÔºåÂèØ‰ª•ÈÄâÊã©ÈáçÊñ∞ÊâßË°åËØ•Êìç‰Ωú„ÄÇ*/
             if (!TxnAbort()) {
                 m_dbenv->err(ret, "[insert] DB_TXN->abort");
             }
@@ -573,12 +659,41 @@ public:
             m_dbenv->err(ret, "[insert] DB->put()");
         }
 
-inserterr:
+    inserterr:
         (void)free(key_buf);
         (void)free(data_buf);
 
         return result;
     }
+
+
+    bool BulkWriteBlockIndex(const uint256& blockhash, const CDiskBlockIndex& blockindex)
+    {
+        CDataStream ssKey(SER_DISK);
+        ssKey.reserve(1000);
+        ssKey << make_pair(string("blockindex"), blockhash);
+
+        m_keybuf.push_back(ssKey);
+
+        CDataStream ssValue(SER_DISK);
+        ssValue.reserve(4000);
+        ssValue << blockindex;
+
+        m_databuf.emplace_back(ssValue);
+
+        if (m_keybuf.size() == 100) {
+
+            for (size_t i = 0; i < 3; i++) {
+                if (bulkUpdate_cpp()) {
+                    m_keybuf.clear();
+                    m_databuf.clear();
+                    break;
+                }
+            }
+        }
+        return true;
+    }
+
 
     bool BulkWriteBlockIndex(const CDiskBlockIndex& blockindex)
     {
@@ -586,25 +701,25 @@ inserterr:
         ssKey.reserve(1000);
         ssKey << make_pair(string("blockindex"), blockindex.GetBlockHash());
 
-         m_keybuf.push_back(ssKey);
+        m_keybuf.push_back(ssKey);
 
-         CDataStream ssValue(SER_DISK);
-         ssValue.reserve(4000);
-         ssValue << blockindex;
+        CDataStream ssValue(SER_DISK);
+        ssValue.reserve(4000);
+        ssValue << blockindex;
 
-         m_databuf.emplace_back(ssValue);
+        m_databuf.emplace_back(ssValue);
 
-         if (m_keybuf.size() == 100) {
+        if (m_keybuf.size() == 100) {
 
-             for (size_t i = 0; i < 3; i++) {
-                 if (bulkUpdate_cpp()) {
-                     m_keybuf.clear();
-                     m_databuf.clear();
-                     break;
-                 }
-             }
-         }
-         return true;
+            for (size_t i = 0; i < 3; i++) {
+                if (bulkUpdate_cpp()) {
+                    m_keybuf.clear();
+                    m_databuf.clear();
+                    break;
+                }
+            }
+        }
+        return true;
     }
 
     bool BulkCommit()
@@ -627,10 +742,51 @@ private:
     vector<CDataStream> m_databuf;
 };
 
-void testbulkwrite(const char *filename)
+class CBlockTripleAddressDBV72 : public CBlockTripleAddressDB
 {
-    CMgrTxDB txdb("cr+", filename);
-    CBlockIndex idx;
+public:
+    using CBlockTripleAddressDB::CBlockTripleAddressDB;
+
+public:
+    bool LoadBlockTripleAddress(map<uint256, BLOCKTRIPLEADDRESSV72>& mapTriAddr)
+    {
+        return Load("triaddr", [&](CDataStream& ssKey, CDataStream& ssValue) -> bool {
+
+            BLOCKTRIPLEADDRESSV72 blocktripleaddr;
+            ssValue >> blocktripleaddr;
+            uint256 hash;
+            ssKey >> hash;
+            mapTriAddr.insert({ hash, blocktripleaddr });
+            return true;
+            });
+    }
+};
+
+class COrphanBlockTripleAddressDBV72 : public COrphanBlockTripleAddressDB
+{
+public:
+    using COrphanBlockTripleAddressDB::COrphanBlockTripleAddressDB;
+
+public:
+    bool LoadBlockTripleAddress(map<uint256, BLOCKTRIPLEADDRESSV72>& mapTriAddr)
+    {
+        return Load("triaddr", [&](CDataStream& ssKey, CDataStream& ssValue) -> bool {
+
+            BLOCKTRIPLEADDRESSV72 blocktripleaddr;
+            ssValue >> blocktripleaddr;
+            uint256 hash;
+            ssKey >> hash;
+            mapTriAddr.insert({ hash, blocktripleaddr });
+            return true;
+            });
+    }
+};
+
+
+void testbulkwrite(const char* filename)
+{
+    CMgrTxDB_Tool txdb("cr+", filename);
+    CBlockIndexV72 idx;
     idx.addr.hid = 2111;
     idx.addr.id = 100;
     idx.addr.chainnum = 89;
@@ -641,7 +797,7 @@ void testbulkwrite(const char *filename)
     idx.nSolution = { 'a','a','n' };
 
     //txdb.WriteBlockIndex(CDiskBlockIndex(&idx));
-    txdb.BulkWriteBlockIndex(CDiskBlockIndex(&idx));
+    //txdb.BulkWriteBlockIndex(CDiskBlockIndexV72(&idx));
 
     idx.addr.hid = 1999;
     idx.addr.id = 101;
@@ -652,7 +808,7 @@ void testbulkwrite(const char *filename)
     idx.nHeight = 1001;
     idx.nSolution = { 'a' };
 
-    txdb.BulkWriteBlockIndex(CDiskBlockIndex(&idx));
+    //txdb.BulkWriteBlockIndex(CDiskBlockIndexV72(&idx));
 
     idx.addr.hid = 1999;
     idx.addr.id = 102;
@@ -663,7 +819,7 @@ void testbulkwrite(const char *filename)
     idx.nHeight = 1003;
     idx.nSolution = { 'a','x','n','y','z','a','x','n','y','z' ,'a','x','n','y','z' };
 
-    txdb.BulkWriteBlockIndex(CDiskBlockIndex(&idx));
+    //txdb.BulkWriteBlockIndex(CDiskBlockIndexV72(&idx));
 
     txdb.BulkCommit();
     txdb.Close();
@@ -703,7 +859,7 @@ void check()
 
 void convertFormat()
 {
-    CMgrTxDB txdb("cr+");
+    CMgrTxDB_Tool txdb("cr+");
 
     if (!txdb.ReadHashBestChain(hashBestChain)) {
         cerr << "error ReadHashBestChain";
@@ -730,8 +886,8 @@ void convertFormat()
     cout << "Start to update chain work for every block index ";
     cout << "and bulk save result to blkindex.dat...\n";
 
-
-    //CMgrTxDB txdbResult("cr+","blkindex-result.dat");
+    //HC: We have to save into origin file for a lot of transactions saved in the blkindex.dat.
+    //CMgrTxDB_Tool txdbResult("cr+","blkindex-result.dat");
 
     const int nConstStep = 1000;
     int nCount = 0;
@@ -785,7 +941,7 @@ void convertFormat()
     txdb.BulkCommit();
 
     if (IsBestIdxerr) {
-
+        //HC: reset a best index
         cout << "Current best index hash: " << hashBestChain.ToString()
             << " Height: " << nBestHeight << endl;
 
@@ -815,6 +971,114 @@ void convertFormat()
     cout << "\nFile Format conversion is finished" << endl;
 }
 
+void convertBlockIndexFormat()
+{
+    CMgrTxDB_Tool txdb("cr+");
+
+    if (!txdb.ReadHashBestChain(hashBestChain)) {
+        cerr << "error ReadHashBestChain";
+        return;
+    }
+    cout << "LoadBlockIndex...\n";
+
+    map<uint256, CBlockIndexV72> mapBlkIndex;
+    txdb.LoadBlockIndex_nohhash(mapBlkIndex);
+
+    uint256 h = uint256S("a33a70884e516eee7fb41d8ffa38d5ddee3cd2ac121cd46a853cd29bb13c4e53");
+    if (!mapBlkIndex.count(h)) {
+        cerr << "genesis block hash error, should be " << h.ToString();
+        return;
+    }
+
+    cout << "Start to update Para block indexes ";
+    cout << "and bulk save result to blkindex.dat...\n";
+
+    //HC: We have to save into origin file for a lot of transactions saved in the blkindex.dat.
+    const int nConstStep = 1000;
+    int nCount = 0;
+    int nStep = nConstStep;
+
+    bool IsBestIdxerr = false;
+    int nBestHeight = 0;
+
+    auto beginitem = mapBlkIndex.begin();
+    for (; beginitem != mapBlkIndex.end(); ++beginitem) {
+        CBlockIndex blkidx = To_CBlockIndex(beginitem->second);
+        txdb.BulkWriteBlockIndex(beginitem->first, CDiskBlockIndex(&blkidx));
+        nCount++;
+        nStep--;
+        if (nStep == 0) {
+            cout << "*";
+            nStep = nConstStep;
+        }
+    }
+
+    CBlockIndexV72 genesisidxv72 = mapBlkIndex[h];
+    CBlockIndex genesisidx = To_CBlockIndex(genesisidxv72);
+    genesisidx.triaddr.hhash = uint256S("88845ff7acb1f21b6be55815d72b87cb850dccf999c279a0266d14e79a1f597c");
+
+    txdb.BulkWriteBlockIndex(h, CDiskBlockIndex(&genesisidx));
+
+    txdb.BulkCommit();
+
+    DBFlush(false);
+    cout << "\nFile Format conversion is finished" << endl;
+}
+
+BLOCKTRIPLEADDRESS To_BlockTriAddr(const BLOCKTRIPLEADDRESSV72 triaddr)
+{
+    BLOCKTRIPLEADDRESS newAddr;
+    newAddr.hid = triaddr.hid;
+    newAddr.chainnum = triaddr.chainnum;
+    newAddr.id = triaddr.id;
+    return newAddr;
+}
+
+template<typename T>
+void convertBlockTriAddrFormat(T& tridb)
+{
+    cout << "Load triple address...\n";
+
+    map<uint256, BLOCKTRIPLEADDRESSV72> mapBlkAddr;
+    tridb.LoadBlockTripleAddress(mapBlkAddr);
+
+    cout << "Start to update Para block address ";
+    cout << "and bulk save result...\n";
+
+    //HC: We have to save into origin file for a lot of transactions saved in the blkindex.dat.
+    const int nConstStep = 1000;
+    int nCount = 0;
+    int nStep = nConstStep;
+
+    bool IsBestIdxerr = false;
+    int nBestHeight = 0;
+
+    tridb.TxnBegin();
+    auto beginitem = mapBlkAddr.begin();
+    for (; beginitem != mapBlkAddr.end(); ++beginitem) {
+
+        if (!tridb.WriteBlockTripleAddress(beginitem->first, To_BlockTriAddr(beginitem->second))) {
+            tridb.TxnAbort();
+            cout << "File Format conversion is failed" << endl;
+            return;
+        }
+        nCount++;
+        nStep--;
+        if (nStep == 0) {
+            cout << "*";
+            nStep = nConstStep;
+        }
+    }
+
+    tridb.TxnCommit();
+
+    DBFlush(false);
+    cout << "\nFile Format conversion is finished" << endl;
+}
+
+
+
+
 //2021-1-28 15:00:26
 //To new version Paracoin, CBlockIndex::bnChainWork is saved into blkindex.dat, more see CDiskBlockIndex class
 //so we need to convert the old version blkindex.dat
@@ -827,11 +1091,11 @@ void ShowUsage()
 {
     cout << "\nSelect command:\n";
     cout << "Press '?' or 'help' for help" << endl;
-    cout << "Press 1 for format conversion" << endl;
-    cout << "Press 2 for format check" << endl;
-    cout << "Press 3 for set max HID in blocktripleaddress.dat" << endl;
-    cout << "Press 4 for read max HID in blocktripleaddress.dat" << endl;
-    cout << "Press 5 for test bulk write and read,  migrtest.dat will be generated" << endl;
+    cout << "Press 1 : convert block index format into v0.7.3" << endl;
+    cout << "Press 2 : format check" << endl;
+    cout << "Press 3 : set max HID in blocktripleaddress.dat" << endl;
+    cout << "Press 4 : read max HID in blocktripleaddress.dat" << endl;
+    cout << "Press 5 : test bulk write and read, migrtest.dat will be generated" << endl;
     cout << "Press 'q' for exit" << endl;
 }
 
@@ -842,8 +1106,8 @@ int main(int argc, char* argv[])
 
     string strDataDir = GetDataDir();
 
-    cout << strprintf("This program do file format conversion for Paracoin: %s/blkindex.dat ", strDataDir.c_str())<< endl;
-    cout << "Warning: The following operator will modify blkindex.dat and please save it firstly !!!"<< endl;
+    cout << strprintf("This program do file format conversion for Paracoin: %s/blkindex.dat ", strDataDir.c_str()) << endl;
+    cout << "Warning: The following operator will modify blkindex.dat and please save it firstly !!!" << endl;
 
     ShowUsage();
 
@@ -863,7 +1127,16 @@ int main(int argc, char* argv[])
         }
 
         if (sInput == "1") {
-            convertFormat();
+            convertBlockIndexFormat();
+
+            //cout << "converting blocktripleaddress.dat\n";
+            //CBlockTripleAddressDBV72 tridb("r+");
+            //convertBlockTriAddrFormat(tridb);
+
+            //cout << "converting orphanblocktripleaddr.dat\n";
+            //COrphanBlockTripleAddressDBV72 orphantridb("r+");
+            //convertBlockTriAddrFormat(orphantridb);
+
             continue;
         }
 
@@ -875,7 +1148,7 @@ int main(int argc, char* argv[])
                 cout << strprintf("Spent million seconds : %ld\n", spentt.Elapse());
             };
 
-            CMgrTxDB txdb("r");
+            CMgrTxDB_Tool txdb("r");
 
             //txdb.CheckBlockIndex();
             //improve the performance to 2.5 multiple than CheckBlockIndex
@@ -909,15 +1182,15 @@ int main(int argc, char* argv[])
         }
 
         if (sInput == "5") {
-            char *filename = "testmigr.dat";
+            char* filename = "testmigr.dat";
             testbulkwrite(filename);
-            CMgrTxDB txdb("r", filename);
+            CMgrTxDB_Tool txdb("r", filename);
 
             txdb.BulkLoadBlockIndex();
         }
 
     }
 
-    DBFlush(true);
+    DBFlush(true); //HC: remove archive log
     return 0;
 }

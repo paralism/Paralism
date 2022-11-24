@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -31,6 +31,8 @@ SOFTWARE.
 #include "block.h"
 #include "wallet.h"
 
+#include "key_io.h"
+
 extern CWallet* pwalletMain;
 
 Array toArray(const list<string>& cmdlist)
@@ -42,14 +44,16 @@ Array toArray(const list<string>& cmdlist)
     return arr;
 }
 
-
+//HC: ASN.1 DER format
 std::string PrKey2WIF(const CPrivKey& prikey, bool isCompressed)
 {
     std::vector<unsigned char> ret;
     auto pos = prikey.begin();
     std::advance(pos, 9);
 
-    ret.push_back(0x80);
+    //HC: 0x80 is a prefix, in newer Bitcoin, different network environment has different prefix
+    //HC: in the further, maybe will be replaced by base58Prefixes[SECRET_KEY]
+    ret.push_back(0x80);  //HC: version number
     std::copy(pos, pos + 32, std::back_inserter(ret));
 
     if (isCompressed) {
@@ -61,8 +65,8 @@ std::string PrKey2WIF(const CPrivKey& prikey, bool isCompressed)
 
 bool WIF2PrKey(const string& strprivkey, bool isCompressed, std::vector<unsigned char>& vchPriKey)
 {
-
-
+    //HC: WIF compressed, begin with K or L
+    //HC: remove 5|4 bytes of tail: ( 01 (flag for compressed) + 4bytes(hash(hash(Private key)) prefix) )
     if (!DecodeBase58Check(strprivkey, vchPriKey))
         return false;
 
@@ -77,69 +81,74 @@ bool WIF2PrKey(const string& strprivkey, bool isCompressed, std::vector<unsigned
     return true;
 }
 
-int impwalletkey(const string& strprivkey, string& msg)
+
+//HC: if form of strprivkey is 'WIF', public key will be uncompressed, address uncompressed
+//HC: otherwise all are compressed form.
+int impwalletkey(const string& strprivkey, const string& strlabel, string& msg)
 {
-    std::vector<unsigned char> vchPriKey;
-
-    bool isWIFOK = true;
-    size_t nSize = strprivkey.size();
-    if (nSize == 52 && (strprivkey[0] == 'K' || strprivkey[0] == 'L')) {
-
-        isWIFOK = WIF2PrKey(strprivkey, true, vchPriKey);
-    }
-    else if (nSize == 51 && strprivkey[0] == '5') {
-
-        isWIFOK = WIF2PrKey(strprivkey, false, vchPriKey);
-    }
-    else {
-
-        vchPriKey = ParseHex(strprivkey);
-    }
-
-    msg = "Incorrect private key";
-    if (vchPriKey.size() == 0) {
-        return -1;
-    }
-
-    if (vchPriKey[0] == 0x80 && vchPriKey.size() == 0x21) {
-        vchPriKey.erase(vchPriKey.begin());
-    }
-
-    CPrivKey privkey;
-    privkey.insert(privkey.end(), vchPriKey.begin(), vchPriKey.end());
-
     CKey keyPair;
-    if (vchPriKey.size() != 0x20 || !isWIFOK || !keyPair.SetSecret(privkey)) {
+    CPrivKey privkey;
+    CBitcoinAddress coinaddress;
+
+    msg = "Invalid private key encoding";
+    CKey_Secp256k1 key_secp = DecodeSecret(strprivkey);
+    if (!key_secp.IsValid())
         return -1;
-    }
+
+    privkey = key_secp.GetPrivKey();
+    if (!keyPair.SetPrivKey(privkey))
+        return -1;
+
+    CPubKey pubkey = key_secp.GetPubKey();
+    vector<unsigned char> vecPubKey = vector<unsigned char>(pubkey.begin(), pubkey.end());
 
     likely_wallet_locked
 
-    int ret = 0;
-    CRITICAL_BLOCK(pwalletMain->cs_wallet)
-    {
-        CBitcoinAddress coinaddress = CBitcoinAddress(keyPair.GetPubKey());
+    auto fnImport = [&msg](CPubKey& pubkey, const vector<unsigned char>& vchPubK, CKey& key) ->int {
+        int ret = 0;
+        CTxDestination dest = GetDestinationForKey(pubkey, DEFAULT_ADDRESS_TYPE);
+        string strdest = EncodeDestination(dest);
+
+        CBitcoinAddress coinaddress;
+        CKeyID vchAddr = pubkey.GetID();
+
+        coinaddress.SetHash160(vchAddr);
         if (pwalletMain->HaveKey(coinaddress)) {
-            msg = StringFormat("Key pair has already been in wallet, which address is %s", coinaddress.ToString());
+            msg += StringFormat("Key pair has already been in wallet, which address is %s\n", strdest);
             ret = 0;
-        }
-        else if (pwalletMain->AddKey(keyPair)) {
-            pwalletMain->SetAddressBookName(coinaddress, "");
-            msg = StringFormat("Key pair has imported successfully, which address is %s", coinaddress.ToString());
+        } else if (pwalletMain->AddKey(vchPubK, key)) {
+            msg += StringFormat("Key pair has imported successfully, which address is %s\n", strdest);
             ret = 1;
-        }
-        else {
-            msg = "Failed to import key pair";
+        } else {
+            msg += "Failed to import key pair\n";
             ret = -1;
         }
+        return ret;
+    };
+
+
+    CRITICAL_BLOCK(pwalletMain->cs_wallet)
+    {
+        msg = "";
+        if (fnImport(pubkey, vecPubKey, keyPair) == -1)
+            return -1;
+
+        // We don't know which corresponding address will be used;
+        // label all new addresses, and label existing addresses if a
+        // label was passed.
+        for (const auto& dest : GetAllDestinationsForKey(pubkey)) {
+            if (!strlabel.empty()) {
+                pwalletMain->SetAddressBookName(dest, strlabel);
+            }
+        }
     }
-    return ret;
+    return 0;
 }
 
 Value impwalletkeysfromfile(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() < 1) {
-        throw runtime_error(COMMANDPREFIX " ikpf <filename> : import private keys from <filename>");
+        throw runtime_error(COMMANDPREFIX " ikpf <filename> [label] : import private keys from <filename>");
     }
 
     likely_wallet_locked
@@ -157,6 +166,10 @@ Value impwalletkeysfromfile(const Array& params, bool fHelp)
     int nSkipCount = 0;
     int nLineNum = 0;
 
+    string strlabel;
+    if (params.size() > 1) {
+        strlabel = params[1].get_str();
+    }
     CommadLineProgress progress;
     progress.Start();
 
@@ -172,7 +185,7 @@ Value impwalletkeysfromfile(const Array& params, bool fHelp)
         }
 
         string msg;
-        int r = impwalletkey(pstrPriKey, msg);
+        int r = impwalletkey(pstrPriKey, strlabel, msg);
 
         progress.PrintStatus(1, "******");
 
@@ -183,6 +196,32 @@ Value impwalletkeysfromfile(const Array& params, bool fHelp)
     }
 
     return StringFormat("Key imported: %d, Key existed : %d", nImportedCount, nSkipCount);
+}
+
+Value expwalletkey(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() != 1)
+        throw runtime_error(
+            COMMANDPREFIX " ekp <address>: export the public-private key pair corresponding to <address> to console");
+
+    likely_wallet_locked
+
+    string ret;
+    CPrivKey privkey;
+    CKey keyPair;
+    string error;
+
+    CRITICAL_BLOCK(pwalletMain->cs_wallet)
+    {
+        CTxDestination address = DecodeDestination(params[0].get_str());
+        if (pwalletMain->GetKeyFromDestination(address, keyPair, error).IsValid()) {
+
+            return StringFormat("Public key: %s\nPrivate key(WIF, WIF-compressed): \n\t%s\n\t%s", ToHexString(keyPair.GetPubKey()),
+                PrKey2WIF(keyPair.GetPrivKey(), false),
+                PrKey2WIF(keyPair.GetPrivKey(), true));
+        }
+    }
+    return StringFormat("Failed to export key pair, %s", error);
 }
 
 Value expwalletkeystofile(const Array& params, bool fHelp)
@@ -240,25 +279,83 @@ Value expwalletkeystofile(const Array& params, bool fHelp)
 
 Value setdefaultkey(const Array& params, bool fHelp)
 {
-    if (fHelp || params.size() < 1) {
+    if (fHelp) {
         throw runtime_error(COMMANDPREFIX " dkp <address> : specify the key pair whose address is <address> as default key");
     }
 
+    Array ret;
+
     likely_wallet_locked
 
-    Array ret;
+    if (params.size() < 1) {
+
+        CRITICAL_BLOCK(pwalletMain->cs_wallet)
+        {
+            CTxDestination address = pwalletMain->GetDefaultKey();
+            ret.push_back(EncodeDestination(address));
+            return ret;
+        }
+    }
+
+    CTxDestination address = DecodeDestination(params[0].get_str());
+
+    if (!IsValidDestination(address)) {
+        ret.push_back("Error: Invalid address");
+        return ret;
+    }
+
     CKey keyPair;
     CRITICAL_BLOCK(pwalletMain->cs_wallet)
     {
-        CBitcoinAddress coinaddress = CBitcoinAddress(params[0].get_str());
-        if (!pwalletMain->GetKey(coinaddress, keyPair)) {
-            ret.push_back("Failed to find the key pair in wallet, maybe address is invalid");
+
+        OutputType otype;
+        if (boost::get<PKHash>(&address))
+            otype = OutputType::LEGACY;
+        else if (boost::get<WitnessV0KeyHash>(&address))
+            otype = OutputType::BECH32;
+        else if (boost::get<ScriptHash>(&address))
+            otype = OutputType::P2SH_SEGWIT;
+        else {
+            ret.push_back("maybe address is invalid");
             return ret;
         }
-        pwalletMain->SetDefaultKey(keyPair.GetPubKey());
-        pwalletMain->SetAddressBookName(coinaddress, "");
 
+        string error;
+        CBitcoinAddress bitaddr = pwalletMain->GetKeyFromDestination(address, keyPair, error);
+
+        if(!bitaddr.IsValid()) {
+            ret.push_back(error);
+            return ret;
+        }
+
+        std::vector<unsigned char> vchPubKey;
+        //HC: important note: don't use keyPair.GetPubKey()
+        if (!pwalletMain->GetPubKey(bitaddr, vchPubKey)) {
+            ret.push_back(error);
+            return ret;
+        }
+
+        pwalletMain->SetDefaultKey(vchPubKey, otype);
+        if(!pwalletMain->HavingAddressBookName(address))
+            pwalletMain->SetAddressBookName(address, "");
     }
 
     return Value::null;
+}
+
+string MakeNewKeyPair()
+{
+    CKey keyPair;
+    try {
+        keyPair.MakeNewKey();
+    }
+    catch (std::exception& e) {
+        return e.what();
+    }
+
+    CPrivKey pr = keyPair.GetPrivKey();
+    std::vector<unsigned char> vPr(pr.begin(), pr.end());
+    return StringFormat("Public key: %s\nPrivate key(WIF, WIF-compressed): \n\t%s\n\t%s", ToHexString(keyPair.GetPubKey()),
+        PrKey2WIF(keyPair.GetPrivKey(), false),
+        PrKey2WIF(keyPair.GetPrivKey(), true));
 }

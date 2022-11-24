@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -43,6 +43,8 @@ SOFTWARE.
 
 #include <list>
 #include <algorithm>
+#include <unordered_map>
+
 
 class CBlock;
 class CBlockIndex;
@@ -65,7 +67,7 @@ class shared_ptr_proxy;
 
 using CBlockIndexSP = shared_ptr_proxy<CBlockIndex>;
 
-template<class T, class Storage>
+template<class Storage>
 class CCacheLocator;
 
 
@@ -76,7 +78,7 @@ static const int fHaveUPnP = false;
 #endif
 
 extern CCriticalSection cs_main;
-extern CCacheLocator<CBlockIndex, CTxDB_Wrapper> mapBlockIndex;
+extern CCacheLocator<CTxDB_Wrapper> mapBlockIndex;
 extern map<uint256, CBlockSP> mapOrphanBlocks;
 extern uint256 hashGenesisBlock;
 extern CBlockIndexSP pindexGenesisBlock;
@@ -93,8 +95,6 @@ extern int64 nTimeBestReceived;
 extern CCriticalSection cs_setpwalletRegistered;
 extern std::set<CWallet*> setpwalletRegistered;
 
-extern T_LOCALBLOCKADDRESS addrMaxChain;
-
 // Settings
 extern int fGenerateBitcoins;
 extern int64 nTransactionFee;
@@ -104,7 +104,6 @@ extern int fMinimizeToTray;
 extern int fMinimizeOnClose;
 extern int fUseUPnP;
 
-extern CAddress g_seedserver;
 extern std::atomic<uint32_t> g_nHeightCheckPoint;
 extern std::atomic<uint256> g_hashCheckPoint;
 
@@ -121,19 +120,19 @@ class CTxIndex;
 
 void RegisterWallet(CWallet* pwalletIn);
 void UnregisterWallet(CWallet* pwalletIn);
-bool CheckDiskSpace(uint64 nAdditionalBytes=0);
-FILE* OpenBlockFile(unsigned int nFile, unsigned int nBlockPos, const char* pszMode="rb");
+bool CheckDiskSpace(uint64 nAdditionalBytes = 0);
+FILE* OpenBlockFile(unsigned int nFile, unsigned int nBlockPos, const char* pszMode = "rb");
 FILE* AppendBlockFile(unsigned int& nFileRet);
-bool LoadBlockIndex(bool fAllowNew=true);
+bool LoadBlockIndex(bool fAllowNew = true);
 bool LoadBlockUnChained();
 void PrintBlockTree();
 bool ProcessMessages(CNode* pfrom);
 bool SendMessages(CNode* pto, bool fSendTrickle);
 void GenerateBitcoins(bool fGenerate, CWallet* pwallet);
-CBlock* CreateNewBlock(CReserveKey& reservekey);
+CBlock* CreateNewBlock(CReserveKey& reservekey, const char* pszAddress = NULL);
 
-bool CommitGenesisToConsensus(CBlock *pblock, std::string &requestid, std::string &errmsg);
-bool CommitChainToConsensus(deque<CBlock>& deqblock, string &requestid, string &errmsg);
+bool CommitGenesisToConsensus(CBlock* pblock, std::string& requestid, std::string& errmsg);
+bool CommitChainToConsensus(deque<CBlock>& deqblock, string& requestid, string& errmsg);
 
 void IncrementExtraNonce(CBlock* pblock, unsigned int& nExtraNonce);
 void FormatHashBuffers(CBlock* pblock, char* pmidstate, char* pdata, char* phash1);
@@ -145,12 +144,19 @@ std::string GetWarnings(std::string strFor);
 
 bool ProcessBlock(CNode* pfrom, CBlock* pblock);
 bool ProcessBlock(CNode* pfrom, CBlock* pblock, T_LOCALBLOCKADDRESS* pblockaddr);
-bool ProcessBlockFromAcceptedHyperBlock(CBlock* pblock, T_LOCALBLOCKADDRESS* pblockaddr);
+bool ProcessBlockWithTriaddr(CNode* pfrom, CBlock* pblock, BLOCKTRIPLEADDRESS* pblockaddr);
 
-bool GetWalletFile(CWallet* pwallet, std::string &strWalletFileOut);
-bool GetBlockData(const uint256& hashBlock, CBlock& block, T_LOCALBLOCKADDRESS& addrblock);
+bool GetWalletFile(CWallet* pwallet, std::string& strWalletFileOut);
+bool GetBlockData(const uint256& hashBlock, CBlock& block, BLOCKTRIPLEADDRESS& addrblock, char** pWhere);
+void UpgradeBlockIndex(CTxDB_Wrapper& txdb, int height_util);
+void FixBlockIndexByHyperBlock(CTxDB_Wrapper& txdb, int begin_height, int end_height);
+
+bool CheckBlockTriAddr(const BLOCKTRIPLEADDRESS* pblktriaddr);
 
 CBlockIndexSP LatestBlockIndexOnChained();
+
+T_SHA256 to_T_SHA256(const uint256& uhash);
+uint256 to_uint256(const T_SHA256& hash);
 
 extern bool ResolveBlock(CBlock& block, const char* payload, size_t payloadlen);
 
@@ -158,7 +164,7 @@ template<typename T>
 bool WriteSetting(const std::string& strKey, const T& value)
 {
     bool fOk = false;
-    BOOST_FOREACH(CWallet* pwallet, setpwalletRegistered)
+    BOOST_FOREACH(CWallet * pwallet, setpwalletRegistered)
     {
         std::string strWalletFile;
         if (!GetWalletFile(pwallet, strWalletFile))
@@ -168,6 +174,19 @@ bool WriteSetting(const std::string& strKey, const T& value)
     return fOk;
 }
 
+
+template<typename... Args, typename Func>
+void AOPInvokeOutputCost(Func&& f, Args&&... args)
+{
+    AOPInvokeWithCost([&](const char* funcname, int nCost) {
+        if (nCost > 1000) {
+            cout << StringFormat("%s: cost: %d\n",
+                funcname, nCost);
+        }
+        }, [&]() {
+            f(args...);
+        });
+}
 
 
 
@@ -179,7 +198,7 @@ bool WriteSetting(const std::string& strKey, const T& value)
 class CEquihashInput : private CBlock
 {
 public:
-    CEquihashInput(const CBlock &header)
+    CEquihashInput(const CBlock& header)
     {
         CBlock::SetNull();
         *((CBlock*)this) = header;
@@ -209,28 +228,24 @@ class CBlockIndexSimplified;
 
 using CBlockIndexSSP = std::shared_ptr<CBlockIndexSimplified>;
 
-class CBlockIndexSimplified: public std::enable_shared_from_this<CBlockIndexSimplified>
+class CBlockIndexSimplified : public std::enable_shared_from_this<CBlockIndexSimplified>
 {
 public:
-    const uint256* phashBlock = nullptr;
-    CBlockIndexSSP pprev = nullptr;
-    CBlockIndexSSP pnext = nullptr;
+    uint256 hashBlock;  //HC: 块hash指针
     uint32_t nHeight = -1;
 
-    T_LOCALBLOCKADDRESS addr;
-    CBigNum blkwrk;
+    BLOCKTRIPLEADDRESS addr;
 
 public:
-    void Set(const T_LOCALBLOCKADDRESS& addrIn, const CBlock& block)
+    void Set(const BLOCKTRIPLEADDRESS& addrIn, const CBlock& block)
     {
         addr = addrIn;
         nHeight = block.nHeight;
-        blkwrk = CBlockIndex::GetBlockWork(block.nBits);
     }
 
     uint256 GetBlockHash() const
     {
-        return *phashBlock;
+        return hashBlock;
     }
 
     std::string ToString() const
@@ -238,16 +253,11 @@ public:
         return strprintf("CBlockIndexSimplified: \n"
             "\tHeight=%d"
             "\tAddr=%s\n"
-            "\thashBlock=%s ******\n"
-            "\thashPrevBlock=%s\n"
-            "\thashNextBlock=%s\n",
+            "\thashBlock=%s ******\n",
             nHeight,
-            addr.tostring().c_str(),
-            phashBlock ? (phashBlock->ToString().c_str()) : "null",
-            pprev ? (pprev->GetBlockHash().ToString().c_str()) : "null",
-            pnext ? (pnext->GetBlockHash().ToString().c_str()) : "null");
+            addr.ToString().c_str(),
+            hashBlock.ToString().c_str());
     }
-
 };
 
 
@@ -255,8 +265,8 @@ public:
 //
 // Used to marshal pointers into hashes for db storage.
 //
-
-
+//HC: Change implement of CDiskBlockIndex in order to improve the performance for CBlockIndex serialize
+//HC: from CBlockIndex inherit child class to inner owner pointer
 class CDiskBlockIndex
 {
 public:
@@ -270,7 +280,7 @@ public:
     }
 
 
-    CBlockIndex *GetBlockIndex()
+    CBlockIndex* GetBlockIndex()
     {
         return _pblkindex;
     }
@@ -285,12 +295,7 @@ public:
         READWRITE(_pblkindex->nHeight);
         READWRITE(_pblkindex->bnChainWork);
 
-        uint32_t* hid = (uint32_t*)(&_pblkindex->addr.hid);
-        READWRITE(*hid);
-
-        READWRITE(_pblkindex->addr.chainnum);
-        READWRITE(_pblkindex->addr.id);
-        READWRITE(_pblkindex->addr.ns);
+        READWRITE(_pblkindex->triaddr);
 
         // block header
 
@@ -335,8 +340,8 @@ public:
         str += _pblkindex->ToString();
         str += strprintf("\n                hashBlock=%s, hashPrev=%s, hashNext=%s)",
             GetBlockHash().ToString().c_str(),
-            _pblkindex->hashPrev.ToString().substr(0,20).c_str(),
-            _pblkindex->hashNext.ToString().substr(0,20).c_str());
+            _pblkindex->hashPrev.ToString().substr(0, 20).c_str(),
+            _pblkindex->hashNext.ToString().substr(0, 20).c_str());
         return str;
     }
 
@@ -346,7 +351,7 @@ public:
     }
 
 private:
-    CBlockIndex *_pblkindex;
+    CBlockIndex* _pblkindex;
 
 };
 
@@ -371,16 +376,17 @@ public:
         Set(pindex);
     }
 
+
     explicit CBlockLocator(uint256 hashBlock);
 
     IMPLEMENT_SERIALIZE
     (
         if (!(nType & SER_GETHASH))
             READWRITE(nVersion);
-        READWRITE(vHave);
+    READWRITE(vHave);
     )
 
-    void SetNull()
+        void SetNull()
     {
         vHave.clear();
     }
@@ -390,29 +396,10 @@ public:
         return vHave.empty();
     }
 
-    void Set(CBlockIndexSP pindex)
-    {
-        vHave.clear();
-        int nStep = 1;
+    void Set(CBlockIndexSP pindex);
 
-        CSpentTime ttSpent;
-        while (pindex)
-        {
-            vHave.push_back(pindex->GetBlockHash());
-
-            // Exponentially larger steps back
-            for (int i = 0; pindex && i < nStep; i++)
-                pindex = pindex->pprev();
-            if (vHave.size() > 10)
-                nStep *= 2;
-
-
-            if (ttSpent.Elapse() > 30) {
-                break;
-            }
-        }
-        vHave.push_back(hashGenesisBlock);
-    }
+    //HC:
+    void SetBrief(const CBlockIndexSP& pindex, const uint256& hashchk);
 
     int GetDistanceBack();
 
@@ -428,6 +415,8 @@ public:
         return pindex->nHeight;
     }
 };
+
+
 
 //
 // Alerts are for notifying old versions if they become too obsolete and
@@ -501,21 +490,21 @@ public:
         BOOST_FOREACH(std::string str, setSubVer)
             strSetSubVer += "\"" + str + "\" ";
         return strprintf(
-                "CAlert(\n"
-                "    nVersion     = %d\n"
+            "CAlert(\n"
+            "    nVersion     = %d\n"
 
-                "    nRelayUntil  = %" PRI64d "\n"
-                "    nExpiration  = %" PRI64d "\n"
-                "    nID          = %d\n"
-                "    nCancel      = %d\n"
-                "    setCancel    = %s\n"
-                "    nMinVer      = %d\n"
-                "    nMaxVer      = %d\n"
-                "    setSubVer    = %s\n"
-                "    nPriority    = %d\n"
-                "    strComment   = \"%s\"\n"
-                "    strStatusBar = \"%s\"\n"
-                ")\n",
+            "    nRelayUntil  = %" PRI64d "\n"
+            "    nExpiration  = %" PRI64d "\n"
+            "    nID          = %d\n"
+            "    nCancel      = %d\n"
+            "    setCancel    = %s\n"
+            "    nMinVer      = %d\n"
+            "    nMaxVer      = %d\n"
+            "    setSubVer    = %s\n"
+            "    nPriority    = %d\n"
+            "    strComment   = \"%s\"\n"
+            "    strStatusBar = \"%s\"\n"
+            ")\n",
             nVersion,
             nRelayUntil,
             nExpiration,
@@ -550,10 +539,10 @@ public:
     IMPLEMENT_SERIALIZE
     (
         READWRITE(vchMsg);
-        READWRITE(vchSig);
+    READWRITE(vchSig);
     )
 
-    void SetNull()
+        void SetNull()
     {
         CUnsignedAlert::SetNull();
         vchMsg.clear();
@@ -585,8 +574,8 @@ public:
     bool AppliesTo(int nVersion, std::string strSubVerIn) const
     {
         return (IsInEffect() &&
-                nMinVer <= nVersion && nVersion <= nMaxVer &&
-                (setSubVer.empty() || setSubVer.count(strSubVerIn)));
+            nMinVer <= nVersion && nVersion <= nMaxVer &&
+            (setSubVer.empty() || setSubVer.count(strSubVerIn)));
     }
 
     bool AppliesToMe() const
@@ -614,9 +603,10 @@ public:
 
     bool CheckSignature()
     {
-        CKey key;
-        if (!key.SetPubKey(ParseHex("04fc9702847840aaf195de8442ebecedf5b095cdbb9bc716bda9110971b28a49e0ead8564ff0db22209e0374782c093bb899692d524e9d6a6956e7c5ecbcd68284")))
-            return ERROR_FL("CAlert::CheckSignature() : SetPubKey failed");
+        CPubKey key;
+        std::vector<unsigned char> vec =
+            ParseHex("04fc9702847840aaf195de8442ebecedf5b095cdbb9bc716bda9110971b28a49e0ead8564ff0db22209e0374782c093bb899692d524e9d6a6956e7c5ecbcd68284");
+        key.Set(vec.begin(), vec.end());
         if (!key.Verify(Hash(vchMsg.begin(), vchMsg.end()), vchSig))
             return ERROR_FL("CAlert::CheckSignature() : verify signature failed");
 
@@ -627,33 +617,6 @@ public:
     }
 
     bool ProcessAlert();
-};
-
-class BlockCheckPoint
-{
-public:
-    BlockCheckPoint() = default;
-    BlockCheckPoint(const BlockCheckPoint&) = delete;
-    BlockCheckPoint& operator =(const BlockCheckPoint&) = delete;
-
-    void Get(uint32_t& nHeight, uint256& hashblock)
-    {
-        std::lock_guard<std::mutex> guard(_mutex);
-        nHeight = _nHeightCheckPoint;
-        hashblock = _hashCheckPoint;
-    }
-
-    void Set(uint32_t nHeight, const uint256& hashblock)
-    {
-        std::lock_guard<std::mutex> guard(_mutex);
-        _nHeightCheckPoint = nHeight;
-        _hashCheckPoint = hashblock;
-    }
-
-private:
-    std::mutex _mutex;
-    uint32_t _nHeightCheckPoint = 0;
-    uint256 _hashCheckPoint = 0;
 };
 
 
@@ -703,50 +666,6 @@ private:
 };
 
 
-class BLOCKTRIPLEADDRESS
-{
-public:
-    uint32 hid = 0;
-    uint16 chainnum = 0;
-    uint16 id = 0;
-
-public:
-    BLOCKTRIPLEADDRESS() {}
-
-    BLOCKTRIPLEADDRESS(const T_LOCALBLOCKADDRESS& addr)
-    {
-        hid = addr.hid;
-        chainnum = addr.chainnum;
-        id = addr.id;
-    }
-    BLOCKTRIPLEADDRESS(const BLOCKTRIPLEADDRESS& addr)
-    {
-        hid = addr.hid;
-        chainnum = addr.chainnum;
-        id = addr.id;
-    }
-
-    IMPLEMENT_SERIALIZE
-    (
-        READWRITE(hid);
-        READWRITE(chainnum);
-        READWRITE(id);
-    )
-
-    T_LOCALBLOCKADDRESS ToAddr() const
-    {
-        T_LOCALBLOCKADDRESS addr;
-        addr.hid = hid;
-        addr.chainnum = chainnum;
-        addr.id = id;
-        return addr;
-    }
-
-    string ToString() const
-    {
-        return strprintf("[%d,%d,%d]", hid,chainnum,id);
-    }
-};
 
 typedef struct BackTrackingProgress
 {
@@ -756,6 +675,47 @@ typedef struct BackTrackingProgress
     std::string strBackTrackingBlockHash;
 
 } BackTrackingProgress;
+
+
+typedef struct SyncingChainProgress
+{
+    string pullingInvnodeinfo;
+    vector<string> vecPullingDatanode;
+    int64_t pullingtm = 0;
+    int nPullingRetry = 0;
+    CInv pullinginvStart;
+    CInv pullinginvEnd;
+    int nGotNum;
+
+    string ToString(int indentation) const
+    {
+        if (pullingtm == 0) {
+            return "preparing";
+        }
+        string strindent;
+        for (int i = 0; i < indentation; i++) {
+            strindent += "\t";
+        }
+
+        string nodes;
+        for (auto& n : vecPullingDatanode) {
+            nodes += strprintf("%s\n%s\t\t", n.c_str(), strindent.c_str());
+        }
+
+        return strprintf("pulling inventory: %s [%d(%s)...%d(%s) got:%d] (%s, retry:%d)" "\n%s"
+            "pulling data: %s", pullingInvnodeinfo.c_str(),
+            pullinginvStart.height, pullinginvStart.hash.ToPreViewString().c_str(),
+            pullinginvEnd.height, pullinginvEnd.hash.ToPreViewString().c_str(),
+            nGotNum,
+            time2string(pullingtm).c_str(), nPullingRetry,
+            strindent.c_str(),
+            nodes.c_str());
+    }
+} SyncingChainProgress;
+
+
+
+class SeedServers;
 
 class LatestParaBlock {
 
@@ -770,93 +730,38 @@ public:
 
     static int GetHeight()
     {
-        return _nLatestParaHeight;
-    }
-
-    static uint256 GetBackSearchHash()
-    {
-        if (_pindexLatestRoot) {
-            if(*_pindexLatestRoot->phashBlock == 0)
-                return *_pindexLatest->pnext->phashBlock;
-            return *_pindexLatestRoot->phashBlock;
-        }
-        return 0;
-    }
-
-    static uint32 GetBackSearchHeight()
-    {
-        if (_pindexLatestRoot && _pindexLatestRoot->pnext &&  _pindexLatestRoot->pnext->nHeight >= 1) {
-            return _pindexLatestRoot->pnext->nHeight - 1;
-        }
+        if (_pindexLatest)
+            return _pindexLatest->nHeight;
         return 0;
     }
 
     static string GetMemoryInfo();
 
-    static CBlockIndexSSP ForwardLatestRootIndex()
-    {
-        if (_pindexLatestRoot) {
-            if (_pindexLatestRoot->pnext == _pindexLatest) {
-                return _pindexLatest;
-            }
-            _reversechainwrk -= _pindexLatestRoot->blkwrk;
-            _pindexLatestRoot = _pindexLatestRoot->pnext;
-            return _pindexLatestRoot;
-        }
-        return nullptr;
-    }
-
-    static void ExtendChainReversely(const T_LOCALBLOCKADDRESS& addrIn, const CBlock& block)
-    {
-        _pindexLatestRoot = InsertBlockIndex(block.hashPrevBlock);
-        CBlockIndexSSP pIndex = AddBlockIndex(addrIn, block);
-
-        _reversechainwrk += pIndex->blkwrk;
-    }
-
-
-    static void Switch();
-    static bool IsOnChain();
-    static bool IsLackingBlock();
-    static bool IsLackingBlock(std::function<void(const BackTrackingProgress &)> notiprogress);
-    static bool IsBestChain();
-
     static bool Count(const uint256& hastblock);
 
     static void AddBlockTripleAddress(const uint256& hastblock, const BLOCKTRIPLEADDRESS& tripleaddr);
 
-    static bool GetBlockTripleAddr(const uint256& hashblock, T_LOCALBLOCKADDRESS& tripleaddr);
+    static bool GetBlockTripleAddr(const uint256& hashblock, BLOCKTRIPLEADDRESS& tripleaddr);
     static bool GetBlock(const uint256& hastblock, CBlock& block, BLOCKTRIPLEADDRESS& tripleaddr);
+
+    static void PullingNextBlocks(std::function<void(const SyncingChainProgress&)> notiprogress);
 
 private:
     LatestParaBlock(const LatestParaBlock&) = delete;
-    LatestParaBlock & operator=(const LatestParaBlock&) = delete;
+    LatestParaBlock& operator=(const LatestParaBlock&) = delete;
 
-    static bool LoadLatestBlock(uint32 &maxhid);
+    static bool LoadLatestBlock(uint32& maxhid);
 
-    static CBlockIndexSSP AddBlockIndex(const T_LOCALBLOCKADDRESS& addrIn, const CBlock& block);
-    static CBlockIndexSSP InsertBlockIndex(uint256 hash);
+    static CBlockIndexSSP AddBlockIndex(const BLOCKTRIPLEADDRESS& addrIn, const CBlock& block);
 
-    static void HandleBlock(const T_LOCALBLOCKADDRESS& addrIn, const CBlock& block);
-
-    static void PullingPrevBlocks();
-
+    static void HandleBlock(const BLOCKTRIPLEADDRESS& addrIn, const CBlock& block);
 private:
-
+    //HC: The latest block is contained by latest hyper block
     static CBlockIndexSSP _pindexLatest;
-    static int  _nLatestParaHeight;
-
-
-
-    static CBigNum _reversechainwrk;
-    static map<uint256, CBlockIndexSSP> _mapBlockIndexLatest;
     static CBlockDiskLocator _mapBlockAddressOnDisk;
-
-    static CBlockIndexSSP _pindexLatestRoot;
 };
 
 
-extern BlockCheckPoint g_blockChckPnt;
 
 class MiningCondition
 {
@@ -865,70 +770,19 @@ public:
     MiningCondition(const MiningCondition&) = delete;
     MiningCondition& operator =(const MiningCondition&) = delete;
 
-    void ProgressChanged(const BackTrackingProgress &progress) {
+    void ProgressChanged(const BackTrackingProgress& progress) {
         _backTrackingProgress = progress;
         _eStatusCode = miningstatuscode::ChainIncomplete;
     }
 
-    bool EvaluateIsAllowed(bool NeighborIsMust = true) {
-
-        CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
-
-        CRITICAL_BLOCK_T_MAIN(cs_main)
-            CRITICAL_BLOCK(_cs_miningstatus)
-            {
-                if (!hyperchainspace->IsLatestHyperBlockReady()) {
-                    _eStatusCode = miningstatuscode::HyperBlockNotReady;
-                    return false;
-                }
-                //else if (IsInitialBlockDownload()) {
-                //    _reason += "Initial Block is downloading";
-                //    return false;
-                //}
-                else if (!g_cryptoCurrency.CheckGenesisBlock()) {
-                    _eStatusCode = miningstatuscode::InvalidGenesisBlock;
-                    return false;
-                }
-
-
-                hyperblockMsgs.process();
-
-                while(!LatestParaBlock::IsOnChain()) {
-                    auto f = std::bind(&MiningCondition::ProgressChanged, this, std::placeholders::_1);
-                    if (!LatestParaBlock::IsLackingBlock(f)) {
-
-                        if (!LatestParaBlock::IsBestChain()) {
-
-                            break;
-                        }
-
-
-                        _eStatusCode = miningstatuscode::Switching;
-                        LatestParaBlock::Switch();
-                    }
-                    return false;
-                }
-
-                if (NeighborIsMust && vNodes.empty()) {
-                    _eStatusCode = miningstatuscode::NoAnyNeighbor;
-                    return false;
-                }
-
-                string reason;
-                if (IsTooFar(reason)) {
-                    return false;
-                }
-
-                if (!fGenerateBitcoins) {
-                    _eStatusCode = miningstatuscode::GenDisabled;
-                    return false;
-                }
-
-                _eStatusCode = miningstatuscode::Mining;
-            }
-
-        return true;
+    void SyncingProgressChanged(const SyncingChainProgress& progress)
+    {
+        _syncingChainProgress = progress;
+        _eStatusCode = miningstatuscode::SyncingChain;
     }
+
+
+    bool EvaluateIsAllowed(bool NeighborIsMust = true);
 
     bool IsMining()
     {
@@ -941,7 +795,7 @@ public:
 
     string GetMiningStatus(bool* isAllowed) {
 
-        if(isAllowed)
+        if (isAllowed)
             *isAllowed = IsMining();
 
         return StatusCodeToReason();
@@ -954,117 +808,176 @@ public:
     BackTrackingProgress GetBackTrackingProcess() const { return _backTrackingProgress; }
 
 private:
-    bool IsTooFar(std::string& reason)
-    {
-        uint32_t ncount = 0;
-
-        CRITICAL_BLOCK_T_MAIN(cs_main)
-        {
-            CBlockIndexSSP pIndex = LatestParaBlock::Get();
-            uint256 hash = pIndex->GetBlockHash();
-
-            CBlockIndexSP p = pindexBest;
-            while (p && !p->addr.isValid() && p->GetBlockHash() != hash) {
-                ncount++;
-                p = p->pprev();
-            }
-
-#ifndef MinDiff
-            if (ncount > 40) {
-                _eStatusCode = miningstatuscode::ManyBlocksNonChained;
-                return true;
-            }
-#endif
-            if (g_seedserver.IsValid()) {
-
-                CBlockIndexSP p = pindexBest;
-                uint32_t height;
-                uint256 hash;
-                g_blockChckPnt.Get(height, hash);
-                if (height == 0) {
-
-                    _eStatusCode = miningstatuscode::MiningWithWarning1;
-                    return false;
-                }
-
-                if (height > 0) {
-                    if (p->nHeight < height) {
-
-                        _eStatusCode = miningstatuscode::MiningWithWarning2;
-                        return false;
-                    }
-
-                    while (p && p->nHeight > height) {
-                        p = p->pprev();
-                    }
-
-                    if (p->GetBlockHash() != hash) {
-
-                        _eStatusCode = miningstatuscode::MiningWithWarning3;
-                        return false;
-                    }
-                }
-            }
-        }
-        return false;
-    }
+    //HC: check if my local Para chain data is different from seed server
+    bool IsTooFar();
 
     string StatusCodeToReason()
     {
         string rs;
 
-        if (_eStatusCode == miningstatuscode::ChainIncomplete) {
-            return strprintf("The chain is incomplete, latest block height: %u(%s), backtracking block: %u(hash: %s)",
+        if (_eStatusCode == miningstatuscode::SyncingChain) {
+            rs = strprintf("%s \n%s \nSync details: \n\t%s", _mapStatusDescription.at(_eStatusCode).c_str(),
+                _mapSSDescription.at(_eSSStatusCode).c_str(),
+                _syncingChainProgress.ToString(1).c_str());
+        }
+        else if (_eStatusCode == miningstatuscode::ChainIncomplete) {
+            rs = strprintf("The chain is incomplete, latest block height: %u(%s), backtracking block: %u(hash: %s)",
                 _backTrackingProgress.nLatestBlockHeight, _backTrackingProgress.strLatestBlockTripleAddr.c_str(),
                 _backTrackingProgress.nBackTrackingBlockHeight, _backTrackingProgress.strBackTrackingBlockHash.c_str());
         }
-
-        if (_mapStatusDescription.count(_eStatusCode)) {
-            return _mapStatusDescription.at(_eStatusCode);
+        else if (_mapStatusDescription.count(_eStatusCode)) {
+            rs = _mapStatusDescription.at(_eStatusCode);
         }
 
-        return "";
+        return rs;
     }
 
-private:
-    CCriticalSection _cs_miningstatus;
+    friend class SeedServers;
 
+    enum class seedserverstatuscode : char {
+        chain_data_same = 0,
+        seed_server_unknown = -1,
+        height_too_less = -2,
+        local_chain_fork = -3,
+        non_seed_server = -4,
+    };
+
+public:
     enum class miningstatuscode : char {
-        Mining = 1,
-        MiningWithWarning1 = 2,
-        MiningWithWarning2 = 3,
-        MiningWithWarning3 = 4,
-
+        Mining = 2,
+        ManyBlocksNonChained = 1,
         Switching = 0,
 
         GenDisabled = -1,
         HyperBlockNotReady = -2,
         NoAnyNeighbor = -3,
         InvalidGenesisBlock = -4,
-        MiningSettingClosed= -5,
-        ManyBlocksNonChained= -6,
-        ChainIncomplete = -7,
+        MiningSettingClosed = -5,
+        ChainIncomplete = -6,
+        SyncingChain = -7,
         MiningThreadExit = -8,
+        UnloadWallet = -9,
+        VersionLow = -10,
     };
 
+    void SetMiningStatusCode(miningstatuscode code) {
+        _eStatusCode = code;
+    }
+
+private:
     miningstatuscode _eStatusCode = miningstatuscode::GenDisabled;
+    seedserverstatuscode _eSSStatusCode = seedserverstatuscode::seed_server_unknown;
 
     const map<miningstatuscode, string> _mapStatusDescription = {
         {miningstatuscode::Mining,              "Mining"},
-        {miningstatuscode::MiningWithWarning1,  "Warning: Seed server's block information is unknown"},
-        {miningstatuscode::MiningWithWarning2,  "Warning: Block height less than seed server's"},
-        {miningstatuscode::MiningWithWarning3,  "Warning: Block hash different from seed server's"},
         {miningstatuscode::Switching,           "Switching to the best chain"},
         {miningstatuscode::GenDisabled,         "Mining disabled, use command 'coin e' to enable"},
         {miningstatuscode::HyperBlockNotReady,  "My latest hyper block isn't ready"},
         {miningstatuscode::NoAnyNeighbor,       "No neighbor found"},
         {miningstatuscode::InvalidGenesisBlock, "Genesis block error"},
-        {miningstatuscode::ManyBlocksNonChained, "More than 40 blocks is non-chained"},
+        {miningstatuscode::ManyBlocksNonChained, "Many blocks is non-chained"}, //"More than 40 blocks is non-chained"},
         {miningstatuscode::ChainIncomplete,     "The chain is incomplete"},
+        {miningstatuscode::SyncingChain,        "Synchronizing chain data"},
         {miningstatuscode::MiningThreadExit,     "Mining thread has exited"},
+        {miningstatuscode::UnloadWallet,         "Wallet unloaded"},
+        {miningstatuscode::VersionLow,           "Mining stopped because version is too low"},
     };
 
+    const map<seedserverstatuscode, string> _mapSSDescription = {
+       {seedserverstatuscode::chain_data_same,       "Chain data is basically consistent with seed server"},
+       {seedserverstatuscode::seed_server_unknown,  "Retrieving seed server's chain information"},
+       {seedserverstatuscode::height_too_less,  "Warning: local block height less than seed server's"},
+       {seedserverstatuscode::local_chain_fork,  "Warning: local chain is different from seed server's"},
+       {seedserverstatuscode::non_seed_server,  "Warning: seed server is none"},
+    };
+
+
     BackTrackingProgress _backTrackingProgress;
+    SyncingChainProgress _syncingChainProgress;
+
+};
+
+typedef struct SSState
+{
+    ChkPoint chkp;
+    bool online = false;
+} SSState;
+
+class SeedServers
+{
+public:
+    SeedServers()
+    { }
+
+    void addServer(const string& ipaddr, int nPort);
+
+    //HC: update seed server check point
+    void updateSSCheckPoint(const CAddress& netaddr, const ChkPoint& cp);
+
+    bool isSeedServer(const CAddress& netaddr);
+
+    size_t size();
+
+    bool checkData(MiningCondition::seedserverstatuscode& StatusCode);
+
+    static bool getMyCheckPoint(ChkPoint& chkpoint);
+
+    int containChain(const ChkPoint& cp);
+
+    bool bestChain(CBlockLocatorEx** bestloc)
+    {
+        CRITICAL_BLOCK(_cs_seedserver)
+        {
+            auto best = bestServer();
+            if (best != _mapserver.end()) {
+                *bestloc = &(best->second.chkp.chainloc);
+                return true;
+            }
+            return false;
+        }
+    }
+
+    bool isBestServer(const CAddress& netaddr)
+    {
+        CRITICAL_BLOCK(_cs_seedserver)
+        {
+            auto best = bestServer();
+            if (best != _mapserver.end()) {
+                if (netaddr == best->first) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    void RefreshOnlineState()
+    {
+        CRITICAL_BLOCK(cs_vNodes)
+            CRITICAL_BLOCK(_cs_seedserver)
+        {
+            for (auto& s : _mapserver) {
+                s.second.online = false;
+            }
+
+            for (auto& node : vNodes) {
+                if (_mapserver.count(node->addr)) {
+                    _mapserver[node->addr].online = true;
+                }
+            }
+        }
+    }
+
+private:
+    map<CAddress, SSState>::iterator bestServer();
+
+public:
+    static int nBackBlockCount;
+
+private:
+    //HC: seed servers' check point
+    map<CAddress, SSState> _mapserver;
+    CCriticalSection _cs_seedserver;
 };
 
 
@@ -1083,11 +996,10 @@ public:
 
     bool insert(CBlockTripleAddressDB& btadb, const uint256& hashBlock, const BLOCKTRIPLEADDRESS& addr);
     bool insert(const uint256& hashBlock, const BLOCKTRIPLEADDRESS& addr);
-    bool insertBloomFilter(const uint256& hashBlock);
 
     void clear();
 
-
+    //HC: how to clean the bit flag?
     bool erase(const uint256& hashBlock);
 
     const BLOCKTRIPLEADDRESS& operator[](const uint256& hashBlock);
@@ -1097,148 +1009,299 @@ private:
     const size_t _capacity = 3000;
 
     size_t _sizeInserted = 0;
-    CBlockBloomFilter _filterBlock;
-
     std::map<uint256, BLOCKTRIPLEADDRESS> _mapBlockTripleAddr;
     std::map<int64, uint256> _mapTmJoined;
 
-    std::set<uint256> _setRemoved;
-
 };
 
-
+//HC: LRU policy
 //T is non-pointer type
-template<class T, class Storage>
+template<class Storage>
 class CCacheLocator
 {
 public:
     using key_type = uint256;
     using v_value_type = CBlockIndexSP;
     using value_type = std::pair<const key_type, v_value_type>;
-    using iterator = typename std::map<key_type, v_value_type>::iterator;
+    using iterator = typename std::list<pair<key_type, v_value_type>>::iterator;
 
-    iterator begin() { return _mapT.begin(); }
-    iterator end() { return _mapT.end(); }
+    iterator begin() { return _cacheDatas.begin(); }
+    iterator end() { return _cacheDatas.end(); }
 
-    size_t size() const noexcept { return _mapT.size(); }
-    bool empty() const { return _mapT.empty(); }
+    size_t size() const noexcept { return _cacheDatas.size(); }
+    bool empty() const { return _cacheDatas.empty(); }
+
+    size_t capacity() const noexcept { return _capacity; }
 
     v_value_type fromcache(const key_type& hashT)
     {
         v_value_type t;
 
-        if (_mapT.count(hashT)) {
-            return _mapT[hashT];
+        CRITICAL_BLOCK(_mutex)
+        {
+            if (_mapLocator.count(hashT)) {
+                t = _mapLocator.at(hashT)->second;
+                _cacheDatas.push_back({ hashT, t });
+                _cacheDatas.erase(_mapLocator.at(hashT));
+                _mapLocator[hashT] = --_cacheDatas.end();
+            }
         }
         return t;
     }
 
     size_t count(const key_type& hashT)
     {
-        if (hashT == 0 || !_filterT.contain(hashT))
+        if (hashT == 0)
             return 0;
 
-        if (_mapT.count(hashT)) {
-            return 1;
+        CRITICAL_BLOCK(_mutex)
+        {
+            if (_mapLocator.count(hashT)) {
+                return 1;
+            }
         }
 
-
+        //HC: Is it in storage?
         Storage db;
-        v_value_type t;
-        if (db.ReadSP(hashT, t)) {
-            return 1;
+        CBlockIndex blkindex;
+        CDiskBlockIndex diskindex(&blkindex);
+
+        if (!db.ReadSP(hashT, diskindex)) {
+            return 0;
         }
-        return 0;
+
+        //put it into cache
+        db.GetPtr()->ConstructBlockIndex(hashT, diskindex);
+        return 1;
     }
 
     inline
-    std::pair<iterator, bool> insert(const value_type& value)
+        bool insert(const value_type& value)
     {
         return insert(value, true);
     }
 
-    std::pair<iterator, bool> insert(const value_type& value, bool newstorageelem)
+    //HC: Notice!!! don't access first of returning value(type std::pair), which maybe has changed, else it will cause crash
+    //HC: Notice!!! don't access first of returning value(type std::pair), which maybe has changed, else it will cause crash
+    //HC: Notice!!! don't access first of returning value(type std::pair), which maybe has changed, else it will cause crash
+    bool insert(const value_type& value, bool newstorageelem)
     {
         const key_type& hashT = value.first;
-        const v_value_type &t = value.second;
+        const v_value_type& t = value.second;
 
-        if (newstorageelem) {
-            Storage db;
-            db.TxnBegin();
-            db.WriteSP(t.get());
-            if (!db.TxnCommit()) {
-                ERROR_FL("%s : TxnCommit failed", __FUNCTION__);
-                return make_pair(_mapT.end(), false);
+        CRITICAL_BLOCK(_mutex)
+        {
+            if (newstorageelem) {
+                Storage db;
+                //HC: only for debug
+                if (db.GetPtr()->GetTxn() != NULL) {
+                    cerr << "Debug: Error occured, here why not null\n";
+                }
+                if (!db.WriteSP(t.get())) {
+                    ERROR_FL("%s : WriteSP failed", __FUNCTION__);
+                    return false;
+                }
             }
+            return put_new(hashT, t);
         }
-
-        //Limit the memory capacity
-        if (_mapT.size() > _capacity) {
-            _mapT.erase(--_mapT.end());
-        }
-
-        std::pair<iterator, bool> ret = _mapT.insert(value);
-        if (!ret.second) {
-            return ret;
-        }
-
-        insert(hashT);
-        return ret;
+        return false;
     }
 
     std::size_t erase(const key_type& hashT)
     {
-        return _mapT.erase(hashT);
+        CRITICAL_BLOCK(_mutex)
+        {
+            if (_mapLocator.count(hashT)) {
+                auto v = _mapLocator.at(hashT);
+                _cacheDatas.erase(v);
+                return _mapLocator.erase(hashT);
+            }
+        }
+        return 0;
     }
 
     void clear()
     {
-        _filterT.clear();
-        _mapT.clear();
+        CRITICAL_BLOCK(_mutex)
+        {
+            _mapLocator.clear();
+            _cacheDatas.clear();
+        }
     }
 
     v_value_type operator[](const key_type& hashT)
     {
-        if (_mapT.count(hashT)) {
-            return _mapT[hashT];
+        v_value_type t;
+        t = fromcache(hashT);
+        if (t) {
+            return t;
         }
 
         Storage db;
-        v_value_type t;
 
-        if(hashT != 0 && !db.ReadSP(hashT, t)) {
-            WARNING_FL("Failed to Read : %s", hashT.ToPreViewString().c_str());
+        if (hashT != 0) {
+            CBlockIndex blkindex;
+            CDiskBlockIndex diskindex(&blkindex);
+            if (!db.ReadSP(hashT, diskindex)) {
+                TRACE_FL("Failed to Read : %s", hashT.ToPreViewString().c_str());
+                return t;
+            }
+
+            //HC: put it into cache
+            db.GetPtr()->ConstructBlockIndex(hashT, diskindex);
+            //HC: must return a index in block index cache
+            return fromcache(hashT);
         }
         return t;
     }
 
     v_value_type get(const key_type& hashT, Storage& db)
     {
-        if (_mapT.count(hashT)) {
-            return _mapT[hashT];
+        v_value_type t;
+        t = fromcache(hashT);
+        if (t) {
+            return t;
         }
 
-        v_value_type t;
+        if (hashT != 0) {
+            CBlockIndex blkindex;
+            CDiskBlockIndex diskindex(&blkindex);
+            if (!db.ReadSP(hashT, diskindex)) {
+                TRACE_FL("Failed to Read : %s", hashT.ToPreViewString().c_str());
+                return t;
+            }
 
-        if(hashT != 0 && !db.ReadSP(hashT, t)) {
-            WARNING_FL("Failed to Read : %s", hashT.ToPreViewString().c_str());
+            //HC: put it into cache
+            db.GetPtr()->ConstructBlockIndex(hashT, diskindex);
+            //HC: must return a index in block index cache
+            return fromcache(hashT);
         }
         return t;
     }
 
 private:
+    const size_t _capacity = 20000;
 
-    bool insert(const key_type& hashT)
+    std::list<pair<key_type, v_value_type>> _cacheDatas;
+
+    class KeyHash
     {
-        return _filterT.insert(hashT);
-    }
+    public:
+        std::size_t operator()(const key_type& c) const
+        {
+            return c.GetLow64();
+        }
+    };
+
+    class KeyEqual
+    {
+    public:
+        bool operator()(const key_type& c1, const key_type& c2) const
+        {
+            return c1 == c2;
+        }
+    };
+
+    std::unordered_map<key_type, iterator, KeyHash, KeyEqual> _mapLocator;
+    CCriticalSection _mutex;
+
 
 private:
-    const size_t _capacity = 24;
-    CBlockBloomFilter _filterT;
 
-    std::map<key_type, v_value_type> _mapT;
+    bool put_new(const key_type& hashT, const v_value_type& t)
+    {
+        //Limit the memory capacity
+        if (_cacheDatas.size() > _capacity) {
+            _mapLocator.erase(_cacheDatas.begin()->first);
+            _cacheDatas.pop_front();
+        }
+
+        _cacheDatas.push_back({ hashT, t });
+        //std::pair<std::unordered_map<key_type, iterator, KeyHash, KeyEqual>::iterator, bool> ret = _mapLocator.insert({ hashT, --_cacheDatas.end() });
+        bool ret = _mapLocator.insert({ hashT, --_cacheDatas.end() }).second;
+
+
+        if (!ret) {
+            _cacheDatas.erase(--_cacheDatas.end());
+            return false;
+        }
+
+        return true;
+    }
 };
 
+class ParaMQCenter
+{
+public:
+    void start()
+    {
+        startMQHandler();
+        _isStarted = true;
+    }
+
+    void stop()
+    {
+        MTC_Save();
+
+        _msghandler.stop();
+        _isStarted = false;
+    }
+
+    std::string MQID()
+    {
+        return _msghandler.details();
+    }
+
+    MsgHandler& GetMsgHandler() { return _msghandler; }
+    CBlockLocatorEx& GetMTC() { return _maintrunkchain; }
+
+    //HC: Notice: set and at the same time return hash of check point
+    void MTC_Set(uint256& hashchk);
+    void MTC_Save();
+    bool MTC_Have(const CBlockIndexSP& pindex);
+    CBlockLocatorEx::ForkIndex MTC_FindForkIndex(const CBlockLocatorEx& blkloc, uint256& hashfork);
+    bool MTC_GetRange(int nBlkHeight, uint256& hashbegin, uint256& hashEnd);
+
+    void MTC_ComputeDiff(const uint256& hash_end_vhave, const uint256& hash_end_vhavetail, CBlockLocatorExIncr& incr);
+
+    int MTC_GetChkPoint(uint256& hashchkp);
+
+    int MTC_GetChain(vector<uint256>& chains);
+
+    bool MTC_IsInMain(int nheight, const uint256& hash);
+    std::string MTC_ToString(int idx);
+    std::string MTC_ToDetailString(int idx, int idxTail);
+
+
+private:
+    enum class SERVICE : short
+    {
+        //MainTrunkChain
+        MTC_Set = 1,
+        MTC_Have,
+        MTC_Save,
+        MTC_GetRange,
+        MTC_FindForkIndex,
+        MTC_ComputeDiff,
+        MTC_GetChkPoint,
+        MTC_IsInMain,
+        MTC_ToString,
+        MTC_ToDetailString,
+        MTC_GetChain,
+    };
+
+    MsgHandler _msghandler;
+
+    CBlockLocatorEx _maintrunkchain;
+    bool _isStarted = false;
+
+
+private:
+
+    void startMQHandler();
+    void DispatchService(void* wrk, zmsg* msg);
+};
+
+extern SeedServers g_seedserver;
 
 #endif

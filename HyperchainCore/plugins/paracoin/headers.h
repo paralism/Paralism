@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -33,7 +33,7 @@ DEALINGS IN THE SOFTWARE.
 #ifdef _WIN32_WINNT
 #undef _WIN32_WINNT
 #endif
-#define _WIN32_WINNT 0x0500
+#define _WIN32_WINNT 0x0501
 #ifdef _WIN32_IE
 #undef _WIN32_IE
 #endif
@@ -112,4 +112,7 @@ DEALINGS IN THE SOFTWARE.
 
 #include "noui.h"
 
+#define UNUSED(x) (void)(x)
+
+#define PARACOIN_MODULE
 

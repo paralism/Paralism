@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -32,47 +32,53 @@ extern void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "");
 
 extern CBlockCacheLocator mapBlocks;
 
-bool CTransaction::ReadFromDisk(CDiskTxPos pos)
+std::string CTransaction::ToString() const
 {
-    string payload;
-    if (pos.addr.isValid()) {
-
-        CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
-
-        if (!hyperchainspace->GetLocalBlockPayload(pos.addr, payload)) {
-            DEBUG_FL("block(%s) isn't found in my local storage", pos.addr.tostring().c_str());
-            return false;
+    uint256 hash = GetHash();
+    string strTxHash = hash.ToString();
+    TRY_CRITICAL_BLOCK(pwalletMain->cs_wallet)
+    {
+        if (pwalletMain->mapWallet.count(hash)) {
+            strTxHash += "(mine)";
+        }
+        else {
+            strTxHash += "(other)";
         }
     }
-    else {
+    std::string str;
+    str += strprintf("CTransaction hash=%s\n"
+        "\tver=%d, vin.size=%d, vout.size=%d, nLockTime=%d\n",
+        strTxHash.c_str(),
+        nVersion,
+        vin.size(),
+        vout.size(),
+        nLockTime);
+    for (size_t i = 0; i < vin.size(); i++)
+        str += "    " + vin[i].ToString() + "\n";
+    //for (const auto& tx_in : vin)
+    //    str += "    " + tx_in.scriptWitness.ToString() + "\n";
+    for (size_t i = 0; i < vout.size(); i++)
+        str += "    " + vout[i].ToString() + "\n";
+    return str;
+}
 
-
-        CBlockIndex *pIndex = pindexBest;
-        bool tx_ok = false;
-        while (pIndex && pIndex->nHeight >= pos.nHeight) {
-            if (pIndex->nHeight == pos.nHeight) {
-                CBlockDB_Wrapper blockdb;
-                uint256 hash;
-                blockdb.LoadBlockUnChained(*pIndex->phashBlock, [&payload, &hash](CDataStream& ssKey, CDataStream& ssValue) -> bool {
-                    payload = ssValue.str();
-                    ssKey >> hash;
-                    return false;
-                });
-
-                if (hash == *pIndex->phashBlock) {
-                    tx_ok = true;
-                }
-                break;
-            }
-            pIndex = pIndex->pprev;
-        }
-        if (!tx_ok)
-            return ERROR_FL("Tx(%d, %d) isn't found in my local storage", pos.nHeight, pos.nTxPos);
+bool CTransaction::ReadFromDisk(CDiskTxPos pos)
+{
+    CBlock block;
+    BLOCKTRIPLEADDRESS addrblock;
+    char* pWhere = nullptr;
+    if (!GetBlockData(pos.hashBlk, block, addrblock, &pWhere)) {
+        return ERROR_FL("Tx(%d(%s), %d) isn't found in my local storage",
+            pos.nHeightBlk,
+            pos.hashBlk.ToPreViewString().c_str(), pos.nTxPos);
     }
 
     try {
-        CAutoBuffer autobuff(std::move(payload));
-        autobuff.seekg(pos.nTxPos);
+        //CAutoBuffer autobuff;
+        CDataStream autobuff;
+        autobuff << block;
+        autobuff.ignore(pos.nTxPos);
+        //autobuff.seekg(pos.nTxPos);
         autobuff >> *this;
     }
     catch (std::ios_base::failure& e) {
@@ -101,6 +107,18 @@ bool CTransaction::ReadFromDisk(CTxDB_Wrapper& txdb, COutPoint prevout)
     return ReadFromDisk(txdb, prevout, txindex);
 }
 
+CTransaction& MakeTransactionRef(CTransaction& tx, CMutableTransaction&& mtx)
+{
+    tx.vin = std::forward<std::vector<CTxIn>>(mtx.vin);
+    tx.vout = std::forward<std::vector<CTxOut>>(mtx.vout);
+    tx.nVersion = mtx.nVersion;
+    tx.nLockTime = mtx.nLockTime;
+    return tx;
+}
+
+CTransaction::CTransaction(const CMutableTransaction& tx) :
+    vin(tx.vin), vout(tx.vout), nVersion(tx.nVersion), nLockTime(tx.nLockTime), hash{ ComputeHash() }, m_witness_hash{ ComputeWitnessHash() }
+{}
 
 bool CBlock::AddToMemoryPool(const uint256& nBlockHash)
 {
@@ -152,7 +170,7 @@ int CBlock::CheckHyperBlockConsistence(CNode* pfrom) const
             WARNING_FL("Hyper block %d: In my storage hash %s !!!== %s",
                 nPrevHID, hashCurr.ToPreViewString().c_str(),
                 hashPrevHyperBlock.ToPreViewString().c_str());
-
+            //HC:give me your hyper block, maybe better than mine
             if (pfrom) {
                 RSyncRemotePullHyperBlock(nPrevHID, pfrom->nodeid);
             }

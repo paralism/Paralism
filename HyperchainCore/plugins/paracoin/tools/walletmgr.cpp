@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -49,7 +49,7 @@ public:
         try {
             for (;;) {
                 int nCount = 0;
-
+                //HC: A time of transaction operation, we only delete 10000 for Berkeley db lock limit which can also set by dbenv
                 deleteTx(progress, nCount, 10000);
                 nTotalCount += nCount;
                 if (nCount < 10000) {
@@ -210,7 +210,7 @@ private:
             //"Key pair has already been in wallet\n";
             return true;
         }
-        else if (pwallet->AddKey(keyPair)) {
+        else if (pwallet->AddKey(vchPubKey, keyPair)) {
             return true;
         }
 
@@ -234,7 +234,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("name"), nextT);
-            msgstatus = strprintf("name : %s", nextT.c_str());
+            msgstatus = strprintf("name : %s", nextT.c_str());  //HC: status message
             return ssNxtKey;
         };
 
@@ -257,7 +257,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("key"), nextT);
-            msgstatus = "key : ******";
+            msgstatus = "key : ******";  //HC: status message
             return ssNxtKey;
         };
 
@@ -281,7 +281,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("wkey"), nextT);
-            msgstatus = "wallet key : ******";
+            msgstatus = "wallet key : ******";  //HC: status message
             return ssNxtKey;
         };
 
@@ -295,9 +295,9 @@ private:
         return true;
     }
 
-
-
-
+    //HC: Encrypt bitcoin's key pair using vMasterkey
+    //HC: vMasterkey is plain text, kMasterKey contains cipher text
+    //HC: crypter.Encrypt(vMasterKey, kMasterKey.vchCryptedKey), see CWallet::EncryptWallet(const string& strWalletPassphrase)
     bool BulkImpWalletMKey(CWallet* pwallet)
     {
         std::function<bool(CDataStream&, CDataStream&, unsigned int&)> fn = [pwallet](CDataStream& ssKeySecond,
@@ -319,7 +319,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("mkey"), nextT);
-            msgstatus = "mkey : ******";
+            msgstatus = "mkey : ******";  //HC: status message
             return ssNxtKey;
         };
 
@@ -331,7 +331,7 @@ private:
         return true;
     }
 
-
+    //HC: crypt keys
     bool BulkImpWalletCKey(CWallet* pwallet)
     {
         std::function<bool(CDataStream&, CDataStream&, std::vector<unsigned char>&)> fn =
@@ -342,7 +342,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("ckey"), nextT);
-            msgstatus = "ckey : ******";
+            msgstatus = "ckey : ******";  //HC: status message
             return ssNxtKey;
         };
 
@@ -361,7 +361,7 @@ private:
         std::function<bool(CDataStream&, CDataStream&, string&)> fn = [this, pDstWalletdb](CDataStream& ssKeySecond,
             CDataStream& ssValue, string& strKey) ->bool {
 
-
+            //HC: read all unused key pairs
             ssKeySecond >> strKey;
 
             // Options
@@ -388,7 +388,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("setting"), nextT);
-            msgstatus = "setting : ******";
+            msgstatus = "setting : ******";  //HC: status message
             return ssNxtKey;
         };
 
@@ -577,6 +577,6 @@ int main(int argc, char* argv[])
         }
     }
 
-    DBFlush(true);
+    DBFlush(true); //HC: remove archive log
     return 0;
 }

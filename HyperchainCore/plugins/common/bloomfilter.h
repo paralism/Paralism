@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -74,7 +74,7 @@ private:
 
     using bit_pool = std::bitset<_bloomfilter_store_size>;
 
-    std::bitset<256 + 1> _md5_store_front;
+    std::bitset<256 + 1> _md5_store_front; //HC: the first byte
     std::shared_ptr<bit_pool> _sp_md5_store;
 
     size_t _object_count;
@@ -82,7 +82,7 @@ private:
     //const std::unique_ptr<unsigned char[]> _md5_hash_result;
     mutable unsigned char _md5_hash_result[_md5_result_size_bytes];
 
-    std::vector<unsigned int (*)(const char*, size_t len)> _hashfunctable;
+    std::vector<unsigned int (*)(const char*, size_t len)> _hashfunctable;  //HC: 存放计算字符串哈希值的哈希函数
 
     std::vector<bit_pool> _vec_bit_pool;
 

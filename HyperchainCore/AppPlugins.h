@@ -80,7 +80,7 @@ public:
             auto & f = _mapAppFunc[appname];
 
             while (first != last) {
-
+                //HC: must begin with '-'
                 if ((*first)[0] != '-') {
                     string param = *first;
                     param.insert(0, "-");
@@ -147,7 +147,7 @@ private:
 
 private:
     int _argc;
-    char** _argv;
+    char** _argv;          //HC: 所有应用公用的参数
 
 
     unordered_map<string, APPFUNC> _mapAppFunc;

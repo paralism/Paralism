@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -81,7 +81,7 @@ int zmsg::send(zmq::socket_t & socket)
             while (!g_sys_interrupted) {
                 auto rc = socket.send(message, flags);
                 if (!rc.has_value()) {
-
+                    //HC: EAGAIN 9976
                     continue;
                 }
                 if (rc.value() != data.size()) {

@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -32,10 +32,12 @@ DEALINGS IN THE SOFTWARE.
 #include "UdpAccessPoint.hpp"
 #include "SearchNeighbourTask.h"
 #include "PingPongTask.h"
+#include "PingPongWithGenBlockHHashTask.hpp"
 
 #include <cpprest/json.h>
 using namespace web;
 ProtocolVer pro_ver = 0;
+T_SHA256 genesis_block_header_hash = T_SHA256(0);
 
 NodeManager::NodeManager() : _me(make_shared<HCNode>())
 {
@@ -52,9 +54,9 @@ void NodeManager::startMQHandler()
     _msghandler.registerTimer(1000 * 5 * 60, std::bind(&NodeManager::SaveLastActiveNodesToDB, this));
 
     NodeUPKeepThreadPool* nodeUpkeep = Singleton<NodeUPKeepThreadPool>::instance();
-
+    //HC: 程序启动后延时10秒获取邻居
     _msghandler.registerTimer(10 * 1000, std::bind(&NodeUPKeepThreadPool::NodeFind, nodeUpkeep), true);
-
+    //HC: 每间隔5min获取邻居
     _msghandler.registerTimer(300 * 1000, std::bind(&NodeUPKeepThreadPool::NodeFind, nodeUpkeep));
 
     _msghandler.registerTimer(12 * 1000, std::bind(&NodeUPKeepThreadPool::NodePing, nodeUpkeep), true);
@@ -64,9 +66,15 @@ void NodeManager::startMQHandler()
     _msghandler.registerTaskType<ActiveNodeTask>(TASKTYPE::ACTIVE_NODE);
     _msghandler.registerTaskType<PingPongTask>(TASKTYPE::PING_PONG);
     _msghandler.registerTaskType<PingPongRspTask>(TASKTYPE::PING_PONG_RSP);
+    _msghandler.registerTaskType<PingPongWithGenBlockHHashTask>(TASKTYPE::PING_PONG_WITH_GENHHASH);
+    _msghandler.registerTaskType<PingPongWithGenBlockHHashRspTask>(TASKTYPE::PING_PONG_WITH_GENHHASH_RSP);
+    _msghandler.registerTaskType<BroadcastNeighborTask>(TASKTYPE::BROADCAST_NEIGHBOR);
 
     m_actioncoststt.AddAction((int32_t)SERVICE::ToAllNodes, "ToAllNodes");
     m_actioncoststt.AddAction((int32_t)SERVICE::SendTo, "SendTo");
+
+    //HC: 定周期广播邻居节点信息
+    _msghandler.registerTimer(60 * 1000, std::bind(&NodeUPKeepThreadPool::BroadcastNeighbor, nodeUpkeep));
 
     _msghandler.start();
     cout << "NodeManager MQID: " << MQID() << endl;
@@ -90,7 +98,15 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         string data = msg->pop_front();
         ToAllNodes(data);
 
+        //HC: no respond to client
+        return;
+    }
+    case SERVICE::ToNodes: {
+        string data;
+        std::set<CUInt128>* pnodes = nullptr;
 
+        MQMsgPop(msg, data, pnodes);
+        ToNodes(data, *pnodes);
         return;
     }
     case SERVICE::UpdateNode: {
@@ -103,7 +119,7 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         CUInt128 nodeid(strnodeid);
         updateNode(nodeid, ip, port);
 
-
+        //HC: no respond to client
         return;
     }
     case SERVICE::GetNodesJson: {
@@ -224,7 +240,7 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
 
         sendToHlp(targetnodeid, msgbuf);
 
-
+        //HC: no respond to client
         return;
     }
     case SERVICE::MQCostStatistics: {
@@ -233,7 +249,7 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         break;
     }
     default:
-
+        //HC: throw it
         return;
     }
     realwrk->reply(reply_who, msg);
@@ -248,18 +264,35 @@ void NodeManager::ToAllNodes(const string& data)
                 _nodemap[nodeID]->send(data);
             }
         }
-    }
-    else {
+    } else {
         MQRequestNoWaitResult(NODE_SERVICE, (int)SERVICE::ToAllNodes, data);
     }
 }
+
+void NodeManager::ToNodes(const string& data, const set<CUInt128> &nodesExcluded)
+{
+    if (_msghandler.getID() == std::this_thread::get_id()) {
+        std::set<CUInt128> Nodes = m_actKBuchets.GetAllNodes();
+        for (CUInt128 nodeID : Nodes) {
+            if (_nodemap.count(nodeID) && !nodesExcluded.count(nodeID)) {
+                _nodemap[nodeID]->send(data);
+            }
+        }
+    } else {
+        zmsg* rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::ToNodes, data, &nodesExcluded);
+        if (rspmsg) {
+            delete rspmsg;
+        }
+
+    }
+}
+
 
 int NodeManager::GetNodesNum()
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
         return m_actKBuchets.GetNodesNum();
-    }
-    else {
+    } else {
         zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::GetNodesNum);
 
         int ret = 0;
@@ -283,8 +316,7 @@ void NodeManager::PickRandomNodes(int nNum, std::set<HCNode> &nodes)
                 nodes.insert(*n);
             }
         }
-    }
-    else {
+    } else {
         zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::PickRandomNodes, nNum, &nodes);
         if (rspmsg) {
             delete rspmsg;
@@ -297,8 +329,7 @@ void NodeManager::GetAllNodes(std::set<CUInt128> &setNodes)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
         setNodes = m_actKBuchets.GetAllNodes();
-    }
-    else {
+    } else {
         zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::GetAllNodes, &setNodes);
         if (rspmsg) {
             delete rspmsg;
@@ -310,8 +341,7 @@ bool NodeManager::IsNodeInKBuckets(const CUInt128 &nodeid)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
         return m_actKBuchets.IsNodeInKBuckets(nodeid);
-    }
-    else {
+    } else {
         zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::IsNodeInKBuckets, &nodeid);
         bool ret = false;
         if (rspmsg) {
@@ -326,8 +356,7 @@ void NodeManager::PickNeighbourNodes(const CUInt128 &nodeid, int num, vector<CUI
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
         vnodes = m_actKBuchets.PickNeighbourNodes(nodeid, num);
-    }
-    else {
+    } else {
         zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::PickNeighbourNodes, &nodeid, num, &vnodes);
 
         if (rspmsg) {
@@ -348,8 +377,7 @@ void NodeManager::PickNeighbourNodesEx(const CUInt128& nodeid, int num, vector<H
                 vnodes.push_back(*n);
             }
         }
-    }
-    else {
+    } else {
         zmsg* rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::PickNeighbourNodesEx, &nodeid, num, &vnodes);
         if (rspmsg) {
             delete rspmsg;
@@ -365,7 +393,7 @@ HCNodeSH NodeManager::getNode(const CUInt128 &nodeid)
         return no;
     }
     return _nodemap[nodeid];
- }
+}
 
 
 
@@ -391,7 +419,9 @@ void NodeManager::updateNode(const CUInt128 &nodeid, const string &ip, uint32_t 
 
         HCNodeSH neighborNode = std::make_shared<HCNode>(std::move(CUInt128(nodeid)));
         neighborNode->addAP(std::make_shared<UdpAccessPoint>(ip, port));
+        addNode(neighborNode);
 
+        /*
         CUInt128 id = neighborNode->getNodeId<CUInt128>();
         if (_nodemap.count(id)) {
             auto& n = _nodemap[id];
@@ -402,7 +432,7 @@ void NodeManager::updateNode(const CUInt128 &nodeid, const string &ip, uint32_t 
         }
         else {
             addNode(neighborNode);
-        }
+        }*/
     }
     else {
         string strnodeid = nodeid.ToHexString();
@@ -419,8 +449,7 @@ size_t NodeManager::GetNodesJson(vector<string>& vecNodes)
             vecNodes[i] = iter->second->serialize();
         }
         return vecNodes.size();
-    }
-    else {
+    } else {
         zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::GetNodesJson, &vecNodes);
 
         size_t ret = 0;
@@ -438,12 +467,18 @@ void NodeManager::loadMyself()
 
     pDb->query("SELECT * FROM myself;",
         [this](CppSQLite3Query & q) {
-        string id = q.getStringField("id");
-        string aps = q.getStringField("accesspoint");
+            string id = q.getStringField("id");
+            string aps = q.getStringField("accesspoint");
 
-        _me->setNodeId(id);
-        _me->parseAP(aps);
-    });
+            _me->setNodeId(id);
+            _me->parseAP(aps);
+        });
+}
+
+bool NodeManager::RemoveMyself()
+{
+    DBmgr* pDb = Singleton<DBmgr>::instance();
+    return pDb->exec("delete from myself;") > 0;
 }
 
 void NodeManager::saveMyself()
@@ -453,8 +488,8 @@ void NodeManager::saveMyself()
 
     pDb->query("SELECT count(*) as num FROM myself;",
         [this, &num](CppSQLite3Query & q) {
-        num = q.getIntField("num");
-    });
+            num = q.getIntField("num");
+        });
 
     if (num > 0) {
         pDb->exec("delete from myself;");
@@ -477,14 +512,13 @@ string NodeManager::toFormatString()
                 oss << "\t" << _nodemap[nodeID]->serialize() << endl;
             }
         }
-        oss << "Active neighbors num:" << setResult.size() << endl;
+        oss << "Total number: " << setResult.size() << endl;
 
         if (oss.str().empty()) {
             oss.str("\n\tempty");
         }
         return oss.str();
-    }
-    else {
+    } else {
         zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::ToFormatString);
 
         string ret;
@@ -502,8 +536,7 @@ std::string NodeManager::GetMQCostStatistics()
     if (_msghandler.getID() == std::this_thread::get_id()) {
 
         return m_actioncoststt.Statistics("NodeManager MQ cost statistics: ");
-    }
-    else {
+    } else {
         zmsg* rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::MQCostStatistics);
 
         string ret;
@@ -527,8 +560,7 @@ bool NodeManager::getNodeAP(const CUInt128 &nodeid, UdpAccessPoint *ap)
             }
         }
         return false;
-    }
-    else {
+    } else {
         zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::GetNodeAP, &nodeid, ap);
 
         bool ret = false;
@@ -561,15 +593,14 @@ bool NodeManager::parseNode(const string &node, UdpAccessPoint *ap)
                 return true;
             }
             return false;
-        });
+            });
 
         if (ret == std::end(aplist)) {
-
+            //HC: cannot find udp access point
             return false;
         }
         return true;
-    }
-    else {
+    } else {
         zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::ParseNode, node, ap);
 
         bool ret = false;
@@ -589,9 +620,9 @@ bool NodeManager::IsSeedServer(const HCNode & node)
         if (ss->getNodeId<CUInt128>() == node.getNodeId<CUInt128>())
             return true;
 
-
+        //HC: Here is lowly efficient, should improve in the future.
         string ap = ss->serializeAP();
-        if (!ap.empty() && 0 == ap.compare(node.serializeAP()))     {
+        if (!ap.empty() && 0 == ap.compare(node.serializeAP())) {
             return true;
         }
     }
@@ -613,14 +644,14 @@ void NodeManager::PushToKBuckets(const CUInt128 &nodeid)
     bool bret = m_actKBuchets.AddNode(nodeid, idRemove);
     if (!bret)
     {
-
+        //HC: 放到ping测试
         NodeUPKeepThreadPool* nodeUpkeepThreadpool = Singleton<NodeUPKeepThreadPool>::instance();
         nodeUpkeepThreadpool->AddToPingList(idRemove);
     }
 }
 
 
-
+//HC: 分析返还的节点列表值，记录到_nodemap， 同时提取出新节点，用于Ping测试
 void NodeManager::ParseNodeList(const string &nodes, vector<CUInt128> &vecNewNode)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
@@ -643,11 +674,10 @@ void NodeManager::ParseNodeList(const string &nodes, vector<CUInt128> &vecNewNod
             auto id = n->getNodeId<CUInt128>();
             vecNewNode.push_back(id);
 
-
+            //HC: in any case here should update into map
             addNode(n);
         }
-    }
-    else {
+    } else {
         zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::ParseNodeList, nodes, &vecNewNode);
         if (rspmsg) {
             delete rspmsg;
@@ -669,7 +699,7 @@ void NodeManager::AddToDeactiveNodeList(const CUInt128& nodeid)
     }
     m_lstDeactiveNode.push_back(CKBNode(nodeid));
 
-
+    //HC: 超过一定数量(100个)就保存50个到数据库
     if (m_lstDeactiveNode.size() > 100)
     {
         int nNum = 0;
@@ -697,7 +727,7 @@ void NodeManager::RemoveNodeFromDeactiveList(const CUInt128 &nodeid)
 
 bool NodeManager::SaveNodeToDB(const CUInt128 &nodeid, system_clock::time_point  lastActTime)
 {
-
+    //HC: Before call this function, make sure has already gotten lock for _nodemap by upper layer
     if (!_nodemap.count(nodeid))
         return false;
 
@@ -707,22 +737,21 @@ bool NodeManager::SaveNodeToDB(const CUInt128 &nodeid, system_clock::time_point 
 
     std::time_t lasttime = system_clock::to_time_t(lastActTime);
 
-
+    //HC: 注意更新时间
     DBmgr *pDb = Singleton<DBmgr>::instance();
 
     int num = 0;
     pDb->query("SELECT count(*) as num FROM neighbornodes where id=?;",
         [this, &num](CppSQLite3Query & q) {
-        num = q.getIntField("num");
-    }, nodeid.ToHexString().c_str());
+            num = q.getIntField("num");
+        }, nodeid.ToHexString().c_str());
 
     if (num > 0) {
         pDb->exec("update neighbornodes set accesspoint = ?,lasttime=? where id=?;",
             nodeSH->serializeAP().c_str(),
             lasttime,
             nodeSH->getNodeId<string>().c_str());
-    }
-    else {
+    } else {
         pDb->exec("insert into neighbornodes(id,accesspoint,lasttime) values(?,?,?);",
             nodeSH->getNodeId<string>().c_str(),
             nodeSH->serializeAP().c_str(),
@@ -734,19 +763,19 @@ bool NodeManager::SaveNodeToDB(const CUInt128 &nodeid, system_clock::time_point 
 
 void NodeManager::loadNeighbourNodes_New()
 {
-
+    //HC: 按最后活跃时间调入节点列表
     DBmgr *pDb = Singleton<DBmgr>::instance();
 
     pDb->query("SELECT * FROM neighbornodes ORDER BY lasttime DESC limit 32;",
         [this](CppSQLite3Query & q) {
-        string id = q.getStringField("id");
-        string aps = q.getStringField("accesspoint");
+            string id = q.getStringField("id");
+            string aps = q.getStringField("accesspoint");
 
-        CUInt128 nodeid(id);
-        HCNodeSH node = make_shared<HCNode>(std::move(nodeid));
-        node->parseAP(aps);
-        _nodemap[CUInt128(id)] = node;
-    });
+            CUInt128 nodeid(id);
+            HCNodeSH node = make_shared<HCNode>(std::move(nodeid));
+            node->parseAP(aps);
+            _nodemap[CUInt128(id)] = node;
+        });
 }
 
 void NodeManager::GetNodeMapNodes(vector<CUInt128>& vecNodes)
@@ -757,8 +786,7 @@ void NodeManager::GetNodeMapNodes(vector<CUInt128>& vecNodes)
             CUInt128 nodeID = iter->first;
             vecNodes.push_back(nodeID);
         }
-    }
-    else {
+    } else {
         zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::GetNodeMapNodes, &vecNodes);
         if (rspmsg) {
             delete rspmsg;
@@ -770,15 +798,17 @@ void NodeManager::EnableNodeActive(const CUInt128 &nodeid, bool bEnable)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
         if (bEnable) {
-            PushToKBuckets(nodeid);
+            if (_me->getNodeId<CUInt128>() != nodeid) {
+                PushToKBuckets(nodeid);
+            }
             RemoveNodeFromDeactiveList(nodeid);
-        }
-        else {
+        } else {
             GetKBuckets()->RemoveNode(nodeid);
-            AddToDeactiveNodeList(nodeid);
+            if (_me->getNodeId<CUInt128>() != nodeid) {
+                AddToDeactiveNodeList(nodeid);
+            }
         }
-    }
-    else {
+    } else {
         zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::EnableNodeActive, &nodeid, bEnable);
         if (rspmsg) {
             delete rspmsg;
@@ -792,7 +822,7 @@ void NodeManager::SaveLastActiveNodesToDB()
 
     int nMinutes = 5;
 
-
+    //HC: 产生随机ID, 获取距离最近的ID集合存储
     string str = HCNode::generateNodeId();
     vector<CUInt128> vecResult = m_actKBuchets.PickLastActiveNodes(CUInt128(str), 10, nMinutes);
     if (!vecResult.empty()) {
@@ -821,8 +851,7 @@ int NodeManager::getPeerList(CUInt128 excludeID, vector<CUInt128>& vecNodes, str
         std::stringstream oss;
         obj.serialize(oss);
         peerlist = std::move(oss.str());
-    }
-    else
+    } else
         peerlist = "";
     return k;
 }

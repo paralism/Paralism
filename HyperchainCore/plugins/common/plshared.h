@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -46,13 +46,13 @@ extern CWallet* pwalletMain;
 Array toArray(const list<string>& cmdlist);
 
 template<typename F, typename... Args>
-Value CallWithLock(F f, Args&&... args)
+Value CallWithLock(bool uselock, F f, Args&&... args)
 {
-    int nTry = 10;
+    int nTry = 150;
     CCriticalBlockT<pcstName> criticalblock(cs_main, __FILE__, __LINE__);
     while (nTry-- > 0) {
-        if (!criticalblock.TryEnter(__FILE__, __LINE__)) {
-            boost::this_thread::sleep_for(boost::chrono::milliseconds(200));
+        if (uselock && !criticalblock.TryEnter(__FILE__, __LINE__)) {
+            boost::this_thread::sleep_for(boost::chrono::milliseconds(100));
         }
         else {
             Value result;
@@ -75,12 +75,12 @@ Value CallWithLock(F f, Args&&... args)
     }
 busying:
     Object error;
-    error.push_back(Pair("cs_main", "The operator cannot be executed for internal busying(maybe mining for coin)"));
+    error.push_back(Pair("cs_wallet", "The operator cannot be executed for internal busying(maybe mining for coin)"));
     return error;
 }
 
 template<typename F>
-string doAction(F f, const list<string>& cmdlist, bool fhelp = false, std::function<Array(const list<string>&)> funca = toArray)
+string doAction(F f, const list<string>& cmdlist, bool fhelp = false, bool uselock = true, std::function<Array(const list<string>&)> funca = toArray)
 {
     Value ret;
     Array arr;
@@ -100,7 +100,7 @@ string doAction(F f, const list<string>& cmdlist, bool fhelp = false, std::funct
 
     arr = funca(cmdlist);
 
-    ret = CallWithLock(f, arr, false);
+    ret = CallWithLock(uselock, f, arr, false);
     if (ret.is_null()) {
         return "ok!";
     }
@@ -115,11 +115,16 @@ string doAction(F f, const list<string>& cmdlist, bool fhelp = false, std::funct
 
 std::string PrKey2WIF(const CPrivKey& prikey, bool isCompressed);
 bool WIF2PrKey(const string& strprivkey, bool isCompressed, std::vector<unsigned char>& vchPriKey);
-int impwalletkey(const string& strprivkey, string& msg);
+int impwalletkey(const string& strprivkey, const string& strlabel, string& msg);
 Value impwalletkeysfromfile(const Array& params, bool fHelp);
+
+Value expwalletkey(const Array& params, bool fHelp);
 Value expwalletkeystofile(const Array& params, bool fHelp);
 
 Value setdefaultkey(const Array& params, bool fHelp);
+
+string MakeNewKeyPair();
+
 
 
 

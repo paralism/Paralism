@@ -1,4 +1,4 @@
-#Copyright 2016-2021 hyperchain.net (Hyperchain)
+#Copyright 2016-2022 hyperchain.net (Hyperchain)
 #Distributed under the MIT software license, see the accompanying
 #file COPYING or https://opensource.org/licenses/MIT.
 
@@ -27,8 +27,8 @@ set(CMAKE_CXX_STANDARD 17)
 if(UNIX)
 
 SET(HC_FLAG "$ENV{CXXFLAGS} -Wall -fstack-protector -fstack-protector-all")
-SET(CMAKE_CXX_FLAGS_DEBUG "${HC_FLAG} -ggdb -O0 -g -Wl,--retain-symbols-file=${CMAKE_CURRENT_SOURCE_DIR}/../retain.lds -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../export.lds")
-SET(CMAKE_CXX_FLAGS_RELEASE "${HC_FLAG} -O3 -Wl,--retain-symbols-file=${CMAKE_CURRENT_SOURCE_DIR}/../retain.lds -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../export.lds")
+SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${HC_FLAG} -ggdb -O0 -g -Wl,--retain-symbols-file=${CMAKE_CURRENT_SOURCE_DIR}/../retain.lds -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../export.lds")
+SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} ${HC_FLAG} -O3 -Wl,--retain-symbols-file=${CMAKE_CURRENT_SOURCE_DIR}/../retain.lds -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../export.lds")
 
 elseif(WIN32)
 
@@ -53,8 +53,6 @@ IF( NOT CMAKE_BUILD_TYPE )
 ENDIF()
 message(STATUS "Build Type: " "${CMAKE_BUILD_TYPE}")
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
 #include current directory
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
@@ -73,18 +71,15 @@ find_package (Boost REQUIRED COMPONENTS system program_options date_time filesys
 
 set(HYPERCHAIN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
-
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../common)
-
 FILE(GLOB common_SRC "../common/*.cpp" "../common/cryptopp/*.cpp")
 FILE(GLOB common_HEAD "../common/*.h" "../common/json/*.h" "../common/cryptopp/*.h")
 
 
-FILE(GLOB paracoin_sp_SRC "support/*.cpp")
-FILE(GLOB paracoin_sp_HEAD "support/*.h")
+FILE(GLOB paracoin_sp_SRC "../common/support/*.cpp" "../common/util/*.cpp")
+FILE(GLOB paracoin_sp_HEAD "../common/support/*.h" "../common/util/*.h")
 
-FILE(GLOB paracoin_pp_SRC  "crypto/*.cpp" "crypto/ctaes/*.c" )
-FILE(GLOB paracoin_pp_HEAD "crypto/*.hpp" "crypto/ctaes/*.h" "crypto/equihash.tcc" )
+FILE(GLOB paracoin_pp_SRC  "../common/crypto/*.cpp" "../common/crypto/ctaes/*.c" )
+FILE(GLOB paracoin_pp_HEAD "../common/crypto/*.hpp" "../common/crypto/ctaes/*.h" "../common/crypto/equihash.tcc" )
 
 FILE(GLOB paracoin_SRC "*.cpp")
 FILE(GLOB paracoin_HEAD "*.h")
@@ -98,28 +93,29 @@ set(final_HEAD
 	${common_HEAD}
 	${paracon_HEAD}
 	${HyperChain_HEAD}
-	${node_HEAD}
-	${udt_HEAD}
-	${db_HEAD}
 	)
 
 set(final_SRC
 	${common_SRC}
 	${paracoin_SRC}
-	${node_SRC}
-	${udt_SRC}
-	${db_SRC}
 	)
 
 
 add_library(${PROJECT_NAME} SHARED ${final_SRC} ${final_HEAD})
-
+#set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "" SUFFIX "")
+set_target_properties(${PROJECT_NAME} PROPERTIES DEBUG_POSTFIX "")
 
 target_link_libraries(${PROJECT_NAME} Oracle::BerkeleyDB OpenSSL::Crypto hyperchainspace)
 target_link_libraries(${PROJECT_NAME} Boost::system Boost::program_options Boost::serialization Boost::iostreams Boost::filesystem Boost::thread Boost::fiber)
 target_link_libraries(${PROJECT_NAME} ethash)
 target_link_libraries(${PROJECT_NAME} cppzmq libzmq cppzmq-static libzmq-static)
-target_link_libraries(${PROJECT_NAME} quickjs)
+target_link_libraries(${PROJECT_NAME} quickjs secp256k1-lp)
+target_include_directories(${PROJECT_NAME} PRIVATE
+						${CMAKE_SOURCE_DIR}
+						${CMAKE_SOURCE_DIR}/thirdparty
+						${PROJECT_SOURCE_DIR}/../common
+						${PROJECT_SOURCE_DIR}/../common/secp256k1/include
+						)
 
 
 configure_file (

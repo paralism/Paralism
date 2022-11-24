@@ -1,4 +1,4 @@
-#Copyright 2016-2021 hyperchain.net (Hyperchain)
+#Copyright 2016-2022 hyperchain.net (Hyperchain)
 #Distributed under the MIT software license, see the accompanying
 #file COPYING or https://opensource.org/licenses/MIT.
 
@@ -27,8 +27,8 @@ set(CMAKE_CXX_STANDARD 17)
 if(UNIX)
 
 SET(HC_FLAG "$ENV{CXXFLAGS} -Wall -ggdb -fstack-protector -fstack-protector-all")
-SET(CMAKE_CXX_FLAGS_DEBUG "${HC_FLAG} -O0 -g")
-SET(CMAKE_CXX_FLAGS_RELEASE "${HC_FLAG} -O3")
+SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${HC_FLAG} -O0 -g")
+SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} ${HC_FLAG} -O3")
 
 elseif(WIN32)
 
@@ -47,10 +47,6 @@ IF( NOT CMAKE_BUILD_TYPE )
    SET(CMAKE_BUILD_TYPE Release)
 ENDIF()
 message(STATUS "Build Type: " "${CMAKE_BUILD_TYPE}")
-
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/..)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../chfast-ethash/include)
 
 #include current directory
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
@@ -83,34 +79,42 @@ set(final_SRC
 	${common_SRC}
 	${tools_SRC}
 	${paracoin_SRC}
-	${node_SRC}
-	${udt_SRC}
-	${db_SRC}
 	)
+
+function(projectlink NAME)
+	target_link_libraries(${NAME} Oracle::BerkeleyDB OpenSSL::Crypto hyperchainspace)
+	target_link_libraries(${NAME} Boost::system Boost::program_options Boost::serialization Boost::iostreams Boost::filesystem Boost::thread Boost::fiber Boost::chrono)
+	target_link_libraries(${NAME} ethash secp256k1-lp)
+	target_include_directories(${NAME} PRIVATE
+							${CMAKE_SOURCE_DIR}
+							${CMAKE_SOURCE_DIR}/thirdparty
+							${PROJECT_SOURCE_DIR}/..
+							${PROJECT_SOURCE_DIR}/../../common
+							${PROJECT_SOURCE_DIR}/../../common/secp256k1/include
+							${PROJECT_SOURCE_DIR}/../chfast-ethash/include
+							)
+
+	if(UNIX)
+		target_link_libraries(${NAME} dl ssl)
+	endif()
+endfunction(projectlink)
 
 
 add_executable(${PROJECT_NAME} "stat.cpp" ${final_SRC} ${final_HEAD} ${WRAP_FILES})
-target_link_libraries(${PROJECT_NAME} Oracle::BerkeleyDB OpenSSL::Crypto hyperchainspace)
-target_link_libraries(${PROJECT_NAME} Boost::system Boost::program_options Boost::serialization Boost::iostreams Boost::filesystem Boost::thread Boost::fiber Boost::chrono)
-target_link_libraries(${PROJECT_NAME} ethash)
+projectlink(${PROJECT_NAME})
 
 SET(MIGR migr)
 add_executable(${MIGR} "migr.cpp" ${final_SRC} ${final_HEAD} ${WRAP_FILES})
-target_link_libraries(${MIGR} Oracle::BerkeleyDB OpenSSL::Crypto hyperchainspace)
-target_link_libraries(${MIGR} Boost::system Boost::program_options Boost::serialization Boost::iostreams Boost::filesystem Boost::thread Boost::fiber Boost::chrono)
-target_link_libraries(${MIGR} ethash)
+projectlink(${MIGR})
 
 SET(WALLET_MGR walletmgr)
 add_executable(${WALLET_MGR} "walletmgr.cpp" ${final_SRC} ${final_HEAD} ${WRAP_FILES})
-target_link_libraries(${WALLET_MGR} Oracle::BerkeleyDB OpenSSL::Crypto hyperchainspace)
-target_link_libraries(${WALLET_MGR} Boost::system Boost::program_options Boost::serialization Boost::iostreams Boost::filesystem Boost::thread Boost::fiber Boost::chrono)
-target_link_libraries(${WALLET_MGR} ethash)
+projectlink(${WALLET_MGR})
 
-if(UNIX)
-target_link_libraries(${PROJECT_NAME} dl ssl)
-target_link_libraries(${MIGR} dl ssl)
-target_link_libraries(${WALLET_MGR} dl ssl)
-endif()
+SET(PARA_ASS paraspv)
+add_library(${PARA_ASS} SHARED "paraspv.cpp" ${final_SRC} ${final_HEAD} ${WRAP_FILES})
+projectlink(${PARA_ASS})
+
 
 configure_file (
 "${PROJECT_SOURCE_DIR}/../../../globalconfig.h.in"

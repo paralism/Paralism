@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -43,10 +43,10 @@ CBlock CreateGenesisBlock(uint32_t nTime, const char* pszTimestamp, uint64 nNonc
 class CryptoCurrency
 {
 public:
-    CryptoCurrency(bool isParaCoin = true)
+    CryptoCurrency(bool isParacoin = true)
     {
         SetDefaultParas();
-        if (!isParaCoin) {
+        if (!isParacoin) {
             clear();
         }
     }
@@ -101,13 +101,13 @@ public:
 
     bool ParseCoin(const CBlock& genesis);
 
-    static bool IsSysParaCoin(const string& shorthash);
+    static bool IsSysParacoin(const string& shorthash);
 
     bool IsCurrencySame(uint32_t hid, uint16_t chainnum, uint16_t localid) {
         return GetHID() == hid && GetChainNum() == chainnum && GetLocalID() == localid;
     }
 
-
+    //HC: if shorthash is empty, will scan the directory and find one
     bool ReadCoinFile(const string& name, string& shorthash, string& errormsg);
 
     static bool GetAllCoins(vector<CryptoCurrency>& coins);
@@ -158,10 +158,10 @@ private:
     std::map<std::string, std::string> GetPanGuSettings();
 
 private:
-
-
-
-
+    //HC: bits parameter decides the mining difficulty
+    //HC: if bits = 0x2000ffff,then target will be 0x00ffff00 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+    //HC: if bits = 0x20000fff,then target will be 0x000fff00 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+    //HC: if bits = 0x1f00ffff,then target will be 0x0000ffff 00000000 00000000 00000000 00000000 00000000 00000000 00000000
 
     std::map<std::string, std::string> mapSettings;
     static std::mutex muxUUID;

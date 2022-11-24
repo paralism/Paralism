@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -76,17 +76,35 @@ enum class TASKTYPE : unsigned char
     PING_PONG,
     PING_PONG_RSP,
 
-
+    //HC: ledger task
     LEDGER,
 
-
+    //HC: paracoin task
     PARACOIN,
 
     APP_CHAIN,
     APP_CHAIN_RSP,
     APP_ACTION,
 
+    PING_PONG_WITH_GENHHASH,
+    PING_PONG_WITH_GENHHASH_RSP,
 
+    //HC:内网穿透
+    BROADCAST_NEIGHBOR,
+
+    //HC:HASH CONSENSUS
+    ON_CHAIN_HASH,
+    ON_CHAIN_HASH_RSP,
+    ON_CHAIN_BLOCK,
+    GLOBAL_BUDDY_HASH_START_REQ,
+    GLOBAL_BUDDY_HASH_RSP,
+    GLOBAL_BUDDY_HASH_RSP_FORWARD,
+    GLOBAL_BUDDY_HASH_SEND_REQ,
+    GLOBAL_BUDDY_HASH_BLOCK,
+    GLOBAL_BUDDY_HASH_BLOCK_RSP,
+    GLOBAL_BUDDY_HASH_FORWARD,
+
+    //HC: internal task protocol
     ACTIVE_NODE = 0xfa
 };
 
@@ -139,6 +157,13 @@ public:
         *t = tt;
     }
 
+    static CUInt128 getTaskNodeID(const char* recvbuf)
+    {
+        uint8_t ut[CUInt128::value];
+        memcpy(ut, recvbuf, CUInt128::value);
+        CUInt128 nodeid = CUInt128(ut);
+        return nodeid;
+    }
 
 protected:
     bool _isRespond = false;

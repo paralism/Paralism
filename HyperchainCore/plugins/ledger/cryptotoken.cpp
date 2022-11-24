@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -28,7 +28,9 @@ DEALINGS IN THE SOFTWARE.
 
 #include "headers.h"
 #include "util.h"
+#include "plshared.h"
 #include "cryptotoken.h"
+#include "key_io.h"
 
 #include <assert.h>
 
@@ -117,7 +119,7 @@ CBlock CreateGenesisBlock(const string& name, const string& desc, vector<unsigne
     txNew.nVersion = 1;
     txNew.vin.resize(GENESISBLOCK_VIN_COUNT);
     txNew.vout.resize(1);
-
+    //HC: 486604799 ==> 1d00ffff Which is Bitcoin's nBits
     //txNew.vin[0].scriptSig = CScript() << 486604799 << CBigNum(4)
     txNew.vin[0].scriptSig = CScript()
         << std::vector<unsigned char>((const unsigned char*)(&name[0]), (const unsigned char*)(&name[0]) + name.size());
@@ -173,7 +175,7 @@ CBlock CreateGenesisBlock(uint32_t nTime, const string& name, const string& desc
     //const CScript genesisOutputScript = CScript()
     //    << ParseHex("04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f") << OP_CHECKSIG;
 
-
+    //HC: Here public key, will change to use Bitcoin address
     const CScript genesisOutputScript = CScript() << newPublicKey << OP_CHECKSIG;
 
     return CreateGenesisBlock(name, desc, logo, genesisOutputScript, nTime, nVersion, genesisSupply, vpubkeygenblk);
@@ -189,7 +191,7 @@ CBlock SearchGenesisBlock(uint32_t nTime, const string& name, const string& desc
     return genesis;
 }
 
-
+//HC: Use the following function to mine a new genesis block.
 void NewGenesisBlock(uint32_t nTime, const string& name, const string& desc, vector<unsigned char> logo, int32_t nVersion, const int64_t& genesisSupply,
     const GBPUBKEYS& vpubkeygenblk, CKey& newKey)
 {
@@ -211,7 +213,7 @@ void NewGenesisBlock(uint32_t nTime, const string& name, const string& desc, vec
 
 
 #undef printf
-    std::printf("%s:\nPublicKey: %s \nAddress: %s \nBlock Hash: %s\n MerkleRootHash: %s\n",
+    std::printf("%s:\nPublicKey: %s \nAddress: %s \nBlock Hash: %s\nMerkleRootHash: %s\n",
         __FUNCTION__,
         pubkey.c_str(),
         address.ToString().c_str(),
@@ -275,17 +277,23 @@ bool CryptoToken::SearchPublicKeyIdx()
         int i = 0;
         for (auto& keystr : _vpublickeygenblk) {
 
-            CBitcoinAddress coinaddress = CBitcoinAddress(keystr);
-            if (pwalletMain->HaveKey(coinaddress)) {
-                _npkidx = i;
-                break;
+            CPubKey publickey = CPubKey::NewPubKey(keystr, true);
+            CTxDestination address = GetDestinationForKey(publickey, DEFAULT_ADDRESS_TYPE);
+
+            if (IsValidDestination(address)) {
+                CKey keyPair;
+                string error;
+                if (pwalletMain->GetKeyFromDestination(address, keyPair, error).IsValid()) {
+                    _npkidx = i;
+                    break;
+                }
             }
             i++;
         }
     }
 
     if (_npkidx != curr_pkidx) {
-
+        //HC: pkidx has changed
         return true;
     }
     return false;
@@ -324,7 +332,7 @@ bool CryptoToken::ParseTimestamp(const CBlock& genesis)
     }
     _mapSettings["description"] = string(vch.begin(), vch.end());
 
-
+    //HC: public key
     vch.clear();
     if (!scriptSig.GetOp(script_iter, opcode, vch)) {
         return false;
@@ -394,7 +402,7 @@ bool CryptoToken::IsSysToken(const string& shorthash)
     return shorthash == GetHashPrefixOfSysGenesis();
 }
 
-
+//HC: if shorthash is empty,then find one
 bool CryptoToken::ReadTokenFile(const string& name, string& shorthash, string& errormsg)
 {
     if (shorthash.empty() && !name.empty()) {
@@ -592,7 +600,7 @@ CBlock CryptoToken::GetGenesisBlock()
 }
 
 
-
+//HC: Use the following function to mine a new genesis block.
 CBlock CryptoToken::MineGenesisBlock(const CKey& newKey)
 {
     string& logo = _mapSettings["logo"];
@@ -622,11 +630,8 @@ CBlock CryptoToken::MineGenesisBlock(const CKey& newKey)
     _mapSettings["publickey"] = pubkey;
     _mapSettings["address"] = address.ToString();
 
-
-#undef printf
-    std::printf("%s:\nPublicKey: %s \nAddress: %s \nBlock Hash: %s\n MerkleRootHash: %s\n",
-        __FUNCTION__,
-        pubkey.c_str(),
+    (std::printf)("\nPrivate key(WIF-compressed): %s \nAddress: %s \nBlock Hash: %s\nMerkleRootHash: %s\n",
+        PrKey2WIF(newKey.GetPrivKey(), true).c_str(),
         address.ToString().c_str(),
         strhash.c_str(),
         strMerkleRoothash.c_str());
@@ -636,20 +641,39 @@ CBlock CryptoToken::MineGenesisBlock(const CKey& newKey)
 
 bool CryptoToken::AddKeyToWallet(const CKey& newKey)
 {
-
+    //HC: write key into new application's wallet
     string strWallet = GetTokenWalletFile(GetTokenConfigPath());
     {
         CWallet wallet(strWallet.c_str());
         {
             CWalletDB db(wallet.strWalletFile, "cr+");
         }
-        if (!wallet.AddKey(newKey)) {
+        std::vector<unsigned char> vchDefaultKey = newKey.GetPubKey();
+
+        CPubKey publickey = CPubKey::NewPubKey(vchDefaultKey, true);
+
+        std::vector<unsigned char> vch_short;
+        vch_short.insert(vch_short.end(), publickey.begin(), publickey.end());
+
+        LegacyScriptPubKeyMan* pman = wallet.GetOrCreateLegacyScriptPubKeyMan();
+        if (!pman) {
             return false;
         }
 
-        std::vector<unsigned char> vchDefaultKey = newKey.GetPubKey();
-        if (wallet.SetDefaultKey(newKey.GetPubKey())) {
-            return wallet.SetAddressBookName(CBitcoinAddress(vchDefaultKey), "");
+        //HC: Add uncompressed key
+        if (!wallet.AddKey(vchDefaultKey, newKey)) {
+            return false;
+        }
+
+        //HC: Add compressed key
+        if (!wallet.AddKey(vch_short, newKey)) {
+            return false;
+        }
+
+        if (wallet.SetDefaultKey(vch_short)) {
+
+            CTxDestination dest = GetDestinationForKey(publickey, DEFAULT_ADDRESS_TYPE);
+            return wallet.SetAddressBookName(dest, "");
         }
         return false;
     }
@@ -740,15 +764,15 @@ void CryptoToken::SetDefaultParas()
                        {"description","www.hyperchain.net"},
                        {"logo",""},
                        {"version","2"},
-                       {"supply","100000000"},
+                       {"supply","100000000"},   //HC: Initial Supply
                        {"time","1568277586"},
-                       {"address","1CJmHdwaCvzkoY4vGJTM9v8CCA9Ge1kLmw"},
+                       {"address","1CJmHdwaCvzkoY4vGJTM9v8CCA9Ge1kLmw"}, //HC: Initial Supply's owner address, it is uint160.tostring(), CBitcoinAddress address(publickey)
                        {"publickey","04ad943c2f812817b188e65b3ce7ee8c808ba14e146044ee8abf5926e371560807f37f28c84906e0779b3552425e9d804c068173154ca35c7a33e5579fab381307"},
                        {"hashgenesisblock","f3cf23f0f7b4633aa5765cd79b8a50e8098ee31b338a4cb70ff4e6d0d83ad614"},
                        {"hashmerkleroot","d57bbb366497bd47c38ac2038bf3d8f4852e547d1d5438e6abc1b7751f50325c"},
                        {"hid","0"},
-                       {"chainnum","1"},
-                       {"localid","0"},
+                       {"chainnum","1"},         //HC: any value, but don't set 0
+                       {"localid","0"},          //HC: any value
     };
 }
 
@@ -762,21 +786,21 @@ void CryptoToken::SelectNetWorkParas()
                       {"description","www.hyperchain.net"},
                       {"logo",""},
                       {"version","2"},
-                      {"supply","100000000"},
+                      {"supply","100000000"},                           //HC: Initial Supply
                       {"time","1572531412"},
-                      {"address","1Ao8Rk36otR5uksWQffCgcvQ6Y5YNkDB8J"},
+                      {"address","1Ao8Rk36otR5uksWQffCgcvQ6Y5YNkDB8J"}, //HC: Initial Supply's owner address, it is uint160.tostring(), CBitcoinAddress address(publickey)
                       {"publickey","040b29eb299db9348698e3bad3fa0532e98a4ceccf4d55786ea97222647ad0bf3327fca5cfef0809638bb67c5f9ca0b5badad32ff78203408eef64b75702990ba8"},
                       {"hashgenesisblock","ffba651f664db75948190eaf9234a4b6646a1c6b98e5cbc74deda4a4668fb3aa"},
                       {"hashmerkleroot","bb076e94df2fc651e7040d2e7ba0232fc37b9b2bb511b33f967ce1d5b9cee4cd"},
                       {"hid","22030"},
-                      //{"chainnum","1"},
+                      //{"chainnum","1"}, //HC: because no built-in ledger chain, so change into a invalid chainnum and localid
                       {"chainnum","0"},
                       {"localid","0"},
             };
             return;
         }
     }
-
+    //HC: sandbox
     SetDefaultParas();
 }
 

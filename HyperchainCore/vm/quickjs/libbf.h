@@ -35,7 +35,7 @@
 #endif
 
 #if defined(_MSC_VER)
-
+//HC: undefined __int128
 #define LIMB_LOG2_BITS 5
 #endif
 

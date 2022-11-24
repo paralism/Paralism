@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -44,6 +44,7 @@ public:
     int open(const char * dbpath);
     bool isOpen();
     int close();
+    bool bRecord;
 
 public:
     class Transaction {
@@ -104,6 +105,7 @@ public:
     int getHeaderByHash(T_HYPERBLOCKHEADER &header, uint64 hid, const T_SHA256& headerhash);
     int getHeaderIndexByHash(T_HEADERINDEX &headerindex, const T_SHA256& headerhash);
     int getAllSingleHeaderInfo(multimap<uint64, T_SINGLEHEADER> &singleheadermap);
+    int getHeaderIndex(MAP_T_HEADERINDEX& headerindexmap, int page, int size = 10000);
     int getAllHeaderIndex(MAP_T_HEADERINDEX &headerindexmap);
     int updateHeaderIndex(const T_HEADERINDEX& headerindex);
     int getAllHeaderHashInfo(std::map<uint64, T_SHA256> &headerhashmap);
@@ -126,6 +128,7 @@ public:
     int updateSucceedRequestIDs(const string &requestid);
     int getBatchOnChainData(const string &requestid, string &data);
 
+    int getHeaderIndexRecordNumber();
     bool isHeaderIndexExisted(uint64 hid);
     //bool isHeaderExistedbyHash(T_SHA256 hash);
     bool isBlockExisted(uint64 hid);
@@ -149,6 +152,15 @@ public:
     int updateBatchOnChainState(const string &requestid, const string &newrequestid);
     void initOnChainState(uint64 hid);
     void rehandleOnChainState(uint64 hid);
+
+    int RecordRequestTime(const string& requestid, const string& accesspointint, int& queuenum);
+    void RecordOnchain1Time(const string& requestid);
+    void RecordOnchain2Time(const string& requestid);
+    void RecordOnchainTime(const string& requestid);
+    void RecordMatureTime(const string& requestid);
+    void ResetOnchainTime(uint64 hid);
+
+    void RecordMsgInfo(uint64 msgsize, string function, string toPeer);
 
     void bindParam(CppSQLite3Statement &stmt, int i)
     {}
@@ -201,7 +213,7 @@ public:
         return true;
     }
 
-
+    //HC: return count of rows changed
     template<typename... Args>
     int exec(const string & sql, Args&&... args)
     {

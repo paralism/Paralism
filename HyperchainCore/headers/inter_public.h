@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -44,7 +44,7 @@ DEALINGS IN THE SOFTWARE.
 #include "shastruct.h"
 
 
-
+//HC: max seconds
 #define MAX_SECS_COUNTER (9999999999)
 #define MAX_SECS_COUNTER (9999999999)
 #define MAX_SEND_NAT_TRAVERSAL_NODE_NUM (2)
@@ -54,9 +54,17 @@ DEALINGS IN THE SOFTWARE.
 #define MAX_RECV_UDP_BUF_LEN			(64*1024)
 #define	MAX_NATTRAVERSAL_PERIOD					(10*60)
 #define RANDTIME						(60)
+
 #define LOCALBUDDYTIME                  (2*60)
 #define GLOBALBUDDYTIME                 (4*60)
 #define NEXTBUDDYTIME					(5*60)
+/*
+//更紧凑的周期
+#define NEXTBUDDYTIME                   (3*60)
+#define LOCALBUDDYTIME                  (75)
+#define GLOBALBUDDYTIME                 (140)
+*/
+
 #define LIST_BUDDY_RSP_NUM				(3)
 #define BUDDYSCRIPT						("buddy_script")
 #define AUTHKEY							("auth_key")
@@ -78,7 +86,7 @@ DEALINGS IN THE SOFTWARE.
 #define DIVIDEND_NUM					(2)
 #define MAX_NUM_LEN						(256)
 #define ONE_LOCAL_BLOCK				    (1)
-#define NOT_START_BUDDY_NUM				(1)
+#define NOT_START_BUDDY_NUM				(2)
 #define LEAST_START_GLOBAL_BUDDY_NUM    (2)
 #define HYPERBLOCK_SYNC_TIMES			(2)
 #define REQUEST_ID_LEN					(32)
@@ -87,16 +95,16 @@ DEALINGS IN THE SOFTWARE.
 enum _ePoeReqState
 {
     DEFAULT_REGISREQ_STATE = 0,
-    RECV,
-    SEND,
-    STOP,
-    CONFIRMING,
-    CONFIRMED,
-    REJECTED,
-//	OTHERREFUSEME,
-//	ALLCONFIRMED,
-//	ALLOTHERREFUSEME,
-//	ALLMYREFUSEOTHER
+    RECV,													//HC: 已接收
+    SEND,													//HC: 已发送
+    STOP,													//HC: 中止
+    CONFIRMING,												//HC: 待确认
+    CONFIRMED,												//HC: 已确认
+    REJECTED,												//HC: 已拒绝
+//	OTHERREFUSEME,											//HC: 被拒绝
+//	ALLCONFIRMED,											//HC: 累计已确认
+//	ALLOTHERREFUSEME,										//HC: 累计被拒绝
+//	ALLMYREFUSEOTHER										//HC: 累计已拒绝
 };
 
 enum _eblocktype
@@ -108,21 +116,21 @@ enum _eblocktype
 enum _eNodeState
 {
     DEFAULT_NODE_STATE = 0,
-    SYNC_DATA_STATE,
-    IDLE_STATE,
-    LOCAL_BUDDY_STATE,
-    GLOBAL_BUDDY_STATE,
-    ON_CHAIN_SUCCESS,
-    ON_CHAIN_FAILED,
-    NODE_MALICE
+    SYNC_DATA_STATE,		//HC: 正在同步数据
+    IDLE_STATE,				//HC: 空闲状态
+    LOCAL_BUDDY_STATE,		//HC: 局部共识
+    GLOBAL_BUDDY_STATE,		//HC: 全局共识
+    ON_CHAIN_SUCCESS,		//HC: 上链成功
+    ON_CHAIN_FAILED,		//HC: 上链失败
+    NODE_MALICE				//HC: 恶意节点
 };
 
 
 enum _eChainState
 {
     CHAIN_DEFAULT_STATE = 0,
-    CHAIN_CONFIRMING,
-    CHAIN_CONFIRMED
+    CHAIN_CONFIRMING,				//HC: 链中所有block全部确认（UI中对应的绿色）
+    CHAIN_CONFIRMED					//HC: 链中有未确认的block（UI中对应的黄色）
 };
 
 inline
@@ -145,7 +153,7 @@ std::string StringFormat(const char* fmt, Args&&... args)
     std::string buf(expandedlen + 1, 0);
     std::snprintf(&buf[0], buf.size(), fmt, StringConvertToCharBuf(args)...);
 
-
+    //HC: remove '\0'
     buf.pop_back();
 
     return buf;
@@ -159,9 +167,9 @@ std::string StringFormat(const char* fmt, Args&&... args)
 
 typedef struct _tLocalChain
 {
-    uint16	iId;
-    uint64	iAllChainNodeNum;
-    _eChainState	eState;
+    uint16	iId;							//HC: 链标识
+    uint64	iAllChainNodeNum;				//HC: 链中节点数量
+    _eChainState	eState;					//HC: 链的状态
 
     void Set(uint16 id, uint64 allChainNodeNum, _eChainState state);
 
@@ -173,17 +181,17 @@ typedef struct _tLocalChain
 
 }TGETFRIENDCHAININFO, *P_TGETFRIENDCHAININFO;
 
-
+//HC: 一个存证文件信息
 typedef struct _tPoeInfo
 {
-    string				cFileName;
-    string				cCustomInfo;
-    string				cRightOwner;
-    string				cFileHash;
-    int16				iFileState;
-    uint64				tRegisTime;
-    uint64				iFileSize;
-    uint64				iBlocknum;
+    string				cFileName;			//HC: 文件名
+    string				cCustomInfo;		//HC: 自定义信息
+    string				cRightOwner;		//HC: 文件所有者
+    string				cFileHash;			//HC: 文件hash
+    int16				iFileState;			//HC: 文件状态
+    uint64				tRegisTime;			//HC: 存证时间
+    uint64				iFileSize;			//HC: 文件大小
+    uint64				iBlocknum;			//HC: 块号
 
     _tPoeInfo()
     {
@@ -213,15 +221,15 @@ typedef struct _tPoeInfo
 
 }TEVIDENCEINFO, *P_TEVIDENCEINFO;
 
-
+//HC: 浏览器显示信息
 typedef struct _tChainQueryStru
 {
-    uint64		iBlockNo;
-    uint64		iJoinedNodeNum;
-    uint64		iLocalBlockNum;
-    uint16		iLocalChainNum;
-    //uint16		iLongestChain;
-    uint64		tTimeStamp;
+    uint64		iBlockNo;								//HC: 块号
+    uint64		iJoinedNodeNum;							//HC: 参与节点数
+    uint64		iLocalBlockNum;							//HC: 数据块个数
+    uint16		iLocalChainNum;							//HC: 数据链条
+    //uint16		iLongestChain;						//HC: 最长链
+    uint64		tTimeStamp;								//HC: 时间戳
     _tPoeInfo tPoeRecordInfo;
 
     _tChainQueryStru()
@@ -252,7 +260,7 @@ typedef struct _tChainQueryStru
 }TBROWSERSHOWINFO, *P_TBROWSERSHOWINFO;
 #pragma pack(pop)
 
-
+//HC: by:changhua
 typedef struct _tUpqueue
 {
     uint64 uiID;
@@ -262,10 +270,10 @@ typedef struct _tUpqueue
 
 typedef struct _tlocalblockaddress
 {
-    uint64 hid = 0;
+    uint64 hid = 0;            //HC: hyper block id
     uint16 chainnum = 0;
     uint16 id = 0;
-    string ns;
+    string ns;                  //HC: namespace
 
     void set(uint64 uihid, uint16 chain, uint16 uiid, string nspace ="") {
         hid = uihid;
@@ -275,7 +283,7 @@ typedef struct _tlocalblockaddress
     }
 
     bool isValid() const {
-        return hid >= uint64(0) && id > (uint16)0 && id < 10000 &&
+        return id > (uint16)0 && id < 10000 &&
             chainnum > (uint16)0 && chainnum < 5000;
     }
 
@@ -285,7 +293,7 @@ typedef struct _tlocalblockaddress
 
     bool fromstring(const string& addr)
     {
-
+        //HC: Use PRId64 : (Don't forget to include <inttypes.h>)
         //return (std::sscanf(addr.c_str(),"[%lld,%d,%d]",&hid,&chainnum,&id) !=3);
         return (std::sscanf(addr.c_str(),"[%" PRId64 ",%hd,%hd]", &hid, &chainnum, &id) !=3);
     }
@@ -359,7 +367,7 @@ typedef struct _tlocalblockaddress
 
 
 
-
+//HC: 每一个块信息
 typedef struct _tBlockInfo
 {
     uint64 iBlockNo;

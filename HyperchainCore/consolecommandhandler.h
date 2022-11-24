@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -51,8 +51,8 @@ public:
     void get(string& strIP, int &port);
     void set(const string& strIP, int port);
 protected:
-    int_type overflow(int_type c);
-    int sync();
+    virtual int_type overflow(int_type c);
+    virtual int sync();
 
 private:
     void connect_to();
@@ -104,6 +104,8 @@ public:
     explicit ConsoleCommandHandler(std::streambuf* in_smbuf, std::streambuf *out_smbuf);
     ~ConsoleCommandHandler();
 
+    bool _bUpdate;
+
     enum class role : char
     {
         CLIENT,
@@ -115,7 +117,7 @@ public:
     void run(role r);
     void run_as_client();
 
-
+    //HC: if value of savingcommand is not null, save savingcommand into command history, else save command.
     void handleCommand(const string &command, string &savingcommand);
     void stop();
 
@@ -157,12 +159,14 @@ private:
     void showLocalData();
 
     void showUdpDetails();
+    void showConsensusInfo();
+    void showInnerBasicInfo();
     void showHyperBlock(uint64 hid, bool isShowDetails);
 
     void downloadHyperBlock(const list<string> &commlist);
     void downloadBlockHeader(const list<string> &commlist);
     void searchLocalHyperBlock(const list<string> &commlist);
-    void showInnerDataStruct();
+    void showInnerDataStruct(const list<string>& paralist);
     void resolveAppData(const list<string> &paralist);
     void debug(const list<string> &paralist);
 
@@ -187,9 +191,12 @@ private:
     void appConsoleCmd(const string& appname, const list<string>& cmdlist, string& savingcommand);
     void handleToken(const list<string>& cmdlist, string& savingcommand);
     void handleCoin(const list<string>& cmdlist, string& savingcommand);
+    void handleEth(const list<string>& cmdlist, string& savingcommand);
 
-
+    //HC: use to test paracoin and ledger
     void simulateHyperBlkUpdated(const list<string>& cmdlist);
+
+    bool UpdateProgram();
 
 };
 

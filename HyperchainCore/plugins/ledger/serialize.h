@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -104,7 +104,7 @@ enum
     SER_NETWORK         = (1 << 0),
     SER_DISK            = (1 << 1),
     SER_GETHASH         = (1 << 2),
-    SER_BUDDYCONSENSUS  = (1 << 3),
+    SER_BUDDYCONSENSUS  = (1 << 3), //HC:
 
     // modifiers
     SER_SKIPSIG         = (1 << 16),

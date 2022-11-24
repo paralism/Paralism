@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -28,7 +28,7 @@ DEALINGS IN THE SOFTWARE.
 
 
 
-
+//HC: only support little endian
 typedef struct tagProtocolVer
 {
     enum class NET : char {
@@ -61,13 +61,13 @@ typedef struct tagProtocolVer
         return *this;
     }
 
-
+//HC: big endian
     //static inline void setNetType(char *buf, NET n)
     //{
     //    *buf = (*buf & 0x0f) | (static_cast<char>(n) << 4) ;
     //}
 
-
+//HC: little endian
     static void setVerNetType(char *buf, NET n);
 
     bool checkVersion();

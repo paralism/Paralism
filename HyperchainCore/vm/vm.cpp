@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -55,7 +55,7 @@ namespace qjs {
             return JS_EXCEPTION;
         }
 
-
+        //HC: Check the hash
         if (!localblkhash.empty()) {
             if (localblkhash.size() != DEF_SHA256_LEN * 2) {
                 JS_ThrowReferenceError(ctx, "invalid hash string, length must be 0 or %d", DEF_SHA256_LEN * 2);
@@ -71,7 +71,7 @@ namespace qjs {
         return JS_NULL;
     }
 
-
+    //HC: Replace default module name(0e 63 6f 6d 70 69 6c 65 .compile) into newmodname
     JSValue RenameModuleName(JSContext* ctx, string& script, const string& newmodname)
     {
         qjs::Context qjsctx(JS_DupContext(ctx));
@@ -87,10 +87,10 @@ namespace qjs {
         return JS_NULL;
     }
 
-
-
-
-
+    //HC: import import_identifier as modulename from <Contract.%d.%d.%d>
+    //HC: For example: import * as sys from <Contract.1000.1.5>
+    //HC: The following mode don't supported:
+    //HC: import {class1, class2, function1, funtion2, var1, var2} from <Contract.1000.1.5>
     JSValue ImportContractEx(JSContext *ctx, vector<int> tripleaddr, const std::string& localblkhash, const string& modulename)
     {
         T_LOCALBLOCK localblock;
@@ -112,7 +112,7 @@ namespace qjs {
         std::string_view jscode(script);
         qjsctx.evalBinary(jscode);
 
-
+        //HC: The following string must end with \0, and pass char* type into eval function
         std::string strScript = StringFormat("import * as %s from '%s'; globalThis.%s = %s;\n\0",
             modulename, strModuleFile, modulename, modulename);
 
@@ -136,7 +136,7 @@ namespace qjs {
         std::shared_ptr<qjs::Context> tmpspctx;
 
         try {
-
+            //HC: Here use a temporary qjs::Context to avoid variable redeclaration conflict
             tmpspctx.reset(new qjs::Context(rt));
             VM::executeIsolated(tmpspctx, jscode, value);
         }
@@ -186,11 +186,11 @@ namespace qjs {
 
         js_std_init_handlers(rt);
 
-
+        //HC: loader for ES6 modules
         JS_SetModuleLoaderFunc(rt, nullptr, js_module_loader, nullptr);
         js_std_add_helpers(ctx, 0, nullptr);
 
-
+        //HC: system modules
         js_init_module_std(ctx, "std");
         js_init_module_os(ctx, "os");
 
@@ -200,7 +200,7 @@ namespace qjs {
             .fun<&contract::importas>("importas")
             .fun<&contract::call>("call");
 
-
+        //HC: make 'std' 'os' and 'contract' visible to non module code
         const char* str = "import * as std from 'std';\n"
             "import * as os from 'os';\n"
             "import * as hccontract from 'ContractM';\n"
@@ -230,8 +230,8 @@ namespace qjs {
     {
         try {
             string_view vSrc(js_sourcecode);
-
-
+            //HC: Notice: don't change the second parameter value
+            //HC: else you must be keep consistent content with function of RenameModuleName
             qjs::Value obj = tls_VMContext->eval(vSrc, "compile", compile_flags | JS_EVAL_FLAG_COMPILE_ONLY | JS_EVAL_TYPE_GLOBAL);
 
             js_bytecode = tls_VMContext->dumpObject(obj);

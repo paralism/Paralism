@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -50,23 +50,23 @@ extern int nConnectTimeout;
 
 
 
-inline unsigned int ReceiveBufferSize() { return 1000*GetArg("-maxreceivebuffer", 10*1000); }
-inline unsigned int SendBufferSize() { return 1000*GetArg("-maxsendbuffer", 10*1000); }
+inline unsigned int ReceiveBufferSize() { return 1000 * GetArg("-maxreceivebuffer", 10 * 1000); }
+inline unsigned int SendBufferSize() { return 1000 * GetArg("-maxsendbuffer", 10 * 1000); }
 static const unsigned int PUBLISH_HOPS = 5;
 
-bool ConnectSocket(const CAddress& addrConnect, SOCKET& hSocketRet, int nTimeout=nConnectTimeout);
-bool Lookup(const char *pszName, std::vector<CAddress>& vaddr, int nServices, int nMaxSolutions, bool fAllowLookup = false, int portDefault = 0, bool fAllowPort = false);
-bool Lookup(const char *pszName, CAddress& addr, int nServices, bool fAllowLookup = false, int portDefault = 0, bool fAllowPort = false);
+bool ConnectSocket(const CAddress& addrConnect, SOCKET& hSocketRet, int nTimeout = nConnectTimeout);
+bool Lookup(const char* pszName, std::vector<CAddress>& vaddr, int nServices, int nMaxSolutions, bool fAllowLookup = false, int portDefault = 0, bool fAllowPort = false);
+bool Lookup(const char* pszName, CAddress& addr, int nServices, bool fAllowLookup = false, int portDefault = 0, bool fAllowPort = false);
 bool GetMyExternalIP(unsigned int& ipRet);
-bool AddAddress(CAddress addr, int64 nTimePenalty=0, CAddrDB *pAddrDB=NULL);
+bool AddAddress(CAddress addr, int64 nTimePenalty = 0, CAddrDB* pAddrDB = NULL);
 void AddressCurrentlyConnected(const CAddress& addr);
 CNode* FindNode(unsigned int ip);
-CNode* ConnectNode(CAddress addrConnect, int64 nTimeout=0);
+CNode* ConnectNode(CAddress addrConnect, int64 nTimeout = 0);
 void AbandonRequests(void (*fn)(void*, CDataStream&), void* param1);
 bool AnySubscribed(unsigned int nChannel);
 void MapPort(bool fMapPort);
 void DNSAddressSeed();
-bool BindListenPort(std::string& strError=REF(std::string()));
+bool BindListenPort(std::string& strError = REF(std::string()));
 void StartNode(void* parg);
 bool StopNode(bool isStopRPC = true);
 
@@ -74,6 +74,8 @@ enum
 {
     MSG_TX = 1,
     MSG_BLOCK,
+    MSG_BLOCKEX,    //HC: reply type of "fgetblocks"
+    MSG_BLOCKEX_R,  //HC: reply type of "rgetblocks"
 };
 
 class CRequestTracker
@@ -82,7 +84,7 @@ public:
     void (*fn)(void*, CDataStream&);
     void* param1;
 
-    explicit CRequestTracker(void (*fnIn)(void*, CDataStream&)=NULL, void* param1In=NULL)
+    explicit CRequestTracker(void (*fnIn)(void*, CDataStream&) = NULL, void* param1In = NULL)
     {
         fn = fnIn;
         param1 = param1In;
@@ -113,7 +115,9 @@ extern CCriticalSection cs_mapAddresses;
 extern std::map<CInv, CDataStream> mapRelay;
 extern std::deque<std::pair<int64, CInv> > vRelayExpiration;
 extern CCriticalSection cs_mapRelay;
+
 extern std::map<CInv, int64> mapAlreadyAskedFor;
+extern CCriticalSection cs_mapAlreadyAskFor;
 
 // Settings
 extern int fUseProxy;
@@ -133,7 +137,7 @@ public:
     int64 nLastRecv;
     int64 nLastSendEmpty;
     int64 nTimeConnected;
-
+    //HC: PushMessage(getchkblock) time
     int64 nLastGetchkblk = 0;
     unsigned int nHeaderStart;
     unsigned int nMessageStart;
@@ -150,11 +154,11 @@ public:
 
     int nPKeyIdx = -1;            //public key index, if it is a node generating block, then nPKeyIdx >= 0
 
-
+    //HC: 节点评分,和发送流量控制，避免网速不匹配导致请求过多而浪费网络带宽
     int nScore = 0;
     int64 tmLastReqBlk = 0;
-    int nMinInterval = 5;      //HC����������С���
-    int64 nReqBlkInterval = 5;
+    int nMinInterval = 5;      //HC：块请求最小间隔
+    int64 nReqBlkInterval = 5; //HC: 块请求间隔，nScore越小， nReqblk 越大
 
     void IncreReqBlkInterval();
     void DecreReqBlkInterval(int64 timeReqBlk);
@@ -195,14 +199,14 @@ public:
     // publish and subscription
     std::vector<char> vfSubscribe;
 
-
+    //HC:
     std::map<uint256, std::tuple<int64, uint256>> mapBlockSent;
 
-
+    //HC:
     uint256 hashCheckPointBlock = 0;
-    uint32_t nHeightCheckPointBlock  = 0;
+    uint32_t nHeightCheckPointBlock = 0;
 
-    CNode(SOCKET hSocketIn, CAddress addrIn, bool fInboundIn=false): nodeid("")
+    CNode(SOCKET hSocketIn, CAddress addrIn, bool fInboundIn = false) : nodeid("")
     {
         nServices = 0;
         hSocket = hSocketIn;
@@ -264,7 +268,7 @@ public:
         return std::max(nRefCount, 0) + (GetTime() < nReleaseTime ? 1 : 0);
     }
 
-    CNode* AddRef(int64 nTimeout=0)
+    CNode* AddRef(int64 nTimeout = 0)
     {
         if (nTimeout != 0)
             nReleaseTime = std::max(nReleaseTime, GetTime() + nTimeout);
@@ -297,7 +301,7 @@ public:
 
     void AddInventoryKnown(const CInv& inv)
     {
-
+        //HC: do nothing
         return;
         CRITICAL_BLOCK(cs_inventory)
             setInventoryKnown.insert(inv);
@@ -307,9 +311,9 @@ public:
     {
         CRITICAL_BLOCK(cs_inventory)
         {
-
+            //HC: Don't put into setInventoryKnown
             //if (!setInventoryKnown.count(inv))
-                vInventoryToSend.push_back(inv);
+            vInventoryToSend.push_back(inv);
         }
     }
 
@@ -434,7 +438,7 @@ public:
 
 
     void PushRequest(const char* pszCommand,
-                     void (*fn)(void*, CDataStream&), void* param1)
+        void (*fn)(void*, CDataStream&), void* param1)
     {
         uint256 hashReply;
         RAND_bytes((unsigned char*)&hashReply, sizeof(hashReply));
@@ -447,7 +451,7 @@ public:
 
     template<typename T1>
     void PushRequest(const char* pszCommand, const T1& a1,
-                     void (*fn)(void*, CDataStream&), void* param1)
+        void (*fn)(void*, CDataStream&), void* param1)
     {
         uint256 hashReply;
         RAND_bytes((unsigned char*)&hashReply, sizeof(hashReply));
@@ -460,7 +464,7 @@ public:
 
     template<typename T1, typename T2>
     void PushRequest(const char* pszCommand, const T1& a1, const T2& a2,
-                     void (*fn)(void*, CDataStream&), void* param1)
+        void (*fn)(void*, CDataStream&), void* param1)
     {
         uint256 hashReply;
         RAND_bytes((unsigned char*)&hashReply, sizeof(hashReply));
@@ -476,7 +480,7 @@ public:
     void PushGetBlocks(CBlockIndex* pindexBegin, uint256 hashEnd);
     void PushGetBlocksReversely(uint256 hashEnd);
     bool IsSubscribed(unsigned int nChannel);
-    void Subscribe(unsigned int nChannel, unsigned int nHops=0);
+    void Subscribe(unsigned int nChannel, unsigned int nHops = 0);
     void CancelSubscribe(unsigned int nChannel);
     void CloseSocketDisconnect();
     void Cleanup();
@@ -495,8 +499,8 @@ inline void RelayInventory(const CInv& inv)
 {
     // Put on lists to offer to the other nodes
     CRITICAL_BLOCK(cs_vNodes)
-        BOOST_FOREACH(CNode* pnode, vNodes)
-            pnode->PushInventory(inv);
+        BOOST_FOREACH(CNode * pnode, vNodes)
+        pnode->PushInventory(inv);
 }
 
 template<typename T>
@@ -554,9 +558,9 @@ void AdvertStartPublish(CNode* pfrom, unsigned int nChannel, unsigned int nHops,
 
     // Relay
     CRITICAL_BLOCK(cs_vNodes)
-        BOOST_FOREACH(CNode* pnode, vNodes)
-            if (pnode != pfrom && (nHops < PUBLISH_HOPS || pnode->IsSubscribed(nChannel)))
-                pnode->PushMessage("publish", nChannel, nHops, obj);
+        BOOST_FOREACH(CNode * pnode, vNodes)
+        if (pnode != pfrom && (nHops < PUBLISH_HOPS || pnode->IsSubscribed(nChannel)))
+            pnode->PushMessage("publish", nChannel, nHops, obj);
 }
 
 template<typename T>
@@ -565,9 +569,9 @@ void AdvertStopPublish(CNode* pfrom, unsigned int nChannel, unsigned int nHops, 
     uint256 hash = obj.GetHash();
 
     CRITICAL_BLOCK(cs_vNodes)
-        BOOST_FOREACH(CNode* pnode, vNodes)
-            if (pnode != pfrom && (nHops < PUBLISH_HOPS || pnode->IsSubscribed(nChannel)))
-                pnode->PushMessage("pub-cancel", nChannel, nHops, hash);
+        BOOST_FOREACH(CNode * pnode, vNodes)
+        if (pnode != pfrom && (nHops < PUBLISH_HOPS || pnode->IsSubscribed(nChannel)))
+            pnode->PushMessage("pub-cancel", nChannel, nHops, hash);
 
     AdvertErase(obj);
 }
@@ -587,7 +591,7 @@ void AdvertRemoveSource(CNode* pfrom, unsigned int nChannel, unsigned int nHops,
 typedef map<T_APPTYPE, vector<T_PAYLOADADDR>> M_APP_PAYLOADADDR;
 typedef struct tagCHAINCBDATA
 {
-    tagCHAINCBDATA(const M_APP_PAYLOADADDR &m, uint32_t hidFork, uint32_t hid, const T_SHA256 &thhash, bool isLatest) :
+    tagCHAINCBDATA(const M_APP_PAYLOADADDR& m, uint32_t hidFork, uint32_t hid, const T_SHA256& thhash, bool isLatest) :
         m_mapPayload(m), m_hidFork(hidFork), m_hid(hid), m_thhash(thhash), m_isLatest(isLatest)
     {
     }
@@ -602,7 +606,7 @@ typedef struct tagCHAINCBDATA
 class HyperBlockMsgs
 {
 public:
-    void insert(CHAINCBDATA &&cb);
+    void insert(CHAINCBDATA&& cb);
     void process();
 private:
     CCriticalSection m_cs_list;

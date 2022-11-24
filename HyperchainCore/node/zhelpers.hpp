@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -22,7 +22,7 @@ DEALINGS IN THE SOFTWARE.
 
 #pragma once
 
-
+//HC: Include a bunch of headers that we will need in the examples
 
 #include <zmq.hpp>
 
@@ -47,23 +47,23 @@ DEALINGS IN THE SOFTWARE.
 #include <string>
 using namespace std;
 
-
+//HC: Bring Windows MSVC up to C99 scratch
 #if (defined (WIN32))
 typedef unsigned long ulong;
 typedef unsigned int  uint;
 typedef __int64 int64_t;
 #endif
 
-
-
+//HC: On some version of Windows, POSIX subsystem is not installed by default.
+//HC: So define srandom and random ourself.
 //
 #if (defined (WIN32))
 #   define srandom srand
 #   define random rand
 #endif
 
-
-
+//HC: Visual Studio versions below 2015 do not support sprintf properly. This is a workaround.
+//HC: Taken from http://stackoverflow.com/questions/2915672/snprintf-and-visual-studio-2010
 #if defined(_MSC_VER) && _MSC_VER < 1900
 
 #define snprintf c99_snprintf
@@ -95,11 +95,11 @@ inline int c99_snprintf(char *outBuf, size_t size, const char *format, ...)
 
 #endif
 
-
+//HC: Provide random number from 0..(num-1)
 #define within(num) (int) ((float)((num) * random ()) / (RAND_MAX + 1.0))
 
-
-
+//HC: Receive 0MQ string from socket and convert into C string
+//HC: Caller must free returned string.
 inline static char *
 s_recv(void *socket, int flags = 0)
 {
@@ -109,7 +109,7 @@ s_recv(void *socket, int flags = 0)
     int rc = zmq_msg_recv(&message, socket, flags);
 
     if (rc < 0)
-        return nullptr;
+        return nullptr;           //HC: Context terminated, exit
 
     size_t size = zmq_msg_size(&message);
     char *string = (char*)malloc(size + 1);
@@ -119,7 +119,7 @@ s_recv(void *socket, int flags = 0)
     return (string);
 }
 
-
+//HC: Receive 0MQ string from socket and convert into string
 inline static std::string
 s_recv(zmq::socket_t & socket, int flags = 0)
 {
@@ -142,7 +142,7 @@ inline static bool s_recv(zmq::socket_t & socket, std::string & ostring, int fla
     return false;
 }
 
-
+//HC: Convert C string to 0MQ string and send to socket
 inline static int
 s_send(void *socket, const char *string, int flags = 0)
 {
@@ -156,7 +156,7 @@ s_send(void *socket, const char *string, int flags = 0)
     return (rc);
 }
 
-
+//HC: Convert string to 0MQ string and send to socket
 inline static bool
 s_send(zmq::socket_t & socket, const std::string & string, int flags = 0)
 {
@@ -170,7 +170,7 @@ s_send(zmq::socket_t & socket, const std::string & string, int flags = 0)
     return false;
 }
 
-
+//HC: Sends string as 0MQ string, as multipart non-terminal
 inline static int
 s_sendmore(void *socket, char *string)
 {
@@ -184,7 +184,7 @@ s_sendmore(void *socket, char *string)
     return (rc);
 }
 
-
+//HC: Sends string as 0MQ string, as multipart non-terminal
 inline static bool
 s_sendmore(zmq::socket_t & socket, const std::string & string)
 {
@@ -197,18 +197,18 @@ s_sendmore(zmq::socket_t & socket, const std::string & string)
     return false;
 }
 
-
+//HC: Receives all message parts from socket, prints neatly
 inline static void
 s_dump(zmq::socket_t & socket)
 {
     std::cout << "----------------------------------------" << std::endl;
 
     while (1) {
-
+        //HC: Process all parts of the message
         zmq::message_t message;
         socket.recv(message);
 
-
+        //HC: Dump the message as text or binary
         size_t size = message.size();
         std::string data(static_cast<char*>(message.data()), size);
 
@@ -231,15 +231,15 @@ s_dump(zmq::socket_t & socket)
         }
         std::cout << std::endl;
 
-        int more = 0;
+        int more = 0;           //HC: Multipart detection
         size_t more_size = sizeof(more);
         socket.getsockopt(ZMQ_RCVMORE, &more, &more_size);
         if (!more)
-            break;
+            break;              //HC: Last message part
     }
 }
 
-
+//HC: Return current system clock as milliseconds
 inline static int64_t
 s_clock(void)
 {
@@ -265,10 +265,11 @@ s_set_id(zmq::socket_t & socket)
     ss << std::hex << std::uppercase
         << std::setw(4) << std::setfill('0') << within(0x10000) << "-" << s_clock();
     socket.setsockopt(ZMQ_IDENTITY, ss.str().c_str(), ss.str().length());
+    //socket.set(zmq::sockopt::subscribe, ss);
     return ss.str();
 }
 
-
+//HC: Report 0MQ version number
 //
 inline static void
 s_version(void)
@@ -293,7 +294,7 @@ s_version_assert(int want_major, int want_minor)
 }
 
 
-
+//HC: Sleep for a number of milliseconds
 inline static void
 s_sleep(int msecs)
 {
@@ -305,6 +306,42 @@ s_sleep(int msecs)
     t.tv_nsec = (msecs % 1000) * 1000000;
     nanosleep(&t, NULL);
 #endif
+}
+
+inline
+static string toReadable(int64_t nbytes)
+{
+    char szOutput[128] = { 0 };
+
+    if (nbytes > 1024 * 1024 * 1024) {
+         sprintf(szOutput, "%.2f(GB)", nbytes / 1024 / 1024 / 1024.0);
+    }
+    else if (nbytes > 1024 * 1024) {
+        sprintf(szOutput, "%.2f(MB)", nbytes / 1024 / 1024.0);
+    }
+    else if (nbytes > 1024) {
+        sprintf(szOutput, "%.2f(KB)", nbytes / 1024.0);
+    }
+    else
+        sprintf(szOutput, "%d(B)", (int)nbytes);
+    return string(szOutput);
+}
+
+//HC: no output year and second
+inline static
+std::string time2string_s(time_t time1)
+{
+    char szTime[128] = { 0 };
+    struct tm tm1;
+#ifdef WIN32
+    localtime_s(&tm1, &time1);
+#else
+    localtime_r(&time1, &tm1);
+#endif
+    sprintf(szTime, "%2.2d-%2.2d %2.2d:%2.2d",
+        tm1.tm_mon + 1, tm1.tm_mday,
+        tm1.tm_hour, tm1.tm_min);
+    return string(szTime);
 }
 
 inline static
@@ -348,6 +385,8 @@ static int s_interrupted = 0;
 
 inline static void s_signal_handler(int signal_value)
 {
+    //UNUSED(signal_value)
+    (void)(signal_value);
     s_interrupted = 1;
 }
 
@@ -360,10 +399,10 @@ BOOL WINAPI HandlerRoutine(_In_ DWORD dwCtrlType)
     case CTRL_C_EVENT:
         printf("[Ctrl]+C\n");
         s_interrupted = 1;
-
+        //HC: Signal is handled - don't pass it on to the next handler
         return TRUE;
     default:
-
+        //HC: Pass signal on to the next handler
         return FALSE;
     }
 }

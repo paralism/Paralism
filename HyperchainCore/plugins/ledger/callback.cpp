@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -98,7 +98,7 @@ bool IsGenesisBlock(const T_APPTYPE& t)
     return false;
 }
 
-
+//HC: Here should be change to pull application block in the future
 std::map<uint32_t, time_t> mapPullingHyperBlock;
 CCriticalSection cs_pullingHyperBlock;
 void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "")
@@ -110,8 +110,8 @@ void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "")
             mapPullingHyperBlock.insert({ hid, now });
         }
         else {
-            if (now - mapPullingHyperBlock[hid] < 20) {
-
+            if (now - mapPullingHyperBlock[hid] < 60) {
+                //HC: already pulled
                 return;
             }
             else {
@@ -155,7 +155,7 @@ bool UpdateAppAddress(const CBlock& genesisblock, const T_LOCALBLOCKADDRESS& add
     string tokenhash = cryptoToken.GetHashPrefixOfGenesis();
     string errmsg;
     if (!cryptoTokenFromLocal.ReadTokenFile(cryptoToken.GetName(), tokenhash, errmsg)) {
-
+        //HC: no this token
         return WARNING_FL("%s", errmsg.c_str());
     }
 
@@ -197,7 +197,7 @@ bool HandleGenesisBlockCb(vector<T_PAYLOADADDR>& vecPA)
     return true;
 }
 
-
+//HC: callback from HyperChain's consensus, put ledger transactions to HyperChain.
 bool PutTxsChainCb()
 {
     if (!g_chainReadyCond.IsReady())
@@ -205,11 +205,11 @@ bool PutTxsChainCb()
 
     std::lock_guard<std::mutex> lck(g_muxConsensusBlock);
     if (g_spConsensusBlock) {
-
+        //HC: already have consensus block is doing consensus
         return false;
     }
 
-
+    //HC: commit to buddy consensus
     CReserveKey reservekey(pwalletMain);
     CBlock* pBlock = CreateNewBlock(reservekey);
     if (!pBlock) {
@@ -243,7 +243,7 @@ bool GetNeighborNodes(list<string>& listNodes)
     return true;
 }
 
-
+//HC: When a hyper block was received, chain layer calls this function to validate.
 bool CheckChainCb(vector<T_PAYLOADADDR>& vecPA)
 {
     return true;
@@ -253,26 +253,29 @@ bool SwitchChainTo(CBlockIndex *pindexBlock)
 {
     CBlock block;
     if (!block.ReadFromDisk(pindexBlock)) {
-        return ERROR_FL("Failed to Read Ledger block: %s", pindexBlock->addr.tostring().c_str());
+        return ERROR_FL("Failed to Read Ledger block: %s", pindexBlock->triaddr.ToString().c_str());
     }
 
-    CTxDB_Wrapper txdb;
-    block.SetBestChain(txdb, pindexBlock);
+    CRITICAL_BLOCK_T_MAIN(cs_main)
+    {
+        CTxDB_Wrapper txdb;
+        block.SetBestChain(txdb, pindexBlock);
 
-    INFO_FL("Switch to: %d,hid:%d,%s, %s, BestIndex: %d hid:%d,%s, %s LastHID: %u", pindexBlock->Height(),
-        pindexBlock->nPrevHID,
-        pindexBlock->addr.tostring().c_str(),
-        pindexBlock->GetBlockHash().ToPreViewString().c_str(),
-        pindexBest->Height(), pindexBest->nPrevHID,
-        pindexBest->addr.tostring().c_str(),
-        pindexBest->GetBlockHash().ToPreViewString().c_str(),
-        LatestHyperBlock::GetHID());
+        INFO_FL("Switch to: %d,hid:%d,%s, %s, BestIndex: %d hid:%d,%s, %s LastHID: %u", pindexBlock->Height(),
+            pindexBlock->nPrevHID,
+            pindexBlock->triaddr.ToString().c_str(),
+            pindexBlock->GetBlockHash().ToPreViewString().c_str(),
+            pindexBest->Height(), pindexBest->nPrevHID,
+            pindexBest->triaddr.ToString().c_str(),
+            pindexBest->GetBlockHash().ToPreViewString().c_str(),
+            LatestHyperBlock::GetHID());
 
-    ProcessOrphanBlocks(pindexBlock->GetBlockHash());
+        ProcessOrphanBlocks(pindexBlock->GetBlockHash());
+    }
     return true;
 }
 
-bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, bool isLatest)
+bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, const uint256& hhash, bool isLatest)
 {
     if (vecPA.size() == 0) {
         return false;
@@ -286,12 +289,15 @@ bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, bool isLatest)
             return ERROR_FL("ResolveBlock FAILED");
         }
         vecBlock.push_back(std::move(block));
-        vecBlockAddr.push_back(b.addr);
+        BLOCKTRIPLEADDRESS btriaddr(b.addr);
+        btriaddr.hhash = hhash;
+        vecBlockAddr.push_back(btriaddr);
     }
+
 
     LatestLedgerBlock::CompareAndUpdate(vecBlockAddr,vecBlock, isLatest);
     for (size_t i = 0; i < vecBlock.size(); i++) {
-        if (ProcessBlockFromAcceptedHyperBlock(&vecBlock[i], &vecPA[i].addr)) {
+        if (ProcessBlockWithTriaddr(nullptr, &vecBlock[i], &vecBlockAddr[i])) {
             uint256 hash = vecBlock[i].GetHash();
             TRACE_FL("AcceptBlocks() : (%s) %s is accepted\n\n", vecPA[i].addr.tostring().c_str(),
                 hash.ToString().substr(0, 20).c_str());
@@ -301,7 +307,7 @@ bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, bool isLatest)
         }
     }
 
-
+    //HC: check and switch pindexBest
     auto& lastblock = vecBlock.back();
     uint32_t hid = lastblock.nPrevHID;
     uint256 hash = lastblock.GetHash();
@@ -313,7 +319,7 @@ bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, bool isLatest)
 
     pindexLast = mapBlockIndex[hash];
 
-
+    //HC: check,if yes then switch pindexBest to pindexLast
     bool bchainSwitch = true;
     if (pindexBest->nPrevHID > hid && !isLatest) {
         CBlockIndex *pfork = pindexBest;
@@ -337,7 +343,7 @@ bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, bool isLatest)
 }
 
 extern HyperBlockMsgs hyperblockMsgs;
-
+//HC: Accept a validated Ledger chain in a hyper block or multiple hyper blocks
 bool AcceptChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t& hidFork, uint32_t& hid, T_SHA256& thhash, bool isLatest)
 {
     CHAINCBDATA cbdata(mapPayload, hidFork, hid, thhash, isLatest);
@@ -353,18 +359,20 @@ bool ProcessChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t&
     //    cout << strprintf("Para ProcessChainCb spent million seconds : %ld\n", spentt.Elapse());
     //};
 
-
+    //HC: Called by consensus MQ service
     LatestHyperBlock::CompareAndUpdate(hid, thhash, isLatest);
     T_APPTYPE meApp(APPTYPE::ledger, g_cryptoToken.GetHID(),
                                      g_cryptoToken.GetChainNum(),
                                      g_cryptoToken.GetLocalID());
     if (mapPayload.count(meApp)) {
         vector<T_PAYLOADADDR>& vecPA = mapPayload[meApp];
-        return AcceptBlocks(vecPA, isLatest);
+
+        uint256 hhash(thhash.toHexString());
+        return AcceptBlocks(vecPA, hhash, isLatest);
     }
 
     if (isLatest) {
-
+        //HC: 链切换过程中，需要回退到分叉超块
         CBlockIndex* pStart = pindexBest;
         while (pStart && pStart->nPrevHID >= hidFork) {
             pStart = pStart->pprev;
@@ -379,8 +387,8 @@ bool ProcessChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t&
             return true;
         }
 
-
-
+        //HC: Forward to block matched
+        //HC: Sometimes Ledger has already done mining on base of hid, so continue forwarding to latest para block
         uint256 hhash(thhash.toHexString());
         CBlockIndex *pEnd = pStart;
         while (pEnd && pEnd->nPrevHID == hid && pEnd->hashPrevHyperBlock == hhash) {
@@ -438,7 +446,7 @@ bool ProcessChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t&
     //    }
     //}
 
-
+    //HC:try to commit new block to consensus
     //PutTxsChainCb();
 
     return true;
@@ -477,8 +485,8 @@ namespace boost {
     }
 }
 
-
-
+//HC: Here why use boost::any as key?
+//HC: If use class COutPoint directly, consensus layer need to include many ledger's header files.
 bool ValidateDataCb(T_PAYLOADADDR& payloadaddr,
     map<boost::any, T_LOCALBLOCKADDRESS>& mapOutPt,
     boost::any& hashPrevBlock)
@@ -501,7 +509,7 @@ bool ValidateDataCb(T_PAYLOADADDR& payloadaddr,
     if (!block.CheckTrans())
         return ERROR_FL("CheckTrans FAILED");
 
-
+    //HC: check the whether have conflicts with input transactions
     for (auto tx : block.vtx) {
         if (tx.IsCoinBase()) {
             continue;
@@ -533,7 +541,7 @@ bool UpdateDataCb(string& payload, string& newpaylod)
         //don't need update.
         return false;
     }
-
+    //HC: change hashPrevBlock in header
     block.hashPrevBlock = pindexPrev->GetBlockHash();
     //block.nTime = max(pindexPrev->GetMedianTimePast() + 1, GetAdjustedTime());
 
@@ -554,7 +562,7 @@ bool IsProducingNode()
         return false;
     }
 
-
+    //HC: whether is PBFT consensus node
     if(!g_cryptoToken.AmIConsensusNode()) {
         return false;
     }
@@ -571,12 +579,12 @@ bool IsProducingNode()
         hashMyNodeID = Hash(nodeid.begin(), nodeid.end());
     }
 
-
+    //HC: which node's distance is shorter?
 
     uint256 hhash;
     LatestHyperBlock::GetHID(&hhash);
 
-
+    //HC: time hash, every ten minutes change a time
     std::time_t t = std::time(nullptr);
     char mbstr[64] = {0};
 
@@ -700,7 +708,7 @@ bool PBFT::Commit()
 }
 
 
-
+//HC: Callback from HyperChain's local consensus.
 bool PutBlockCb()
 {
     vector<CBlock> vblock;
@@ -709,7 +717,7 @@ bool PutBlockCb()
     bool isSwithBestToValid = false;
     CBlockIndex* pindexValidStarting = nullptr;
 
-
+    //HC: command line option -gen to enable
     if (!fGenerateBitcoins)
         return false;
 
@@ -720,7 +728,7 @@ bool PutBlockCb()
     DEBUG_FL("Prepare to create blocks\n");
     FIBER_SWITCH_CRITICAL_BLOCK_T_MAIN(50)
     {
-
+        //HC: Process hyper block reached message firstly
         hyperblockMsgs.process();
 
         if (!LatestLedgerBlock::IsOnChain()) {
@@ -734,7 +742,7 @@ bool PutBlockCb()
         if (!IsProducingNode())
             return false;
 
-
+        //HC: before create new chain, switch pindexBest to latest block on hyper chain
         CBlockIndex* pStart = LatestBlockIndexOnChained();
         SwitchChainTo(pStart);
 
@@ -745,11 +753,11 @@ bool PutBlockCb()
         pStart = LatestBlockIndexOnChained();
         pStart = pStart->pnext;
         if (!pStart) {
-
+            //HC: no any block need to commit
             return false;
         }
 
-
+        //HC: Get blocks need to commit
         CBlockIndex* pEnd = pStart;
         while (pEnd && pEnd->nPrevHID == nHID && pEnd->hashPrevHyperBlock == hhash) {
             if (!mapBlocks.contain(pEnd->GetBlockHash())) {
@@ -760,12 +768,12 @@ bool PutBlockCb()
         }
 
         if (vblock.size() < 2) {
-
+            //HC: The blocks starting from 'pStart' is stale
             isSwithBestToValid = true;
             pindexValidStarting = pStart->pprev;
         }
 
-
+        //HC: Switch chain to valid and return
         if (isSwithBestToValid) {
             for (; pindexValidStarting; pindexValidStarting = pindexValidStarting->pprev) {
                 if (SwitchChainTo(pindexValidStarting))
@@ -778,10 +786,10 @@ bool PutBlockCb()
     return false;
 }
 
-
+//HC: Callback from HyperChain's global consensus, put the Ledger chain to hyper chain's consensus layer.
 bool PutChainCb()
 {
-
+    //HC: command line option -gen to enable
     if (!fGenerateBitcoins)
         return false;
 
@@ -791,7 +799,7 @@ bool PutChainCb()
 
     FIBER_SWITCH_CRITICAL_BLOCK_T_MAIN(50)
     {
-
+        //HC: Process hyper block reached message firstly
         hyperblockMsgs.process();
         g_PBFT.Commit();
     }
@@ -799,13 +807,13 @@ bool PutChainCb()
     return true;
 }
 
-
+//HC: uuidpayload
 bool BlockUUIDCb(string& payload, string& uuidpayload)
 {
-
-
+    //HC: don't contain CBlock's hashPrevBlock when calculating the UUID.
+    //HC: nVersion
     uuidpayload = payload.substr(0, sizeof(int));
-
+    //HC: ignore hashPrevBlock
     uuidpayload += payload.substr(sizeof(int) + sizeof(uint256));
     return true;
 }
@@ -876,74 +884,6 @@ std::function<void(int)> SleepFn = [](int sleepseconds) {
     }
 };
 
-#define one_hour 60 * 60
-void ThreadBlockPool(void* parg)
-{
-
-    while (!fShutdown) {
-
-        SleepFn(one_hour);
-        if (fShutdown) {
-            break;
-        }
-
-        INFO_FL("Removing expired blocks in the block pool\n");
-
-        std::vector<uint256> vWillBeRemoved;
-        CRITICAL_BLOCK_T_MAIN(cs_main)
-        {
-            CSpentTime spentt;
-            CBlockDB_Wrapper blockdb;
-
-
-
-            blockdb.LoadBlockUnChained(uint256(0), [&vWillBeRemoved, &spentt](CDataStream& ssKey, CDataStream& ssValue) -> bool {
-
-                CBlock block;
-                ssValue >> block;
-
-                uint256 hash;
-                ssKey >> hash;
-
-
-                if (block.nHeight + 5000 < pindexBest->nHeight && mapBlockIndex.count(hash)) {
-                    auto p = mapBlockIndex[hash];
-                    if (p->addr.isValid()) {
-                        CBlock blk;
-                        if (blk.ReadFromDisk(pindexBest->addr)) {
-                            vWillBeRemoved.push_back(hash);
-                            return true;
-                        }
-                    }
-                }
-                if (spentt.Elapse() > 10) {
-
-                    return false;
-                }
-                return true;
-            } );
-
-
-            for (auto& elm: vWillBeRemoved) {
-                blockdb.EraseBlock(elm);
-            }
-        }
-        INFO_FL("Removed %d expired blocks in the block pool\n", vWillBeRemoved.size());
-    }
-}
-
-void UpdateMaxBlockAddr(const T_LOCALBLOCKADDRESS& addr)
-{
-    if (addrMaxChain < addr) {
-        addrMaxChain = addr;
-        CTxDB_Wrapper txdb;
-        if (!txdb.WriteAddrMaxChain(addrMaxChain)) {
-            ERROR_FL("WriteAddrMaxChain failed");
-        }
-    }
-}
-
-
 void ThreadGetNeighbourChkBlockInfo(void* parg)
 {
     time_t tbest = 0;
@@ -964,7 +904,7 @@ void ThreadGetNeighbourChkBlockInfo(void* parg)
                 }
             }
         }
-
+        //HC: Forward Faster ?
         SleepFn(60);
     }
 }
@@ -1182,7 +1122,7 @@ string showTokenUsage()
     oss << "       token ekp <address>                 : export the public-private key pair corresponding to <address> to console\n";
     oss << "       token ikpf <filename>               : import public-private key pairs from <filename>\n";
     oss << "       token ekpf <filename> [WIF|WIFC]    : export private keys to <filename>, default format is WIFC\n";
-    oss << "       token dkp <address>                 : specify the key pair corresponding to <address> as default key\n";
+    oss << "       token dkp [address]                 : query or specify default address\n";
     oss << "       token sacc <address> <account>      : sets the account associated with the given address\n";
 
     return oss.str();
@@ -1215,7 +1155,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 for (auto& t : tokens) {
                     bool iscurrtoken = false;
                     if (currhash == t.GetHashGenesisBlock()) {
-
+                        //HC: current using token
                         iscurrtoken = true;
                     }
 
@@ -1313,13 +1253,13 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
 
                         if (cmd == cmdlist.end()) break;
                         char* end = nullptr;
-                        double amount = std::strtod(cmd->c_str(), &end);
+                        double amount = std::strtod(cmd->c_str(), &end); //HC: change to double type
                         arr.push_back(amount);
                         break;
                     } while (true);
                     return arr;
                 };
-                return doAction(sendfrom, l, fhelp, conv);
+                return doAction(sendfrom, l, fhelp, true, conv);
             } },
 
             {"sendtoaddr",[](const list<string>& l, bool fhelp) ->string {
@@ -1335,13 +1275,13 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
 
                         if (cmd == cmdlist.end()) break;
                         char* end = nullptr;
-                        double amount = std::strtod(cmd->c_str(), &end);
+                        double amount = std::strtod(cmd->c_str(), &end); //HC: change to double type
                         arr.push_back(amount);
                         break;
                     } while (true);
                     return arr;
                 };
-                return doAction(sendtoaddress, l, fhelp, conv);
+                return doAction(sendtoaddress, l, fhelp, true, conv);
             }},
 
             { "e",[](const list<string>& l, bool fhelp) ->string {
@@ -1386,14 +1326,14 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                     do {
                         if (cmd == cmdlist.end()) break;
                         char* end = nullptr;
-                        double amount = std::strtod(cmd->c_str(), &end);
+                        double amount = std::strtod(cmd->c_str(), &end); //HC: change to double type
                         arr.push_back(amount);
                         break;
                     } while (true);
                     return arr;
                 };
 
-                return doAction(settxfee, l, fhelp, conv);
+                return doAction(settxfee, l, fhelp, true, conv);
             } },
 
             { "ginfo",[](const list<string>& l, bool fhelp) ->string {
@@ -1402,91 +1342,63 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
             } },
 
             { "gkp",[](const list<string>& l, bool fhelp) ->string {
-
-                CKey keyPair;
-                try {
-                    keyPair.MakeNewKey();
-                }
-                catch (std::exception& e) {
-                    return e.what();
-                }
-
-                CPrivKey pr = keyPair.GetPrivKey();
-                std::vector<unsigned char> vPr(pr.begin(), pr.end());
-                return StringFormat("Public key: %s\nPrivate key(WIF, WIF-compressed): \n\t%s\n\t%s", ToHexString(keyPair.GetPubKey()),
-                    PrKey2WIF(keyPair.GetPrivKey(), false),
-                    PrKey2WIF(keyPair.GetPrivKey(), true));
+                return MakeNewKeyPair();
             }},
 
-
+            //HC: ikp
             { "ikp",[](const list<string>& l, bool fhelp) ->string {
 
                 return doAction([](const Array& params, bool fHelp) ->string {
-                    if (fHelp || params.size() != 1)
+                    if (fHelp || params.size() < 1)
                         throw runtime_error(
-                            "token ikp <private key>: import a public-private key pair");
+                            "token ikp <private key> [label]: import a public-private key pair");
 
                     likely_no_token
 
                     string msg;
-                    impwalletkey(params[0].get_str(), msg);
+                    string label;
+
+                    if (params.size() > 1) {
+                        label = params[1].get_str();
+                    }
+
+                    impwalletkey(params[0].get_str(), label, msg);
                     return msg;
 
                  }, l, fhelp);
             }},
 
-
+            //HC: ekp
             { "ekp",[](const list<string>& l, bool fhelp) ->string {
-                return doAction([](const Array& params, bool fHelp) ->string {
-                    if (fHelp || params.size() != 1)
-                        throw runtime_error(
-                            "token ekp <address>: export the public-private key pair corresponding to <address> to console");
-
-                    likely_no_token
-                    likely_wallet_locked
-
-                    string ret;
-                    CPrivKey privkey;
-                    CKey keyPair;
-                    CRITICAL_BLOCK(pwalletMain->cs_wallet)
-                    {
-                        CBitcoinAddress coinaddress = CBitcoinAddress(params[0].get_str());
-                        if (pwalletMain->GetKey(coinaddress, keyPair)) {
-
-                            return StringFormat("Public key: %s\nPrivate key(WIF, WIF-compressed): \n\t%s\n\t%s", ToHexString(keyPair.GetPubKey()),
-                                PrKey2WIF(keyPair.GetPrivKey(), false),
-                                PrKey2WIF(keyPair.GetPrivKey(), true));
-                        }
-                    }
-                    return "Failed to export key pair, maybe address is invalid";
-                }, l, fhelp);
+                likely_no_token
+                return doAction(expwalletkey, l, fhelp, false);
             }},
 
             { "sacc",[](const list<string>& l, bool fhelp) ->string {
                 likely_no_token
-                return doAction(setaccount, l, fhelp);
+                return doAction(setaccount, l, fhelp, false);
             } },
 
-
+             //HC: ikpf
             {"ikpf",[](const list<string>& l, bool fhelp) ->string {
                 likely_no_token
                 return doAction(impwalletkeysfromfile, l, fhelp);
             }},
 
-
+            //HC: ekpf
             { "ekpf",[](const list<string>& l, bool fhelp) ->string {
                 likely_no_token
                 return doAction(expwalletkeystofile, l, fhelp);
             }},
 
-
+            //HC: dkp
             { "dkp",[](const list<string>& l, bool fhelp) ->string {
                 likely_no_token
                 string strRet = doAction(setdefaultkey, l, fhelp);
 
                 CRITICAL_BLOCK(pwalletMain->cs_wallet) {
                     if (g_cryptoToken.SearchPublicKeyIdx()) {
-
+                        //HC: notify neighbors to update version informations
                         UNCRITICAL_BLOCK(pwalletMain->cs_wallet);
                         CRITICAL_BLOCK(cs_vNodes) {
                             for (auto& n : vNodes) {
@@ -1498,13 +1410,13 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return strRet;
             } },
 
-
+            //HC: encw
             { "encw",[](const list<string>& l, bool fhelp) ->string {
                 likely_no_token
                 return doAction(encryptwallet, l, fhelp);
             }},
 
-
+            //HC: wpass
             { "wpass",[&savingcommand](const list<string>& l, bool fhelp) ->string {
                 if (l.size() < 1) {
                     return doAction(walletpassphrase, l, true);
@@ -1527,17 +1439,120 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                     arr.push_back(v);
                     return arr;
                 };
-                return doAction(walletpassphrase, l, fhelp, conv);
+                return doAction(walletpassphrase, l, fhelp, true, conv);
             }},
 
-
+            //HC: chwpass
             { "chwpass",[&savingcommand](const list<string>& l, bool fhelp) ->string {
                 if(l.size() != 0)
                     savingcommand = "t chwpass";
                 likely_no_token
                 return doAction(walletpassphrasechange, l, fhelp);
             }},
+
+
+            { "readtxbyaddr",[](const list<string>& l, bool fhelp) ->string {
+
+                if (l.size() < 4) {
+                    return "Input tx's address, like: [HID ChainID ID NO.]";
+                }
+
+                auto cmd = l.begin();
+                int hID = std::stoi(*cmd++);
+                int chainID = std::stoi(*cmd++);
+                int ID = std::stoi(*cmd++);
+                int nTx = std::stoi(*cmd);
+
+                T_LOCALBLOCKADDRESS addrblock;
+                addrblock.set(hID, chainID, ID);
+
+                CBlock blk;
+                if (blk.ReadFromDisk(addrblock)) {
+                    if (nTx < 0) {
+                        nTx = 0;
+                    }
+                    if (nTx >= blk.vtx.size()) {
+                        nTx = blk.vtx.size() - 1;
+                    }
+                    return strprintf("Address: %s tx: %d\nBlock: %s\nTx: %s", addrblock.tostring().c_str(), nTx,
+                        blk.ToString().c_str(),
+                        blk.vtx[nTx].ToString().c_str());
+                }
+                return strprintf("Failed to read block from address: %s %d", addrblock.tostring().c_str(), nTx);
+            } },
+
+            //HC: by height
+            { "readtxbyh",[](const list<string>& l, bool fhelp) ->string {
+
+                if (l.size() < 2) {
+                    return "Input tx's address, like: [Height NO.]";
+                }
+
+                auto cmd = l.begin();
+                int height = std::stoi(*cmd++);
+                int nTx = std::stoi(*cmd);
+
+                TRY_CRITICAL_BLOCK(cs_main)
+                {
+                    auto p = pindexBest;
+                    while (p->nHeight > height) {
+                        p = p->pprev;
+                    }
+
+                    if (!p || height != p->nHeight) {
+                        return "height too large";
+                    }
+
+                    CBlock blk;
+                    if (blk.ReadFromDisk(p)) {
+                        if (nTx < 0) {
+                            nTx = 0;
+                        }
+                        if (nTx >= blk.vtx.size()) {
+                            nTx = blk.vtx.size() - 1;
+                        }
+                        return strprintf("Height: %d tx: %d\nBlock: %s\nTx: %s", height, nTx,
+                            blk.ToString().c_str(),
+                            blk.vtx[nTx].ToString().c_str());
+                    }
+                    return strprintf("Failed to read block from address: %d %d", height, nTx);
+                }
+                return "Busying";
+            } },
+
+            { "readtx",[](const list<string>& l, bool fhelp) ->string {
+
+                string strHash;
+                if (l.size() <= 0) {
+                    return "Input tx's hash";
+                }
+
+                strHash = *l.begin();
+                CTxDB_Wrapper txdb;
+                CTxIndex txindex;
+                CTransaction tx;
+                uint256 hash(strHash); //= ParseHex(pubkey);
+                bool fFound = txdb.ReadTxIndex(hash, txindex);
+
+                if (fFound) {
+                    if (tx.ReadFromDisk(txindex.pos)) {
+                        return strprintf("txindex: %s \nTx: %s",
+                            txindex.pos.ToString().c_str(), tx.ToString().c_str());
+                    }
+                    return strprintf("txindex: %s \nTx cannot be found", txindex.pos.ToString().c_str());
+                }
+
+                return "Index of tx cannot be found";
+            } },
+
     };
+
+    if (childcmd == "v") {
+        for (auto& cmd : mapcmds) {
+            info += StringFormat("%s\n", cmd.first);
+        }
+        return true;
+    }
 
     if (mapcmds.count(childcmd)) {
         info = mapcmds[childcmd](cpycmdlist, false);

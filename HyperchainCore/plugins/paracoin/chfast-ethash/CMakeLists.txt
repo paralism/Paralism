@@ -8,6 +8,10 @@ if(POLICY CMP0069)
     cmake_policy(SET CMP0069 NEW)  # Allow LTO.
 endif()
 
+
+message(STATUS "**** Para CMAKE_TOOLCHAIN_FILE is : ${CMAKE_TOOLCHAIN_FILE}")
+
+
 include(cmake/cable/bootstrap.cmake)
 
 include(CableBuildType)
@@ -17,7 +21,8 @@ include(HunterGate)
 
 include(defaults/HunterCacheServers)
 
-cable_configure_toolchain(DEFAULT cxx11)
+#cable_configure_toolchain(DEFAULT cxx11)
+cable_configure_toolchain(DEFAULT cxx14-pic)
 
 if(NOT WIN32)
     # Outside of Windows build only Release packages.
@@ -25,9 +30,16 @@ if(NOT WIN32)
         CACHE STRING "Build type of the Hunter packages")
 endif()
 
+# HC: use the settings of aleth module
+#HunterGate(
+#    URL "https://github.com/ruslo/hunter/archive/v0.20.35.tar.gz"
+#    SHA1 "6e3cb4c333b76803a83c56fcbca3b0bfd9f96f27"
+#)
+
 HunterGate(
-    URL "https://github.com/ruslo/hunter/archive/v0.20.35.tar.gz"
-    SHA1 "6e3cb4c333b76803a83c56fcbca3b0bfd9f96f27"
+    URL "https://github.com/ruslo/hunter/archive/v0.23.211.tar.gz"
+    SHA1 "c022f0c2480e835a6bafdd734035ec2071b51897"
+    LOCAL
 )
 
 project(ethash)

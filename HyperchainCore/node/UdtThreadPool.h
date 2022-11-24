@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -48,18 +48,38 @@ DEALINGS IN THE SOFTWARE.
 #include "udt/udt.h"
 #include "SyncQueue.h"
 
-#define MAX_UDTBUF_SIZE 10240000
-#define MAX_LIST_COUNT	50000
+#define MAX_UDTBUF_SIZE 10240000		//HC: 10M
+#define MAX_LIST_COUNT	50000			//HC: Maximum list length
 
 #ifdef FD_SETSIZE
 #undef FD_SETSIZE // prevent redefinition compiler warning
 #endif
 #define FD_SETSIZE 1024 // max number of fds in fd_set
 
+
+class priority_scheduler;
+
+typedef struct _tudtrecv
+{
+    int64_t tmlastrecv = 0;
+    int  nrecv = 0;
+
+    inline void refresh() {
+        nrecv++;
+        tmlastrecv = time(nullptr);
+    }
+} udtrecv;
+
 typedef struct _tudtnode
 {
     string Ip;
     uint32_t Port = 0;
+
+    bool isInRecvFiber = false;
+    bool isInSndFiber = false;
+
+    //HC: using for state monitor
+    udtrecv uRecv;
 
     _tudtnode() {}
     _tudtnode(const string IPAddr, int port) : Ip(IPAddr), Port(port)
@@ -73,7 +93,9 @@ typedef struct _tudtnode
         return Ip < other.Ip;
     }
 
-}T_UDTNODE, *T_PUDTNODE;
+    string toString() const;
+
+} T_UDTNODE, *T_PUDTNODE;
 
 typedef struct _tudtrecvnode
 {
@@ -88,6 +110,12 @@ typedef struct _tUDTData{
     int64_t tmlastconn = 0; //time of last reconnection
     int nretryconn = 0;     //retry times
     deque<std::tuple<int64_t, string>> datas;
+
+    //HC: using for state monitor
+    int64_t tmlastsent = 0;
+    int  nsent = 0;
+    map<UDTSOCKET, udtrecv> sockrecv;
+
 
     inline bool isLongTimeNotConn()
     {
@@ -105,11 +133,30 @@ typedef struct _tUDTData{
 
         int nInterval = nBaseInterval;
         if (nretryconn > nLow) {
-
+            //HC: every nLow retry times, double increase reconnection interval
             nInterval = (1 + nretryconn / nLow) * nBaseInterval;
         }
         return time(nullptr) > tmlastconn + nInterval;
     }
+
+    inline void addSock(UDTSOCKET sock, const udtrecv &urecv)
+    {
+        if (!udtsckset.count(sock)) {
+            udtsckset.insert(sock);
+            sockrecv.insert({ sock, urecv });
+        }
+    }
+
+    inline void removeSock(UDTSOCKET sock)
+    {
+        if (udtsckset.count(sock)) {
+            udtsckset.erase(sock);
+            sockrecv.erase(sock);
+        }
+    }
+
+
+    string toString() const;
 } UDTData;
 
 typedef map<UDTSOCKET, T_UDTNODE>		  MAP_CONNECTED_SOCKET;
@@ -141,9 +188,14 @@ public:
     size_t getUdtSendQueueSize();
     size_t getUdtRecvQueueSize() { return m_recvList.size(); }
 
-private:
+    string fiberDetails();
+    inline void addfiber() { _fiber_count_created_++; }
+
+  private:
     void Listen();
-    void Recv();
+    void Listen_fb();
+
+    void ProcessDataRecv();
     void SendData(int eid, int udtsck);
     int  CreateListenSocket();
     void CloseAllConnectedSocket();
@@ -155,6 +207,8 @@ private:
     UDTSOCKET CreateConnectionSocket(const T_UDTNODE &serverNode);
 
     void removeSendNode(T_UDTNODE& node);
+
+
 
 private:
     bool                    m_isstop;
@@ -171,6 +225,12 @@ private:
     atomic_int64_t     m_nDiscardedSnd = 0;
     atomic_int64_t     m_nDiscardedSndBytes = 0;
 
+    int64_t            m_nTotalSnd = 0;
+    int64_t            m_nTotalSndBytes = 0;
+
+    int64_t            m_nTotalRecv = 0;
+    int64_t            m_nTotalRecvBytes = 0;
+
     SyncQueue<T_UDTRECV>    m_recvList;
     std::thread             m_listenthread;
     std::list<std::thread>  m_recvthreads;
@@ -178,4 +238,8 @@ private:
     MAP_CONNECTED_SOCKET    m_socketMap;
 
     CActionCostStatistics   m_actioncoststt;
+
+    int _fiber_count_created_ = 0;
+    priority_scheduler* _my_scheduler_algo = nullptr;
+
 };

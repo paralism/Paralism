@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -68,8 +68,8 @@ private:
     const std::string UNREG = "unreg";
 
     zmq::context_t * m_context = nullptr;
-    zmq::socket_t * m_client = nullptr;
-    int m_verbose;
+    zmq::socket_t * m_client = nullptr;     //HC: Socket to broker
+    int m_verbose;                          //HC: Print activity to stdout
     zmq::socket_t *m_dispatch_inner = nullptr;
     std::string m_dispatch_endpoint_i;
 

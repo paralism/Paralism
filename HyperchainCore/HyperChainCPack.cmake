@@ -22,12 +22,18 @@
 #
 #Installation package setting
 #
+if( DEFINED PACK_HYPERCHAIN )
+	set(APPLICATION_SHORTNAME "Hyperchain-Lite")
+	set(APPLICATION_DISPLAY_SHORTNAME "Hyperchain")
+	set(CPACK_PACKAGE_ICON "${CMAKE_SOURCE_DIR}/logo-hc.ico")
+	set(CPACK_IFW_PACKAGE_WATERMARK "${CMAKE_SOURCE_DIR}/watermark-hc.png")
+else()
+	set(APPLICATION_SHORTNAME "Paralism-Lite")
+	set(APPLICATION_DISPLAY_SHORTNAME "Paralism")
+	set(CPACK_PACKAGE_ICON "${CMAKE_SOURCE_DIR}/logo.ico")
+	set(CPACK_IFW_PACKAGE_WATERMARK "${CMAKE_SOURCE_DIR}/watermark.png")
+endif()
 
-set(APPLICATION_SHORTNAME "Paralism-Lite")
-set(APPLICATION_DISPLAY_SHORTNAME "Paralism")
-
-#set(APPLICATION_SHORTNAME "Hyperchain-Lite")
-#set(APPLICATION_DISPLAY_SHORTNAME "Hyperchain")
 
 set(APPLICATION_DOMAIN "hyperchain.net" )
 
@@ -49,7 +55,7 @@ set( CPACK_PACKAGE_NAME  ${APPLICATION_SHORTNAME} ) 					# Package name, default
 set( CPACK_PACKAGE_HOMEPAGE_URL  "http://${APPLICATION_DOMAIN}" )   	# Package URL for update
 set( CPACK_PACKAGE_VENDOR  "Hyperchain" )   				# Package vendor name
 
-set( CPACK_PACKAGE_ICON "${CMAKE_SOURCE_DIR}/logo.ico")
+
 
 #set(CPACK_SET_DESTDIR true)
 #set(cpack_packaging_install_prefix /var/)
@@ -91,7 +97,7 @@ set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
 
 #Wizard style to be used (“Modern”, “Mac”, “Aero” or “Classic”).
 set(CPACK_IFW_PACKAGE_WIZARD_STYLE "Modern")
-set(CPACK_IFW_PACKAGE_WATERMARK "${CMAKE_SOURCE_DIR}/watermark.png")
+
 
 include(CPack)
 include(CPackIFW)

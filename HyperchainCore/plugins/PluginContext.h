@@ -32,7 +32,7 @@ struct PluginContext
     std::shared_ptr<spdlog::logger> consensus_console_logger;
 #endif
 
-
+    //HC: Main program shares the instance with plugin.
     void SetPluginContext()
     {
         Singleton<NodeManager>::setInstance(nodemgr);
@@ -43,7 +43,7 @@ struct PluginContext
 
         g_inproc_context = inproc_context;
 
-
+        //HC: On Windows, synchronize the value of g_tP2pManagerStatus between main module and application modules
         //g_tP2pManagerStatus = tP2pManagerStatus;
 
 #ifdef WIN32

@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -50,18 +50,18 @@ private:
     std::string m_service;
     zmq::context_t *m_context = nullptr;
     int m_socktype;
-    std::shared_ptr<zmq::socket_t> m_worker;
+    std::shared_ptr<zmq::socket_t> m_worker;      //HC: Socket to broker
 
+    //HC: Heartbeat management
+    int64_t m_heartbeat_at;       //HC: When to send HEARTBEAT
+    size_t m_liveness;            //HC: How many attempts left
+    int m_heartbeat = 2500;              //HC: Heartbeat delay, msecs
+    int m_reconnect = 2500;              //HC: Reconnect delay, msecs
 
-    int64_t m_heartbeat_at;
-    size_t m_liveness;
-    int m_heartbeat = 2500;
-    int m_reconnect = 2500;
+    //HC: Internal state
+    bool m_expect_reply = false;         //HC: Zero only at start
 
-
-    bool m_expect_reply = false;
-
-
+    //HC: Return address, if any
     std::string m_reply_to;
 };
 

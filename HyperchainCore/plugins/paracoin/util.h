@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -195,10 +195,13 @@ void RandAddSeed();
 void RandAddSeedPerfmon();
 
 
+int OutputToFile(const char* pszFormat, ...);
 int OutputDebugStringF(const char* pszFormat, ...);
 
 void LogBacktracking(const char* format, ...);
-void LogBacktrackingFromNode(const string &fromnode, const char* format, ...);
+
+#define LogToFile(fmt, ...) \
+        OutputToFile(__formatex(fmt), ##__VA_ARGS__);
 
 
 void LogException(std::exception* pex, const char* pszThread);
@@ -244,6 +247,11 @@ std::string FormatFullVersion();
 
 extern string GetHyperChainDataDir();
 
+inline int64 GetTimeMillis()
+{
+    return (boost::posix_time::ptime(boost::posix_time::microsec_clock::universal_time()) -
+        boost::posix_time::ptime(boost::gregorian::date(1970, 1, 1))).total_milliseconds();
+}
 
 class CApplicationSettings{
 public:
@@ -325,6 +333,25 @@ public:
     }
 };
 
+typedef struct _LOCKPOS
+{
+    string file;
+    int line;
+public:
+    friend bool operator<(const _LOCKPOS& left, const _LOCKPOS &right) {
+
+        if (left.line < right.line) {
+            return true;
+        }
+        if (left.line == right.line) {
+            return left.file < right.file;
+        }
+        return false;
+    }
+} LOCKPOS;
+
+static std::map<LOCKPOS, int64> g_tmMainLockConsume;
+
 template<const char* NAME>
 class CCriticalBlockT
 {
@@ -333,6 +360,9 @@ public:
     static string _file;
     static int _nLine;
     static std::thread::id _tid;
+    int64 _tmused;
+    LOCKPOS _lp;
+
     bool _isLocked = false;
 
 public:
@@ -348,20 +378,34 @@ public:
     bool Enter(const char* pszFile, int nLine)
     {
         _pcs->Enter(NAME, pszFile, nLine);
+
         _file = pszFile;
         _nLine = nLine;
         _tid = std::this_thread::get_id();
         _isLocked = true;
+        _tmused = GetTimeMillis();
+        _lp.file = _file;
+        _lp.line = _nLine;
+
         return true;
     }
 
     void Leave()
     {
         if (_isLocked) {
-            _isLocked = false;
+
+            auto diff = GetTimeMillis() - _tmused;
+            if (g_tmMainLockConsume.count(_lp) > 0) {
+                g_tmMainLockConsume[_lp] += diff;
+            } else {
+                g_tmMainLockConsume[_lp] = diff;
+            }
+
             _file.clear();
             _nLine = 0;
+            _tid = std::thread::id();
 
+            _isLocked = false;
             _pcs->Leave();
         }
     }
@@ -369,10 +413,15 @@ public:
     bool TryEnter(const char* pszFile, int nLine)
     {
         if (_pcs->TryEnter(NAME, pszFile, nLine)) {
+
             _file = pszFile;
             _nLine = nLine;
             _tid = std::this_thread::get_id();
             _isLocked = true;
+            _tmused = GetTimeMillis();
+            _lp.file = _file;
+            _lp.line = _nLine;
+
             return true;
         }
         return false;
@@ -384,6 +433,17 @@ public:
         ss << _tid;
         return strprintf("%s is taken by TID:%s (%s %d)", NAME, ss.str().c_str(), _file.c_str(), _nLine);
     }
+
+    static string ToDetailString()
+    {
+        stringstream ss;
+        for (auto & elm : g_tmMainLockConsume) {
+            ss << strprintf("%s %d: %" PRI64d "\n", elm.first.file.c_str(), elm.first.line, elm.second);
+        }
+        ss << ToString();
+        return ss.str();
+    }
+
 };
 
 template<const char* NAME>
@@ -572,11 +632,7 @@ inline int64 GetPerformanceCounter()
     return nCounter;
 }
 
-inline int64 GetTimeMillis()
-{
-    return (boost::posix_time::ptime(boost::posix_time::microsec_clock::universal_time()) -
-            boost::posix_time::ptime(boost::gregorian::date(1970,1,1))).total_milliseconds();
-}
+
 
 inline std::string DateTimeStrFormat(const char* pszFormat, int64 nTime)
 {

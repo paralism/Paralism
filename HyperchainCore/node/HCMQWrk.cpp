@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -23,8 +23,8 @@ DEALINGS IN THE SOFTWARE.
 
 #include "HCMQWrk.h"
 
-
-#define HEARTBEAT_LIVENESS  3
+//HC: Reliability parameters
+#define HEARTBEAT_LIVENESS  3       //HC: 3-5 is reasonable
 
 HCMQWrk::HCMQWrk(const char *servicename, int socktype) :
     m_broker(HC_BROKER),
@@ -48,7 +48,7 @@ void HCMQWrk::send_to_broker(char *command, std::string option, zmsg *_msg)
         msg = &emptymsg;
     }
 
-
+    //HC: Stack protocol envelope to start of message
     if (option.length() != 0) {
         msg->push_front((char*)option.c_str());
     }
@@ -68,10 +68,10 @@ void HCMQWrk::connect_to_broker()
     s_set_id(*m_worker);
     m_worker->connect(m_broker.c_str());
 
-
+    //HC: Register service with broker
     send_to_broker((char*)MDPW_READY, m_service, NULL);
 
-
+    //HC: If liveness hits zero, queue is considered disconnected
     m_liveness = HEARTBEAT_LIVENESS;
     m_heartbeat_at = s_clock() + m_heartbeat;
 }

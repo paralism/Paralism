@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -40,7 +40,7 @@ void PingPongTask::exec()
             nodemgr->sendTo(toServer, datamsgbuf);
             g_console_logger->trace("PingPongTask::exec(),targetID = {}", nodeID.ToHexString());
         }
-   }
+    }
 }
 
 void PingPongTask::execRespond()
@@ -49,7 +49,7 @@ void PingPongTask::execRespond()
     tsk.exec();
 }
 
-
+//HC: 发送自己的node给对方
 void PingPongRspTask::exec()
 {
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();

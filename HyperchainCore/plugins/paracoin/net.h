@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -45,6 +45,7 @@ class CAddrDB;
 class CRequestTracker;
 class CNode;
 class CBlockIndex;
+class CBlockLocatorEx;
 
 template<class T>
 class shared_ptr_proxy;
@@ -56,24 +57,24 @@ extern int nConnectTimeout;
 using CBlockIndexSP = shared_ptr_proxy<CBlockIndex>;
 #endif
 
-
-inline unsigned int ReceiveBufferSize() { return 1000 * GetArg("-maxreceivebuffer", 10 * 1000); }
-inline unsigned int SendBufferSize() { return 1000 * GetArg("-maxsendbuffer", 10 * 1000); }
+//HC: Amule is 1300 for a slice
+inline unsigned int ReceiveBufferSize() { return 1000 * GetArg("-maxreceivebuffer", 60 * 1000); }
+inline unsigned int SendBufferSize() { return 1000 * GetArg("-maxsendbuffer", 60 * 1000); }
 static const unsigned int PUBLISH_HOPS = 5;
 
-bool ConnectSocket(const CAddress& addrConnect, SOCKET& hSocketRet, int nTimeout=nConnectTimeout);
-bool Lookup(const char *pszName, std::vector<CAddress>& vaddr, int nServices, int nMaxSolutions, bool fAllowLookup = false, int portDefault = 0, bool fAllowPort = false);
-bool Lookup(const char *pszName, CAddress& addr, int nServices, bool fAllowLookup = false, int portDefault = 0, bool fAllowPort = false);
+bool ConnectSocket(const CAddress& addrConnect, SOCKET& hSocketRet, int nTimeout = nConnectTimeout);
+bool Lookup(const char* pszName, std::vector<CAddress>& vaddr, int nServices, int nMaxSolutions, bool fAllowLookup = false, int portDefault = 0, bool fAllowPort = false);
+bool Lookup(const char* pszName, CAddress& addr, int nServices, bool fAllowLookup = false, int portDefault = 0, bool fAllowPort = false);
 bool GetMyExternalIP(unsigned int& ipRet);
-bool AddAddress(CAddress addr, int64 nTimePenalty=0, CAddrDB *pAddrDB=NULL);
+bool AddAddress(CAddress addr, int64 nTimePenalty = 0, CAddrDB* pAddrDB = NULL);
 void AddressCurrentlyConnected(const CAddress& addr);
 CNode* FindNode(unsigned int ip);
-CNode* ConnectNode(CAddress addrConnect, int64 nTimeout=0);
+CNode* ConnectNode(CAddress addrConnect, int64 nTimeout = 0);
 void AbandonRequests(void (*fn)(void*, CDataStream&), void* param1);
 bool AnySubscribed(unsigned int nChannel);
 void MapPort(bool fMapPort);
 void DNSAddressSeed();
-bool BindListenPort(std::string& strError=REF(std::string()));
+bool BindListenPort(std::string &strError = REF(std::string()));
 void StartNode(void* parg);
 bool StopNode(bool isStopRPC = true);
 
@@ -81,6 +82,8 @@ enum
 {
     MSG_TX = 1,
     MSG_BLOCK,
+    MSG_BLOCKEX,    //HC: reply type of "fgetblocks"
+    MSG_BLOCKEX_R,  //HC: reply type of "rgetblocks"
 };
 
 class CRequestTracker
@@ -89,7 +92,7 @@ public:
     void (*fn)(void*, CDataStream&);
     void* param1;
 
-    explicit CRequestTracker(void (*fnIn)(void*, CDataStream&)=NULL, void* param1In=NULL)
+    explicit CRequestTracker(void (*fnIn)(void*, CDataStream&) = NULL, void* param1In = NULL)
     {
         fn = fnIn;
         param1 = param1In;
@@ -120,11 +123,83 @@ extern CCriticalSection cs_mapAddresses;
 extern std::map<CInv, CDataStream> mapRelay;
 extern std::deque<std::pair<int64, CInv> > vRelayExpiration;
 extern CCriticalSection cs_mapRelay;
+
 extern std::map<CInv, int64> mapAlreadyAskedFor;
+extern CCriticalSection cs_mapAlreadyAskFor;
 
 // Settings
 extern int fUseProxy;
 extern CAddress addrProxy;
+
+class ChkPointInc;
+typedef struct ChkPoint
+{
+    uint32 nChkPointHeight = 0;
+    uint256 chkPointHash;
+    uint32 nBstH = 0;
+    uint256 bestHash;
+    uint32 nLatestHeight = 0;
+    uint256 latestBlkHash;
+    CBlockLocatorEx chainloc;
+
+
+    ChkPoint()
+    { }
+
+    static bool GetCurrent(ChkPoint &cp);
+    void Merge(const ChkPointInc &cpincr);
+
+    IMPLEMENT_SERIALIZE
+    (
+        //HC: we can use parameter:nVersion to distinguish any change of type define
+        if (!(nType & SER_GETHASH))
+            READWRITE(nVersion);
+
+        READWRITE(nChkPointHeight);
+        READWRITE(chkPointHash);
+        READWRITE(nBstH);
+        READWRITE(bestHash);
+        READWRITE(nLatestHeight);
+        READWRITE(latestBlkHash);
+        READWRITE(chainloc);
+    )
+
+        string ToString()
+    {
+        int nH = chainloc.vHave.size() > 0 ? (chainloc.vHave.size() - 1) * chainloc.nHeightSpan : 0;
+        uint256 hash1 = chainloc.vHave.size() > 0 ? chainloc.vHave.back() : 0;
+
+        return strprintf("chkpoint: %d(%s) best: %d(%s) latest: %d(%s)",
+            nChkPointHeight, chkPointHash.ToPreViewString().c_str(),
+            nBstH, bestHash.ToPreViewString().c_str(),
+            nLatestHeight, latestBlkHash.ToPreViewString().c_str());
+    }
+} ChkPoint;
+
+typedef struct ChkPointInc
+{
+    CBlockLocatorExIncr* blocklocincr;
+    ChkPoint chkP;
+
+    ChkPointInc(ChkPoint& chkp, CBlockLocatorExIncr* locincr) : chkP(chkp), blocklocincr(locincr)
+    { }
+
+    IMPLEMENT_SERIALIZE
+    (
+        if (!(nType & SER_GETHASH))
+            READWRITE(nVersion);
+
+        READWRITE(chkP.nChkPointHeight);
+        READWRITE(chkP.chkPointHash);
+        READWRITE(chkP.nBstH);
+        READWRITE(chkP.bestHash);
+        READWRITE(chkP.nLatestHeight);
+        READWRITE(chkP.latestBlkHash);
+        READWRITE(*blocklocincr);
+    )
+} ChkPointInc;
+
+
 
 class CNode
 {
@@ -140,7 +215,7 @@ public:
     int64 nLastRecv;
     int64 nLastSendEmpty;
     int64 nTimeConnected;
-
+    //HC: PushMessage(getchkblock) time
     int64 nLastGetchkblk = 0;
     unsigned int nHeaderStart;
     unsigned int nMessageStart;
@@ -154,14 +229,56 @@ public:
     bool fDisconnect;
     std::string nodeid;
 
-
+    //HC: 节点评分,和发送流量控制，避免网速不匹配导致请求过多而浪费网络带宽
     int nScore = 0;
     int64 tmLastReqBlk = 0;
-    int nMinInterval = 5;      //HC����������С���
-    int64 nReqBlkInterval = 5;
+    int nMinInterval = 5;      //HC：块请求最小间隔
+    int64 nReqBlkInterval = 5; //HC: 块请求间隔，nScore越小， nReqblk 越大
+
+    deque<uint> deqNetPingCost;      //HC: 单位ms
+    uint nAvgPingCost = 0xffffffff;
+
+    void RecordSpeed(uint tmDiff)
+    {
+        if (deqNetPingCost.size() > 10) {
+            deqNetPingCost.pop_front();
+        }
+        deqNetPingCost.push_back(tmDiff);
+
+        uint64 sum = 0;
+        for (auto speed : deqNetPingCost) {
+            sum += speed;
+        }
+        nAvgPingCost = sum / deqNetPingCost.size();
+    }
 
     void IncreReqBlkInterval();
     void DecreReqBlkInterval(int64 timeReqBlk);
+
+
+    vector<CInv> vfgetblocksInv;
+    set<uint256> setfgetblocksInv;
+    time_t tmlastrecvfgetblock = 0; //HC: 最后一次收到块清单时间
+
+    CInv fgetInvContinue;
+    time_t tmlastfget = 0;
+    uint256 hashlastfget;
+    int nfgetRetry = 0;
+    int nfAskFor = 0;
+
+    int OnGetFBlocksCompleted(vector<CInv>& vecHaveNot);
+    int64 FPullBlocks(const uint256 &hashfork);
+    void FPullBlockReached(const CInv &inv);
+
+    bool IsNotHavingInvReply()
+    {
+        if (nfgetRetry >= 2 && hashlastfget == fgetInvContinue.hash) {
+            return true;
+        }
+        return false;
+    }
+
+    time_t tmlastProcessRecv = 0;
 
 protected:
     int nRefCount;
@@ -186,20 +303,23 @@ public:
     std::vector<CInv> vInventoryToSend;
     CCriticalSection cs_inventory;
 
-
+    //HC: change multimap to map
     std::multimap<int64, CInv> mapAskFor;
+    CCriticalSection cs_askfor;
 
     // publish and subscription
     std::vector<char> vfSubscribe;
 
-
+    //HC:
     std::map<uint256, std::tuple<int64, uint256>> mapBlockSent;
+    std::list<decltype(mapBlockSent.begin())> listBlockSent;
 
+    //HC:
+    ChkPoint chkpoint;
 
-    uint256 hashCheckPointBlock = 0;
-    uint32_t nHeightCheckPointBlock  = 0;
+    int64 tmlastgotchkp = 0;
 
-    CNode(SOCKET hSocketIn, CAddress addrIn, bool fInboundIn=false): nodeid("")
+    CNode(SOCKET hSocketIn, CAddress addrIn, bool fInboundIn = false) : nodeid("")
     {
         nServices = 0;
         hSocket = hSocketIn;
@@ -255,14 +375,14 @@ private:
 
 public:
 
-    void GetChkBlock();
+    void PushChkBlock();
 
     int GetRefCount()
     {
         return std::max(nRefCount, 0) + (GetTime() < nReleaseTime ? 1 : 0);
     }
 
-    CNode* AddRef(int64 nTimeout=0)
+    CNode* AddRef(int64 nTimeout = 0)
     {
         if (nTimeout != 0)
             nReleaseTime = std::max(nReleaseTime, GetTime() + nTimeout);
@@ -295,7 +415,7 @@ public:
 
     void AddInventoryKnown(const CInv& inv)
     {
-
+        //HC: do nothing
         return;
         CRITICAL_BLOCK(cs_inventory)
             setInventoryKnown.insert(inv);
@@ -305,28 +425,69 @@ public:
     {
         CRITICAL_BLOCK(cs_inventory)
         {
-
+            //HC: Don't put into setInventoryKnown
             //if (!setInventoryKnown.count(inv))
-                vInventoryToSend.push_back(inv);
+            vInventoryToSend.push_back(inv);
         }
     }
 
-    void AskFor(const CInv& inv)
+    void ClearGot(const vector<CInv>& vfgot)
+    {
+        CRITICAL_BLOCK(cs_mapAlreadyAskFor)
+            for (auto& inv : vfgot) {
+                mapAlreadyAskedFor.erase(inv);
+            }
+    }
+
+    bool AskForF(const CInv& inv)
+    {
+        if (AskFor(inv)) {
+            nfAskFor++;
+            return true;
+        }
+        return false;
+    }
+
+    bool AlreadyAskFor(const CInv& inv)
+    {
+        CRITICAL_BLOCK(cs_mapAlreadyAskFor)
+            if (mapAlreadyAskedFor.count(inv)) {
+                if (GetTime() * 1000000 < mapAlreadyAskedFor[inv] + 2 * 60 * 1000000) {
+                    //Request have sent in the past of 2 minutes
+                    return true;
+                }
+            }
+        return false;
+    }
+
+    bool AskFor(const CInv& inv)
     {
         // We're using mapAskFor as a priority queue,
         // the key is the earliest time the request can be sent
-        int64& nRequestTime = mapAlreadyAskedFor[inv];
 
-        TRACE_FL("askfor %s   %" PRI64d "\n", inv.ToString().c_str(), nRequestTime);
+        if (AlreadyAskFor(inv)) {
+            return false;
+        }
+
+        int64 nRequestTime;
+        CRITICAL_BLOCK(cs_mapAlreadyAskFor)
+            nRequestTime = mapAlreadyAskedFor[inv];
 
         // Make sure not to reuse time indexes to keep things in the same order
         int64 nNow = (GetTime() - 1) * 1000000;
-        static int64 nLastTime;
+        static int64 nLastTime = 0;
         nLastTime = nNow = std::max(nNow, ++nLastTime);
 
         // Each retry is 2 minutes after the last
         nRequestTime = std::max(nRequestTime + 2 * 60 * 1000000, nNow);
-        mapAskFor.insert(std::make_pair(nRequestTime, inv));
+
+        TRACE_FL("ask %s(%u) for %s   %" PRI64d "\n",
+            addr.ToString().c_str(), mapAskFor.size(),
+            inv.ToString().c_str(), nRequestTime);
+
+        CRITICAL_BLOCK(cs_askfor)
+            mapAskFor.insert(std::make_pair(nRequestTime, inv));
+        return true;
     }
 
 
@@ -408,7 +569,7 @@ public:
         CAddress addrMe = (fUseProxy ? CAddress("0.0.0.0") : addrLocalHost);
         RAND_bytes((unsigned char*)&nLocalHostNonce, sizeof(nLocalHostNonce));
         PushMessage("version", VERSION, nLocalServices, nTime, addrYou, addrMe,
-                    nLocalHostNonce, std::string(pszSubVer), nBestHeight);
+            nLocalHostNonce, std::string(pszSubVer), nBestHeight);
     }
 
 
@@ -443,7 +604,7 @@ public:
 
 
     void PushRequest(const char* pszCommand,
-                     void (*fn)(void*, CDataStream&), void* param1)
+        void (*fn)(void*, CDataStream&), void* param1)
     {
         uint256 hashReply;
         RAND_bytes((unsigned char*)&hashReply, sizeof(hashReply));
@@ -456,7 +617,7 @@ public:
 
     template<typename T1>
     void PushRequest(const char* pszCommand, const T1& a1,
-                     void (*fn)(void*, CDataStream&), void* param1)
+        void (*fn)(void*, CDataStream&), void* param1)
     {
         uint256 hashReply;
         RAND_bytes((unsigned char*)&hashReply, sizeof(hashReply));
@@ -469,7 +630,7 @@ public:
 
     template<typename T1, typename T2>
     void PushRequest(const char* pszCommand, const T1& a1, const T2& a2,
-                     void (*fn)(void*, CDataStream&), void* param1)
+        void (*fn)(void*, CDataStream&), void* param1)
     {
         uint256 hashReply;
         RAND_bytes((unsigned char*)&hashReply, sizeof(hashReply));
@@ -485,7 +646,7 @@ public:
     void PushGetBlocks(CBlockIndexSP pindexBegin, uint256 hashEnd);
     void PushGetBlocksReversely(uint256 hashEnd);
     bool IsSubscribed(unsigned int nChannel);
-    void Subscribe(unsigned int nChannel, unsigned int nHops=0);
+    void Subscribe(unsigned int nChannel, unsigned int nHops = 0);
     void CancelSubscribe(unsigned int nChannel);
     void CloseSocketDisconnect();
     void Cleanup();
@@ -596,7 +757,7 @@ void AdvertRemoveSource(CNode* pfrom, unsigned int nChannel, unsigned int nHops,
 typedef map<T_APPTYPE, vector<T_PAYLOADADDR>> M_APP_PAYLOADADDR;
 typedef struct tagCHAINCBDATA
 {
-    tagCHAINCBDATA(const M_APP_PAYLOADADDR &m, uint32_t hidFork, uint32_t hid, const T_SHA256 &thhash, bool isLatest) :
+    tagCHAINCBDATA(const M_APP_PAYLOADADDR& m, uint32_t hidFork, uint32_t hid, const T_SHA256& thhash, bool isLatest) :
         m_mapPayload(m), m_hidFork(hidFork), m_hid(hid), m_thhash(thhash), m_isLatest(isLatest)
     {
     }
@@ -611,11 +772,47 @@ typedef struct tagCHAINCBDATA
 class HyperBlockMsgs
 {
 public:
-    void insert(CHAINCBDATA &&cb);
+    void insert(CHAINCBDATA&& cb);
     void process();
+    size_t size();
 private:
     CCriticalSection m_cs_list;
     std::list<CHAINCBDATA> m_list;
+};
+
+
+class NodesCopy
+{
+public:
+    NodesCopy(vector<CNode*>& vCopy) : _vNodesCopy(vCopy)
+    {
+        CRITICAL_BLOCK(cs_vNodes)
+        {
+            _vNodesCopy = vNodes;
+            BOOST_FOREACH(CNode * pnode, _vNodesCopy)
+                pnode->AddRef();
+        }
+    }
+    ~NodesCopy()
+    {
+        Release();
+    }
+
+    void Release()
+    {
+        if (!isReleased) {
+            CRITICAL_BLOCK(cs_vNodes)
+            {
+                BOOST_FOREACH(CNode * pnode, _vNodesCopy)
+                    pnode->Release();
+            }
+        }
+        isReleased = true;
+    }
+
+private:
+    vector<CNode*>& _vNodesCopy;
+    bool isReleased = false;
 };
 
 #endif

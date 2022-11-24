@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -287,7 +287,7 @@ string CCommonStruct::generateNodeId(bool isbase62)
     string struuid = boost::uuids::to_string(r_uuid);
     struuid.erase(std::remove(struuid.begin(), struuid.end(), '-'), struuid.end());*/
 
-
+    //HC: boost1.68.0在Centos 7 下执行random_generator有时会异常，所以改用下面方式
     sole::uuid u4 = sole::uuid4();
     string struuid;
     if (isbase62) {
@@ -334,9 +334,9 @@ T_SHA256 calculateMerkleTreeRoot(vector<const T_SHA256*> &mttree)
 string T_LOCALBLOCK::GetUUID() const {
 
     string uuidpayload;
-
+    //HC: 账本或其他变化的应用取出不变部分进行计算，确保restapi可持续跟踪上链状态
     string payload = GetPayLoad();
-
+    //HC: 应用层应该重新上链，而不是下一个共识周期继续上
     //CBRET ret =
     //    g_tP2pManagerStatus->appCallback<cbindex::GETUUIDIDX>(GetAppType(), payload, uuidpayload);
 

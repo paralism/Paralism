@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -126,7 +126,7 @@ public:
         DataBuffer<ApplicationChainTask> msgbuf(std::move(ssBuf.str()));
 
         NodeManager *nodemgr = Singleton<NodeManager>::getInstance();
-
+        //HC: The best way is that send requests to a part of nodes contains the blocks.
         nodemgr->sendToAllNodes(msgbuf);
     }
 

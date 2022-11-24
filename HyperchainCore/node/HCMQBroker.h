@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -39,9 +39,9 @@ static constexpr int maximum_process_ability = 20;
 
 struct worker
 {
-    std::string m_identity;
-    service * m_service;
-    int64_t m_expiry;
+    std::string m_identity;   //HC: Address of worker
+    service * m_service;      //HC: Owning service, if known
+    int64_t m_expiry;         //HC: Expires at unless heartbeat
     int32_t m_process_ability = 0;
 
     worker(std::string identity, service * service = 0, int64_t expiry = 0)
@@ -51,7 +51,7 @@ struct worker
         m_expiry = expiry;
     }
 
-
+    //HC: mean now I can handle numbers of maximum messages
     inline void idle()
     {
         m_process_ability = maximum_process_ability;
@@ -62,7 +62,7 @@ struct worker
         return m_process_ability > 0;
     }
 
-
+    //HC: mean I can handle more messages
     inline void become_stronger()
     {
         if (m_process_ability >= maximum_process_ability) {
@@ -87,12 +87,12 @@ struct service
     ~service()
     {}
 
-    std::string m_name;
-    std::deque<std::tuple<zmsg,std::time_t>> m_requests;
-    std::set<worker*> m_waiting;
-    size_t m_workers = 0;
-    size_t m_req_handled = 0;
-    size_t m_req_abandoned= 0;
+    std::string m_name;                 //HC: Service name
+    std::deque<std::tuple<zmsg,std::time_t>> m_requests;        //HC: List of client requests
+    std::set<worker*> m_waiting;        //HC: List of waiting workers
+    size_t m_workers = 0;               //HC: How many workers we have
+    size_t m_req_handled = 0;           //HC: How many request already handled by workers
+    size_t m_req_abandoned= 0;          //HC: How many request already abandoned by workers due to be expired
 
     service(std::string name)
     {

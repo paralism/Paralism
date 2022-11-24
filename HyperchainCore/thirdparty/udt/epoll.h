@@ -114,7 +114,7 @@ public: // for CUDTUnited API
 
    int remove_usock(const int eid, const UDTSOCKET& u);
 
-
+   //HC: remove invalid ready socket
    int remove_usock_of_ready(const int eid, const UDTSOCKET& u);
 
       // Functionality:

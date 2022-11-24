@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -35,14 +35,14 @@ using namespace std;
 #include "net.h"
 
 #define LEDGER_T_SERVICE "LEDGER_task"
-
+//HC: Ledger task type
 enum class LEDGER_TASKTYPE : unsigned char
 {
     BASETYPE = 0,
     LEDGER,
     LEDGER_PING_NODE,
     LEDGER_PING_NODE_RSP,
-    REINIT,
+    REINIT,   //HC: no use
 };
 
 void pingNode(const CAddress &addrConnect);
@@ -66,7 +66,7 @@ public:
     ILedgerTask() {}
     ILedgerTask(TASKBUF && recvbuf) : ITask(std::forward<TASKBUF>(recvbuf))
     {
-
+        //HC: skip child type
         _payload++;
         _payloadlen--;
     }
@@ -76,7 +76,7 @@ class LedgerTask : public ITask, public std::integral_constant<TASKTYPE, TASKTYP
 public:
     using ITask::ITask;
 
-    explicit LedgerTask(const string &nodeid, const char *databuf, size_t len) :ITask(), _nodeid(nodeid), _msg(databuf, len),
+    explicit LedgerTask(const string &nodeid, string &&msg) :ITask(), _nodeid(nodeid), _msg(std::forward<string>(msg)),
         _nodemgr(Singleton<NodeManager>::getInstance()) {}
     void exec() override;
     void execRespond() override;

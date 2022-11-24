@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -183,14 +183,14 @@ public:
         T_HYPERBLOCK hyperBlock;
         for (uint64 i = 0; i < m_ncount; ++i) {
             if (!sp->getHyperBlock(reqblockNum + i, hyperBlock)) {
-
+                //HC: I haven't the hyper block.
                 DataBuffer<NoHyperBlockRspTask> msgbuf(std::move(to_string(reqblockNum + i)));
                 nodemgr->sendTo(_sentnodeid, msgbuf);
                 g_daily_logger->info("GetHyperBlockByNoReqTask, I haven't hyperblock: [{}], sentnodeid: [{}]", reqblockNum + i, _sentnodeid.ToHexString());
                 continue;
             }
 
-
+            //HC: prepare to send the hyper block to the request node
             stringstream ssBuf;
             boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
             try {
@@ -203,7 +203,7 @@ public:
 
             DataBuffer<BoardcastHyperBlockTask> msgbuf(std::move(ssBuf.str()));
 
-
+            //HC: send to the request node
             g_consensus_console_logger->debug("Send Hyperblock {}", hyperBlock.GetID());
             nodemgr->sendTo(_sentnodeid, msgbuf);
         }
@@ -242,7 +242,7 @@ public:
         string msgbuffer(_payload, _payloadlen);
         string::size_type ns = msgbuffer.find(":");
         if ((ns == string::npos) || (ns == 0)) {
-
+            //HC: Data format error.
             return;
         }
 
@@ -254,14 +254,14 @@ public:
         T_HYPERBLOCK hyperBlock;
         CHyperChainSpace * sp = Singleton<CHyperChainSpace, string>::getInstance();
         if (!sp->getHyperBlockByPreHash(blockNum, PreHash, hyperBlock)) {
-
+            //HC: I haven't the hyper block.
             DataBuffer<NoHyperBlockRspTask> msgbuf(std::move(to_string(blockNum)));
             nodemgr->sendTo(_sentnodeid, msgbuf);
             g_daily_logger->info("GetHyperBlockByPreHashReqTask, I haven't hyper block: [{}], sentnodeid: [{}]", blockNum, _sentnodeid.ToHexString());
             return;
         }
 
-
+        //HC: prepare to send the hyper block to the request node
         stringstream ssBuf;
         boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
 
@@ -275,7 +275,7 @@ public:
 
         DataBuffer<BoardcastHyperBlockTask> msgbuf(std::move(ssBuf.str()));
 
-
+        //HC: send to the request node
         nodemgr->sendTo(_sentnodeid, msgbuf);
     }
 

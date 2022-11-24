@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -30,7 +30,7 @@ DEALINGS IN THE SOFTWARE.
 
 namespace DBSQL {
 
-
+    //HC: 存证记录
     const std::string EVIDENCES_TBL =
         "CREATE TABLE IF NOT EXISTS evidence_tbl "
         "("
@@ -71,17 +71,17 @@ namespace DBSQL {
 
     const std::string ONCHAINED_TBL =
         "CREATE TABLE IF NOT EXISTS localblockonchained ("
-        "  [requestid]	varchar(32) DEFAULT '',"
+        "  [requestid]	varchar(32) DEFAULT ''," //HC: uuid, which is tLocalBlock.getUUID
         "  [hid]		INTEGER DEFAULT 0,"
         "  [chain_num]	INTEGER DEFAULT 0,"
-        "  [id]	INTEGER DEFAULT 0,"
+        "  [id]	INTEGER DEFAULT 0,"			//HC: local block id
         "  PRIMARY KEY (requestid)"
         ");";
 
     const std::string BATCHONCHAINED_TBL =
         "CREATE TABLE IF NOT EXISTS batchonchained ("
         "  [batchid]	varchar(32) DEFAULT '',"
-        "  [requestid]	varchar(32) DEFAULT '',"
+        "  [requestid]	varchar(32) DEFAULT ''," //HC: uuid, which is tLocalBlock.getUUID
         "  [data]       blob DEFAULT '' NOT NULL,"
         "  [retry]      INTEGER DEFAULT 0,"
         "  [ctime]	    INTEGER DEFAULT 0,"
@@ -90,7 +90,7 @@ namespace DBSQL {
         ");";
 
 
-
+    //HC: best chain info
     const std::string HASHINFO_TBL =
         "CREATE TABLE IF NOT EXISTS hyperblockhashinfo ("
         "  [id]		    INTEGER DEFAULT 0,"
@@ -99,7 +99,7 @@ namespace DBSQL {
         "  PRIMARY KEY (id)"
         ");";
 
-
+    //HC: best header chain info
     const std::string HEADERHASHINFO_TBL =
         "CREATE TABLE IF NOT EXISTS headerhashinfo ("
         "  [id]		    INTEGER DEFAULT 0,"
@@ -179,6 +179,30 @@ namespace DBSQL {
         "  [accesspoint] TEXT NOT NULL DEFAULT '',"
         "  [lasttime] INTEGER DEFAULT 0"
         ");";
+
+    const std::string ONCHAINDATA_TBL =
+        "CREATE TABLE IF NOT EXISTS onchaindata ("
+        "  [requestid]	varchar(32) DEFAULT ''," //HC: uuid, which is tLocalBlock.getUUID
+        "  [requesttime] INTEGER DEFAULT 0,"
+        "  [onchain1time] INTEGER DEFAULT 0,"
+        "  [onchain2time] INTEGER DEFAULT 0,"
+        "  [onchaintime] INTEGER DEFAULT 0,"
+        "  [maturetime] INTEGER DEFAULT 0,"
+        "  [queuenum] INTEGER DEFAULT 0,"
+        "  [accesspoint] TEXT NOT NULL DEFAULT '',"
+        "  PRIMARY KEY (requestid)"
+        ");";
+
+    const std::string SENDMSGINFO_TBL =
+        "CREATE TABLE IF NOT EXISTS sendmsginfo ("
+        "  [msgid] integer PRIMARY KEY autoincrement,"
+        "  [msgsize] INTEGER DEFAULT 0,"
+        "  [sendtime] INTEGER DEFAULT 0,"
+        "  [timecircle] INTEGER DEFAULT 0,"
+        "  [function] TEXT NOT NULL DEFAULT '',"
+        "  [to_id]	   TEXT NOT NULL DEFAULT 'ALL'"
+        ");";
+
 }
 
 
@@ -196,6 +220,7 @@ static const std::string scGetNeighbors = "SELECT * FROM neighbornodes";
 ////////////////////////////////////////////////////
 
 DBmgr::DBmgr() {
+    bRecord = false;
 
 }
 
@@ -318,7 +343,7 @@ int DBmgr::insertEvidence(const TEVIDENCEINFO &evidence)
 {
     try
     {
-
+        //HC: hash,blocknum,filename,custominfo,owner,filestate,regtime,filesize,extra
         CppSQLite3Statement stmt = _db->compileStatement(scEvidenceInsert.c_str());
         stmt.bind(1, evidence.cFileHash.c_str());
         stmt.bind(2, (sqlite_int64)evidence.iBlocknum);
@@ -364,7 +389,7 @@ int DBmgr::getEvidences(std::list<TEVIDENCEINFO> &evidences, int page, int size)
         CppSQLite3Query query = stmt.execQuery();
         while (!query.eof())
         {
-
+            //HC: hash,blocknum,filename,custominfo,owner,filestate,regtime,filesize,extra
             TEVIDENCEINFO evi;
             evi.cFileHash = query.getStringField("hash");
             evi.cFileName = query.getStringField("filename");
@@ -404,7 +429,7 @@ int DBmgr::getNoConfiringList(std::list<TEVIDENCEINFO>& evidences)
         CppSQLite3Query query = stmt.execQuery();
         while (!query.eof())
         {
-
+            //HC: hash,blocknum,filename,custominfo,owner,filestate,regtime,filesize,extra
             TEVIDENCEINFO evi;
             evi.cFileHash = query.getStringField("hash");
             evi.cFileName = query.getStringField("filename");
@@ -430,7 +455,7 @@ int DBmgr::getNoConfiringList(std::list<TEVIDENCEINFO>& evidences)
 int DBmgr::updateEvidence(const TEVIDENCEINFO &evidence, int type)
 {
     try {
-
+        //HC: hash,blocknum,filename,custominfo,owner,filestate,regtime,filesize,extra
         std::string sql;
         if (1 == type) {
             sql = "UPDATE evidence_tbl SET filestate=?"
@@ -526,12 +551,14 @@ int DBmgr::createTbls()
     _db->execDML(DBSQL::UPQUEUE_TBL.c_str());
     _db->execDML(DBSQL::MYSELF_TBL.c_str());
     _db->execDML(DBSQL::NEIGHBORNODE_TBL.c_str());
+    _db->execDML(DBSQL::ONCHAINDATA_TBL.c_str());
+    _db->execDML(DBSQL::SENDMSGINFO_TBL.c_str());
     return 0;
 }
 
 int DBmgr::updateDB()
 {
-
+    //HC: 兼容老版本db,增加表neighbornodes字段,sqlite目前不支持修改字段类型
     //TO DO in the future
     if (ifTblOrIndexExist("neighbornodes", 1)) {
         if (!ifColExist("neighbornodes", "lasttime")) {
@@ -1069,7 +1096,7 @@ int DBmgr::getUpqueue(std::list<TUPQUEUE> &queue, int page, int size)
 
         CppSQLite3Query query = stmt.execQuery();
         while (!query.eof()) {
-
+            //HC: hash,ctime
             TUPQUEUE evi;
             evi.uiID = query.getInt64Field("id");
             evi.strHash = query.getStringField("hash");
@@ -1270,6 +1297,85 @@ int DBmgr::updateOnChainState(const string &requestid, const T_LOCALBLOCKADDRESS
     return nRowsChanged;
 }
 
+int DBmgr::RecordRequestTime(const string& requestid, const string& accesspoint, int& queuenum) {
+    if (!bRecord)
+        return 0;
+
+    int num = 0;
+    query("SELECT count(*) as num FROM onchaindata where requestid=?;",
+        [&num](CppSQLite3Query& q) {
+            num = q.getIntField("num");
+        }, requestid.c_str());
+
+    if (num > 0)
+        return 0;
+
+    exec("insert into onchaindata(requestid,requesttime,accesspoint,queuenum) values(?,?,?,?);",
+        requestid.c_str(),
+        time(nullptr),
+        accesspoint.c_str(),
+        queuenum);
+
+    return 1;
+}
+
+void DBmgr::RecordOnchain1Time(const string& requestid) {
+    if (!bRecord)
+        return;
+
+    exec("update onchaindata set onchain1time=? where requestid=? and onchain1time=0;",
+        time(nullptr),
+        requestid.c_str());
+}
+
+void DBmgr::RecordOnchain2Time(const string& requestid) {
+    if (!bRecord)
+        return;
+
+    exec("update onchaindata set onchain2time=? where requestid=? and onchain2time=0;",
+        time(nullptr),
+        requestid.c_str());
+}
+
+void DBmgr::RecordOnchainTime(const string& requestid) {
+    if (!bRecord)
+        return;
+
+    exec("update onchaindata set onchaintime=? where requestid=? and onchaintime=0;",
+        time(nullptr),
+        requestid.c_str());
+}
+
+void DBmgr::RecordMatureTime(const string& requestid) {
+    if (!bRecord)
+        return;
+
+    exec("update onchaindata set maturetime=? where requestid=? and maturetime=0;",
+        time(nullptr),
+        requestid.c_str());
+}
+
+void DBmgr::ResetOnchainTime(uint64 hid) {
+    if (!bRecord)
+        return;
+
+    exec("update onchaindata set onchaintime=0,maturetime=0 where requestid in (select requestid from localblockonchained where hid=?);", hid);
+}
+
+void DBmgr::RecordMsgInfo(uint64 msgsize, string function, string toPeer) {
+    if (!bRecord)
+        return;
+
+    time_t now = time(nullptr);
+    int64 timecircle = now / NEXTBUDDYTIME;
+    exec("insert into sendmsginfo(msgsize,sendtime,timecircle,function,to_id) values(?,?,?,?,?);",
+        msgsize,
+        (uint64)now,
+        timecircle,
+        function.c_str(),
+        toPeer.c_str());
+}
+
 void DBmgr::initOnChainState(uint64 hid)
 {
     exec("update localblockonchained set hid=0,chain_num=0,id=0 where hid=?", hid);
@@ -1386,6 +1492,27 @@ bool DBmgr::isHeaderIndexExisted(uint64 hid)
         hid);
 
     return num != 0;
+}
+
+int DBmgr::getHeaderIndexRecordNumber()
+{
+    try {
+        CppSQLite3Statement stmt;
+        std::string sql = "SELECT count(id) as total FROM headerindex";
+        //std::string sql = "SELECT max(rowid) as total FROM headerindex";
+
+        stmt = _db->compileStatement(sql.c_str());
+
+        CppSQLite3Query query = stmt.execQuery();
+        if (!query.eof()) {
+            return query.getIntField("total");
+        }
+    }
+    catch (CppSQLite3Exception& ex) {
+        return DBERROR(ex);
+    }
+
+    return 0;
 }
 
 //bool DBmgr::isHeaderExistedbyHash(T_SHA256 hash)
@@ -1563,6 +1690,54 @@ int DBmgr::updateHeaderInfo(const uint64 hid, const T_SHA256& headerhash, const 
     }
 
     return 0;
+}
+
+int DBmgr::getHeaderIndex(MAP_T_HEADERINDEX& headerindexmap, int page, int size)
+{
+    int ret = 0;
+
+    try
+    {
+        CppSQLite3Statement stmt;
+        std::string sql;
+        if (page == -1) {
+            sql = "SELECT * FROM headerindex ORDER BY id;";
+        }
+        else {
+            sql = "SELECT * FROM headerindex ORDER BY id LIMIT ? OFFSET ?;";
+        }
+
+        stmt = _db->compileStatement(sql.c_str());
+
+        if (page != -1) {
+            stmt.bind(1, size);
+            stmt.bind(2, page * size);
+        }
+
+        CppSQLite3Query query = stmt.execQuery();
+        while (!query.eof())
+        {
+            T_HEADERINDEX headerindex;
+
+            headerindex.id = query.getInt64Field("id");
+            headerindex.prehash = CCommonStruct::StrToHash256(string(query.getStringField("prehash")));
+            headerindex.headerhash = CCommonStruct::StrToHash256(string(query.getStringField("headerhash")));
+            headerindex.preheaderhash = CCommonStruct::StrToHash256(string(query.getStringField("preheaderhash")));
+            headerindex.ctime = query.getInt64Field("ctime");
+            headerindex.weight = query.getIntField("weight");
+            headerindex.total_weight = query.getInt64Field("total_weight");
+            headerindex.from_id = query.getStringField("from_id");
+
+            headerindexmap[headerindex.headerhash] = headerindex;
+
+            query.nextRow();
+        }
+    }
+    catch (CppSQLite3Exception& ex) {
+        return DBERROR(ex);
+    }
+
+    return ret;
 }
 
 int DBmgr::getAllHeaderIndex(MAP_T_HEADERINDEX &headerindexmap)

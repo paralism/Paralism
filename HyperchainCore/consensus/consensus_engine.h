@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -35,15 +35,15 @@ DEALINGS IN THE SOFTWARE.
 using namespace std;
 
 enum class ONCHAINSTATUS :char {
-    queueing,
-    onchaining1,
-    onchaining2,
-    onchained,
-    matured,
-    nonexistent,
-    failed,
-    unknown,
-    pending,
+    queueing,       //HC: 排队上链中
+    onchaining1,    //HC: local consensus
+    onchaining2,    //HC: global consensus
+    onchained,      //HC: 刚刚完成上链，in mapSearchOnChain
+    matured,        //HC: 成熟，指几个共识周期（MATURITY_TIME秒）后，如果依然存在，表示成熟，这样发生分叉被刷下的可能性很小
+    nonexistent,    //HC: 未上过链
+    failed,         //HC: 上链失败
+    unknown,        //HC: system internal error
+    pending,        //HC: 批量上链数据，等待提交到共识层
 };
 
 class HCMQWrk;
@@ -53,10 +53,10 @@ struct _tp2pmanagerstatus;
 
 typedef struct
 {
-    string hashMTRoot;
-    vector<string> vecMT;
-    string payload;
-    CUInt128 nodeid;
+    string hashMTRoot;       //HC: 交易merkle树根hash
+    vector<string> vecMT;    //HC: 每一笔交易的Hash
+    string payload;          //HC: 块数据
+    CUInt128 nodeid;         //HC: 块创建节点nodeid
 } PostingBlock;
 
 
@@ -73,7 +73,7 @@ public:
         return _msghandler.details();
     }
 
-
+    //HC: start test thread which auto creates child block and does consensus
     void startTest() {
         if (_testthread) {
             return;
@@ -104,37 +104,42 @@ public:
 
     uint32 AddChainEx(const T_APPTYPE& app, vector<PostingBlock>& postingchain);
 
-    void RegisterAppCallback(const T_APPTYPE &app, const CONSENSUSNOTIFY &notify);
-    void UnregisterAppCallback(const T_APPTYPE &app);
+    void RegisterAppCallback(const T_APPTYPE& app, const CONSENSUSNOTIFY& notify);
+    void UnregisterAppCallback(const T_APPTYPE& app);
 
-    ONCHAINSTATUS GetOnChainState(const LB_UUID& requestId, size_t &queuenum);
+    ONCHAINSTATUS GetOnChainState(const LB_UUID& requestId, size_t& queuenum);
     bool CheckSearchOnChainedPool(const LB_UUID& requestId, T_LOCALBLOCKADDRESS& addr);
-    uint GetStateOfCurrentConsensus(uint64 &blockNo, uint16 &blockNum, uint16 &chainNum);
-    void GetDetailsOfCurrentConsensus(size_t &reqblknum,
-        size_t &rspblknum,
-        size_t &reqchainnum,
-        size_t &rspchainnum,
-        size_t &localchainBlocks,
-        LIST_T_LOCALCONSENSUS *localbuddychaininfos,
-        size_t &globalbuddychainnum);
+    uint GetStateOfCurrentConsensus(uint64& blockNo, uint16& blockNum, uint16& chainNum);
+    void GetDetailsOfCurrentConsensus(size_t& reqblknum,
+        size_t& rspblknum,
+        size_t& reqchainnum,
+        size_t& rspchainnum,
+        size_t& localchainBlocks,
+        LIST_T_LOCALCONSENSUS* localbuddychaininfos,
+        size_t& globalbuddychainnum);
 
     void InitOnChainingState(uint64_t blockid);
     void RehandleOnChainingState(uint64_t blockid);
     bool IsAbleToConsensus() { return _is_able_to_consensus; }
     bool IsEndNode();
-    bool IsConfirming(string &currBuddyHash);
-    bool MakeBuddy(const string & confirmhash);
-    void PutIntoConsensusList(T_BUDDYINFOSTATE &buddyinfostate);
-    bool MergeToGlobalBuddyChains(LIST_T_LOCALCONSENSUS &listLocalBuddyChainInfo);
+    bool IsConfirming(string& currBuddyHash);
+    bool MakeBuddy(const string& confirmhash);
+    void PutIntoConsensusList(T_BUDDYINFOSTATE& buddyinfostate);
+    bool MergeToGlobalBuddyChains(LIST_T_LOCALCONSENSUS& listLocalBuddyChainInfo);
     bool CheckPayload(LIST_T_LOCALCONSENSUS& localList);
+    bool IsMakeBuddy();
 
     struct _tp2pmanagerstatus* GetConsunsusState()
     {
         return _tP2pManagerStatus;
     }
 
+    int64 _onchaindatasize;
+    static int64 GetConsensusCircle() {
+        return (time(nullptr) / NEXTBUDDYTIME);
+    }
 
- private:
+private:
 
     void LocalBuddyReq();
     void LocalBuddyRsp();
@@ -142,32 +147,31 @@ public:
     void CheckMyVersionThread();
     void CreateGenesisBlock();
     void SendLocalBuddyReq();
-    void ProcessOnChainRspMsg(const CUInt128 &peerid, char* pBuf, size_t uiBufLen);
+    void ProcessOnChainRspMsg(const CUInt128& peerid, char* pBuf, size_t uiBufLen);
     void StartGlobalBuddy();
     void SendGlobalBuddyReq();
 
-    void HyperBlockUpdated(void *sock, zmsg *msg);
-    void AsyncHyperBlockUpdated(const T_HYPERBLOCK &h);
+    void HyperBlockUpdated(void* sock, zmsg* msg);
+    void AsyncHyperBlockUpdated(const T_HYPERBLOCK& h);
 
     bool CheckConsensusCond();
 
     void TestOnchain();
 
     void PrepareLocalBuddy();
-    void UpdateMyBuddyBlock(const T_HYPERBLOCK &h);
+    void UpdateMyBuddyBlock(const T_HYPERBLOCK& h);
     void ReOnChainFun();
 
     void GetOnChainInfo();
     void TryCreateHyperBlock();
-    bool CreateHyperBlock(T_HYPERBLOCK &tHyperBlock);
+    bool CreateHyperBlock(T_HYPERBLOCK& tHyperBlock);
 
     void StartMQHandler();
 
-    void DispatchService(void *wrk, zmsg *msg);
+    void DispatchService(void* wrk, zmsg* msg);
     void DispatchConsensus();
 
     void EmitConsensusSignal(int nDelaySecond);
-
 
 private:
 
@@ -175,7 +179,7 @@ private:
     {
         GetOnChainState = 1,
         AddNewBlockEx,
-        AddChainEx,
+        AddChainEx,      //HC: Para coin and ledger call this
         HyperBlockUpdated,
         GetStateOfCurrentConsensus,
         GetDetailsOfCurrentConsensus,
@@ -196,7 +200,7 @@ private:
 
     struct _tp2pmanagerstatus* _tP2pManagerStatus = nullptr;
 
-    zmq::socket_t *_hyperblock_updated = nullptr;
+    zmq::socket_t* _hyperblock_updated = nullptr;
     MsgHandler _msghandler;
 };
 

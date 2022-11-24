@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -38,7 +38,7 @@ using namespace std;
 #define PARACOIN_T_SERVICE "paracoin_task"
 
 
-
+//HC: paracoin task type
 enum class PARA_TASKTYPE : unsigned char
 {
     BASETYPE = 0,
@@ -66,17 +66,38 @@ public:
     IParaTask() {}
     IParaTask(TASKBUF && recvbuf) : ITask(std::forward<TASKBUF>(recvbuf))
     {
-
+        //HC: skip child type
         _payload++;
         _payloadlen--;
     }
+};
+
+class ParaRecver
+{
+public:
+    void AddNodeData(const string &node, TASKBUF &&data);
+    void HandleData();
+
+    string GetStatus();
+private:
+    typedef struct
+    {
+        list<TASKBUF> datas;
+        int64_t totallenpushed = 0;
+        int64_t tmlastpushed = 0;
+        int64_t waitinghandle = 0; //HC: node's recv buffer data which will be handled
+    } NODEDATA;
+    map<string, NODEDATA> _mapNodedata;
+    map<string, CNode*> _activeNodes;
+
+    CCriticalSection _cs_NRecv;
 };
 
 class ParaTask : public ITask, public std::integral_constant<TASKTYPE, TASKTYPE::PARACOIN> {
 public:
     using ITask::ITask;
 
-    explicit ParaTask(const string &nodeid, const char *databuf, size_t len) :ITask(), _nodeid(nodeid), _msg(databuf, len),
+    explicit ParaTask(const string &nodeid, string &&msg) :ITask(), _nodeid(nodeid), _msg(std::forward<string>(msg)),
         _nodemgr(Singleton<NodeManager>::getInstance()) {}
     void exec() override;
     void execRespond() override;

@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -106,6 +106,15 @@ void MsgHandler::stop()
         _eventloopthread->join();
 }
 
+
+bool MsgHandler::isstopped()
+{
+    if (_isstop || getID() == std::thread::id()) {
+        return true;
+    }
+    return false;
+}
+
 using co_tasks= std::list<boost::fibers::fiber>;
 
 inline
@@ -144,16 +153,16 @@ string MsgHandler::details()
         nfiber_terminated = _my_scheduler_algo->fibers_count();
     }
     ostringstream oss;
-    oss << getID() << " fibers Created: " << _fiber_count_created_
-        << " terminated: " << nfiber_terminated;
+    oss << getID() << " fibers created: " << _fiber_count_created_
+        << ", deleted: " << nfiber_terminated << " isstopped: " << isstopped();
     return oss.str();
 }
 
 
 void MsgHandler::dispatchMQEvent()
 {
-
-
+    //HC: make sure we use our priority_scheduler rather than default round_robin
+    //HC: scheduling algorithm uses to debug fiber.
     boost::fibers::use_scheduling_algorithm<priority_scheduler>();
     _my_scheduler_algo = new priority_scheduler();
     boost::fibers::context::active()->get_scheduler()->set_algo(_my_scheduler_algo);
@@ -194,7 +203,7 @@ void MsgHandler::dispatchMQEvent_fb()
                 continue;
             }
 
-
+            //HC: request broker give more messages to do
             for (auto &w : _wrks) {
                 w->idle();
             }
@@ -208,11 +217,11 @@ void MsgHandler::dispatchMQEvent_fb()
                     size_t j = i - wrkcount;
                     zmsg recvmsg(*_socks[j]);
 
-
+                    //HC: Call callback function user defined to handle the event
                     co_create_start(this, _socks[j], std::move(recvmsg), _poll_funcs_s[j]);
                 }
                 else {
-
+                    //HC: Received message from broker
                     zmsg recvmsg(*_wrks[i]->getsocket());
                     msg = &recvmsg;
 
@@ -226,7 +235,7 @@ void MsgHandler::dispatchMQEvent_fb()
 
                     std::string command = msg->pop_front();
                     if (command.compare(MDPW_REQUEST) == 0) {
-
+                        //HC: handle the event
                         co_create_start(this, _wrks[i], std::move(recvmsg), _poll_funcs[i]);
                     }
                     else {
@@ -237,7 +246,7 @@ void MsgHandler::dispatchMQEvent_fb()
             }
         }
 
-
+        //HC: Handle any timers that have now expired
         auto now = s_clock();
         for (auto &t : _poll_func_timers) {
             if (t.when < now && !_isstop) {
@@ -246,7 +255,7 @@ void MsgHandler::dispatchMQEvent_fb()
             }
         }
 
-
+        //HC: Handle a ticker
         now = s_clock();
         auto a_ticket = _poll_func_tickets.begin();
         for (; a_ticket != _poll_func_tickets.end(); ) {
@@ -257,7 +266,7 @@ void MsgHandler::dispatchMQEvent_fb()
 
                 co_create_start(this, t.func);
 
-
+                //HC: other will be handled on next time
                 break;
             }
             ++a_ticket;
@@ -278,8 +287,8 @@ void MsgHandler::handleTask(void *wrk, zmsg *msg)
 
     std::shared_ptr<ITask> task = _taskFactory.CreateShared<ITask>(static_cast<uint32_t>(tt), std::move(taskbuf));
     if (!task) {
-
-
+        //HC: Received unregistered task data which cannot be handled, abandoned them
+        //HC: Just as if the data handled
         return;
     }
 

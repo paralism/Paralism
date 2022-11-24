@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -30,6 +30,7 @@ SOFTWARE.
 #include "db.h"
 #include "net.h"
 #include "util.h"
+#include "key_io.h"
 
 #include <boost/make_shared.hpp>
 #include <boost/filesystem.hpp>
@@ -65,12 +66,11 @@ thread_local boost::shared_ptr<COrphanBlockDB> tls_orphanblkdb_instance;
 extern CBlockCacheLocator mapBlocks;
 
 
-extern void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "");
 extern bool SwitchChainTo(CBlockIndexSP pindexBlock);
 
 CCriticalSection::~CCriticalSection()
 {
-
+    //HC: debug cs_db
     //int a = 0;
     //if (this == cs_db.get()) {
     //    a = 1;
@@ -86,7 +86,7 @@ public:
     {
         if (fDbEnvInit)
         {
-
+            //HC: dbenv will automatically call close
             //dbenv->close(0);
             fDbEnvInit = false;
         }
@@ -146,8 +146,8 @@ CDB::CDB(const char* pszFile, const char* pszMode) : m_dbenv(dbenv), pdb(NULL)
 
             m_dbenv->set_lg_dir(strLogDir.c_str());
             m_dbenv->set_lg_max(10000000);
-            m_dbenv->set_lk_max_locks(50000);
-            m_dbenv->set_lk_max_objects(50000);
+            m_dbenv->set_lk_max_locks(500000);  //HC:
+            m_dbenv->set_lk_max_objects(500000); //HC:
             m_dbenv->set_errfile(fopen(strErrorFile.c_str(), "a")); /// debug
             m_dbenv->set_flags(DB_AUTO_COMMIT, 1);
             ret = m_dbenv->open(strDataDir.c_str(),
@@ -226,7 +226,7 @@ void CDB::Close()
         --mapFileUseCount[strFile];
 }
 
-void static CloseDb(const string& strFile)
+void CloseDb(const string& strFile)
 {
     CRITICAL_BLOCK(*cs_db)
     {
@@ -241,11 +241,11 @@ void static CloseDb(const string& strFile)
     }
 }
 
-void DBFlush(bool fShutdown)
+void DBFlush(bool fRemove)
 {
     // Flush log data to the actual data file
     //  on all files that are not in use
-    TRACE_FL("DBFlush(%s)%s\n", fShutdown ? "true" : "false", fDbEnvInit ? "" : " db not started");
+    TRACE_FL("DBFlush(%s)%s\n", fRemove ? "true" : "false", fDbEnvInit ? "" : " db not started");
     if (!fDbEnvInit)
         return;
     CRITICAL_BLOCK(*cs_db)
@@ -268,7 +268,7 @@ void DBFlush(bool fShutdown)
             else
                 mi++;
         }
-        if (fShutdown)
+        if (fRemove)
         {
             char** listp;
             if (mapFileUseCount.empty())
@@ -286,7 +286,6 @@ void DBFlush(bool fShutdown)
 //
 // CTxDB
 //
-
 bool CTxDB::ReadTxIndex(const uint256& hash, CTxIndex& txindex)
 {
     assert(!fClient);
@@ -429,26 +428,6 @@ bool CTxDB::WriteHashBestChain(uint256 hashBestChain)
     return Write(string("hashBestChain"), hashBestChain);
 }
 
-
-bool CTxDB::ReadAddrMaxChain(T_LOCALBLOCKADDRESS& addrMax)
-{
-    string strAddrMax;
-    bool ret =Read(string("addrMaxChain"), strAddrMax);
-    if (ret) {
-        addrMax.fromstring(strAddrMax);
-    }
-    return ret;
-}
-
-
-bool CTxDB::WriteAddrMaxChain(const T_LOCALBLOCKADDRESS& addrMax)
-{
-    string str = addrMax.tostring();
-    return Write(string("addrMaxChain"), str);
-}
-
-
-
 bool CTxDB::ReadBestInvalidWork(CBigNum& bnBestInvalidWork)
 {
     return Read(string("bnBestInvalidWork"), bnBestInvalidWork);
@@ -459,7 +438,7 @@ bool CTxDB::WriteBestInvalidWork(CBigNum bnBestInvalidWork)
     return Write(string("bnBestInvalidWork"), bnBestInvalidWork);
 }
 
-static CBlockIndexSP InsertBlockIndex(uint256 hash, int nHeight)
+static CBlockIndexSP InsertBlockIndex(const uint256 &hash, int nHeight)
 {
     if (hash == 0)
         return NULL;
@@ -472,12 +451,11 @@ static CBlockIndexSP InsertBlockIndex(uint256 hash, int nHeight)
     // Create new
     CBlockIndexSP pindexNew = make_shared_proxy<CBlockIndex>();
     if (!pindexNew)
-        throw runtime_error("LoadBlockIndex() : new CBlockIndex failed");
+        throw runtime_error("InsertBlockIndex() : new CBlockIndex failed");
     pindexNew->nHeight = nHeight;
-    auto miter = mapBlockIndex.insert(make_pair(hash, pindexNew),false).first;
-    pindexNew->hashBlock = ((*miter).first);
+    pindexNew->hashBlock = hash;
 
-    return miter->second;
+    return pindexNew;
 }
 
 bool CTxDB::CheckBestBlockIndex()
@@ -493,16 +471,16 @@ bool CTxDB::CheckBestBlockIndex()
     return true;
 }
 
-CBlockIndexSP CTxDB::ConstructBlockIndex(CDiskBlockIndex& diskindex)
+CBlockIndexSP CTxDB::ConstructBlockIndex(const uint256 &hash, CDiskBlockIndex& diskindex)
 {
     const CBlockIndex *pidx = diskindex.GetBlockIndex();
-    CBlockIndexSP pindexNew = InsertBlockIndex(diskindex.GetBlockHash(), pidx->nHeight);
+    CBlockIndexSP pindexNew = InsertBlockIndex(hash, pidx->nHeight);
     //pindexNew->pprev = InsertBlockIndex(diskindex.hashPrev, diskindex.nHeight - 1);
     //pindexNew->pnext = InsertBlockIndex(diskindex.hashNext, diskindex.nHeight + 1);
     pindexNew->hashPrev = pidx->hashPrev;
     pindexNew->hashNext = pidx->hashNext;
-
-    pindexNew->addr = pidx->addr;
+    //HC: add block address
+    pindexNew->triaddr = pidx->triaddr;
     pindexNew->nVersion = pidx->nVersion;
     pindexNew->hashMerkleRoot = pidx->hashMerkleRoot;
     pindexNew->nTime = pidx->nTime;
@@ -514,38 +492,45 @@ CBlockIndexSP CTxDB::ConstructBlockIndex(CDiskBlockIndex& diskindex)
     pindexNew->hashExternData = pidx->hashExternData;
     pindexNew->hashPrevHyperBlock = pidx->hashPrevHyperBlock;
     pindexNew->bnChainWork = pidx->bnChainWork;
+
+    //HC: Notice: firstly must set block index value before putting into block index pool, else cause chain work(bnChainWork) error
+    mapBlockIndex.insert(make_pair(hash, pindexNew),false);
     return pindexNew;
 }
 
-bool CTxDB::LoadBlockIndex()
+//HC: erase the block index not in main chain
+bool CTxDB::CleanaBlockIndex()
 {
-    std::function<bool(CDataStream&, CDataStream&, uint256&)> fn = [this](CDataStream& ssKeySecond,
+    vector<uint256> vecClean;
+    int nCurrBestHeight = pindexBest->nHeight;
+
+    set<uint256> setBlkIndexInMain;
+    auto pIndex = pindexBest;
+    while (pIndex) 	{
+        setBlkIndexInMain.insert(pIndex->hashBlock);
+        pIndex = pIndex->pprev();
+    }
+
+    std::function<bool(CDataStream&, CDataStream&, uint256&)> fn = [this, nCurrBestHeight, &vecClean, &setBlkIndexInMain](CDataStream& ssKeySecond,
         CDataStream& ssValue, uint256& nextT) ->bool {
 
         CBlockIndex blkindex;
         CDiskBlockIndex diskindex(&blkindex);
 
+        ssKeySecond >> nextT;
         ssValue >> diskindex;
-        CBlockIndexSP pindexNew = ConstructBlockIndex(diskindex);
-        nextT = pindexNew->hashBlock;
-
-        if (!pindexNew->CheckIndex()) {
-            return ERROR_FL("CheckIndex failed at %d", pindexNew->nHeight);
+        if (blkindex.nHeight < nCurrBestHeight - 1000  && !setBlkIndexInMain.count(nextT)) {
+            vecClean.push_back(nextT);
         }
-
-        // Watch for genesis block
-        if (pindexGenesisBlock == NULL && pindexNew->hashBlock == hashGenesisBlock)
-            pindexGenesisBlock = pindexNew;
-
         return true;
-    } ;
+    };
 
-    std::function<CDataStream(const uint256&, string&)> fnNext = [](const uint256& nextT,
+    std::function<CDataStream(const uint256&, string&)> fnNext = [&vecClean](const uint256& nextT,
         string& msgstatus) ->CDataStream {
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("blockindex"), nextT);
-        msgstatus = strprintf("blockindex : %s", nextT.ToPreViewString().c_str());
+        msgstatus = strprintf("blockindex: %s cleaning: %d", nextT.ToPreViewString().c_str(), vecClean.size());  //HC: status message
         return ssNxtKey;
     };
 
@@ -556,24 +541,152 @@ bool CTxDB::LoadBlockIndex()
         return false;
     }
 
+    cout << strprintf("%d block indexes will be erased\n", vecClean.size());
+
+    CommadLineProgress progress;
+    progress.Start();
+
+    int nCount = 0;
+    for (auto &hash : vecClean) {
+        EraseBlockIndex(hash);
+        if (nCount++ % 1000 == 0) {
+            progress.PrintStatus(100, StringFormat("Deleted: %d", nCount));
+        }
+    }
+    return true;
+}
+
+bool CTxDB::LoadBlockIndex()
+{
+    int nFileVersion;
+
+    /////////////////////////////////////////////////////////////////////////////////////
+    //HC: upgrade to v0.7.3
+    bool is_upgrade_to_v73 = false;
+    if (ReadVersion(nFileVersion) && nFileVersion <= VERSION_V72) {
+        cout << "Para: need to delete a part of index files of v0.7.2... ";
+        if (!DeleteOldIndexFilesOfV72()) {
+            cerr << "Failed to remove old index files of v0.7.2\n";
+            return false;
+        }
+        cout << "deleted\n";
+
+        //HC: create
+        {
+            COrphanBlockTripleAddressDB db("cr+");
+        }
+
+        //HC: should upgrade block index
+        cout << "Para: need to upgrading block index... ";
+        if (UpgradeBlockIndexFormatOfV72()) {
+            WriteVersion(VERSION); //HC: 2021-7-16 v0.7.3
+        } else {
+            cerr << "Failed to upgrade block index format of v0.7.2\n";
+            return false;
+        }
+        is_upgrade_to_v73 = true;
+    }
+    /////////////////////////////////////////////////////////////////////////////////////
+
+    bool bscanbestindex = false;
+    std::map<uint256, CBlockIndexSP> mBlockIndextmp;
+    //HC: This is a important functionality
+    if (GetBoolArg("-scanbestindex")) {
+        bscanbestindex = true;
+    }
+
+    size_t nNumRead = 0;
+    size_t nMaxCapBlkIdx = mapBlockIndex.capacity() / 10;
+
+    uint64 totoltm = 0;
+    std::function<bool(CDataStream&, CDataStream&, uint256&)> fn = [this, &totoltm, bscanbestindex, &mBlockIndextmp, &nNumRead, nMaxCapBlkIdx](CDataStream& ssKeySecond,
+        CDataStream& ssValue, uint256& nextT) ->bool {
+
+        CSpentTime st1;
+
+        CBlockIndex blkindex;
+        CDiskBlockIndex diskindex(&blkindex);
+
+        ssKeySecond >> nextT;
+        ssValue >> diskindex;
+
+        CBlockIndexSP pindexNew = ConstructBlockIndex(nextT, diskindex);
+
+
+        if (bscanbestindex && pindexNew->hashNext != 0) {
+            mBlockIndextmp.insert({ pindexNew->GetBlockHash(), pindexNew });
+        }
+
+        if (!pindexNew->CheckIndex()) {
+            return ERROR_FL("CheckIndex failed at %d", pindexNew->nHeight);
+        }
+
+        totoltm += st1.Elapse();
+
+        // Watch for genesis block
+        if (pindexGenesisBlock == NULL && pindexNew->hashBlock == hashGenesisBlock)
+            pindexGenesisBlock = pindexNew;
+
+        nNumRead++;
+        if (nNumRead > nMaxCapBlkIdx && !bscanbestindex) {
+            //HC: end load
+            return false;
+        }
+
+        return true;
+    } ;
+
+    std::function<CDataStream(const uint256&, string&)> fnNext = [&nNumRead, bscanbestindex, nMaxCapBlkIdx](const uint256& nextT,
+        string& msgstatus) ->CDataStream {
+
+        CDataStream ssNxtKey;
+
+        if (nNumRead > nMaxCapBlkIdx && !bscanbestindex) {
+            //HC: end load
+            ssNxtKey << make_pair(string("blockindex"), uint256(string(64, 'f')));
+        } else {
+            ssNxtKey << make_pair(string("blockindex"), nextT);
+        }
+
+        msgstatus = strprintf("blockindex : %s", nextT.ToPreViewString().c_str());  //HC: status message
+        return ssNxtKey;
+    };
+
+    CDataStream ssKey;
+    ssKey << make_pair(string("blockindex"), uint256(0));
+
+    if (!BulkLoad("blockindex", ssKey, fn, fnNext)) {
+        return false;
+    }
+    cout << strprintf("ConstructBlockIndex spent: %u(ms)\n", totoltm);
+
+    //HC: get genesis block
+    if (pindexGenesisBlock == NULL) {
+        if (mapBlockIndex.count(hashGenesisBlock)) {
+            pindexGenesisBlock = mapBlockIndex[hashGenesisBlock];
+        }
+    }
+
+
+    //HC: unnecessary
     // Calculate bnChainWork
-    vector<pair<int, CBlockIndexSP> > vSortedByHeight;
-    vSortedByHeight.reserve(mapBlockIndex.size());
-    BOOST_FOREACH(const PAIRTYPE(uint256, CBlockIndexSP)& item, mapBlockIndex)
-    {
-        CBlockIndexSP pindex = item.second;
-        vSortedByHeight.push_back(make_pair(pindex->nHeight, pindex));
-    }
-    sort(vSortedByHeight.begin(), vSortedByHeight.end());
-    BOOST_FOREACH(const PAIRTYPE(int, CBlockIndexSP)& item, vSortedByHeight)
-    {
-        CBlockIndexSP pindex = item.second;
-        auto spprev = pindex->pprev();
-        pindex->bnChainWork = (spprev ? spprev->bnChainWork : 0) + pindex->GetBlockWork();
-    }
+    //vector<pair<int, CBlockIndexSP> > vSortedByHeight;
+    //vSortedByHeight.reserve(mapBlockIndex.size());
+    //BOOST_FOREACH(const PAIRTYPE(uint256, CBlockIndexSP)& item, mapBlockIndex)
+    //{
+    //    CBlockIndexSP pindex = item.second;
+    //    vSortedByHeight.push_back(make_pair(pindex->nHeight, pindex));
+    //}
+    //sort(vSortedByHeight.begin(), vSortedByHeight.end());
+    //BOOST_FOREACH(const PAIRTYPE(int, CBlockIndexSP)& item, vSortedByHeight)
+    //{
+    //    CBlockIndexSP pindex = item.second;
+    //    auto spprev = pindex->pprev();
+    //    pindex->bnChainWork = (spprev ? spprev->bnChainWork : 0) + pindex->GetBlockWork();
+    //}
 
 
-
+    //HC: Read best chain from database
     // Load hashBestChain pointer to end of best chain
     if (!ReadHashBestChain(hashBestChain))
     {
@@ -589,22 +702,128 @@ bool CTxDB::LoadBlockIndex()
 
     pindexBest = mapBlockIndex[hashBestChain];
 
-
+    //HC:
     //auto maxindex = std::max_element(mapBlockIndex.begin(), mapBlockIndex.end());
     CheckBestBlockIndex();
 
+    // Load bnBestInvalidWork, OK if it doesn't exist
+    //HC:
+    ReadBestInvalidWork(bnBestInvalidWork);
 
-    if (!ReadAddrMaxChain(addrMaxChain)) {
-        addrMaxChain = pindexBest ? pindexBest->addr : T_LOCALBLOCKADDRESS();
+
+    if (GetBoolArg("-scanbestindex")) {
+        cout << "Paracoin: scan the block indexes in best chain...\n";
+
+        //HC: set hashNext = 0;
+        cout << StringFormat("Firstly set %d blocks indexes: hashNext = 0, wait for a while...\n", mBlockIndextmp.size());
+        for (auto& elm : mapBlockIndex) {
+            if (elm.second->hashNext != 0) {
+                elm.second->hashNext = 0;
+            }
+        }
+
+        CommadLineProgress progress;
+        int nTotalScanned = 0;
+        TxnBegin();
+
+        progress.Start();
+        for (auto& elm : mBlockIndextmp) {
+            nTotalScanned++;
+            elm.second->hashNext = 0;
+            if (!WriteBlockIndex(CDiskBlockIndex(elm.second.get()))) {
+                TxnAbort();
+                cerr << ("WriteBlockIndex failed when scanning the block indexes\n");
+                return false;
+            }
+
+            if (nTotalScanned % 1000 == 0) {
+                progress.PrintStatus(1000, strprintf("set hashNext: %d", nTotalScanned));
+            }
+
+            if (nTotalScanned % 10000 == 0) {
+                //HC: avoid EXCEPTION: Db::get: Not enough space which is caused by not enough lock to use
+                if (!TxnCommit()) {
+                    cerr << ("TxnCommit failed when scanning the block indexes\n");
+                    return false;
+                }
+                TxnBegin();
+            }
+        }
+        if (!TxnCommit()) {
+            cerr << ("TxnCommit failed when scanning the block indexes\n");
+            return false;
+        }
+        cout << StringFormat("\nset %d blocks indexes: hashNext = 0\n", mBlockIndextmp.size());
+
+        cout << "Secondly scan all blocks indexes in best chain, and set their hashNext..." << endl;
+
+        TxnBegin();
+
+        progress.Start();
+
+        nTotalScanned = 0;
+        int nFixed = 0;
+        auto pprevindex = pindexBest->pprev();
+        auto pindex = pindexBest;
+
+        while (pindex && pprevindex) {
+            nTotalScanned++;
+            if (nTotalScanned % 1000 == 0) {
+                progress.PrintStatus(1000, strprintf("scanned: %d, fixed: %d", nTotalScanned, nFixed));
+            }
+
+            if (nTotalScanned % 10000 == 0) {
+                //HC: avoid EXCEPTION: Db::get: Not enough space which is caused by not enough lock to use
+                TxnCommit();
+                TxnBegin();
+            }
+
+            if (pprevindex->hashNext == pindex->GetBlockHash()) {
+                if (pprevindex->nHeight + 1 != pindex->nHeight) {
+                    cerr << strprintf("Critical error: block index data, %d(%s) %d(%s), please rescan block data with '-rescan'\n",
+                        pprevindex->nHeight, pprevindex->GetBlockHash().ToPreViewString().c_str(),
+                        pindex->nHeight, pindex->GetBlockHash().ToPreViewString().c_str());
+                    return false;
+                }
+            }
+            else {
+                pprevindex->hashNext = pindex->GetBlockHash();
+                if (!WriteBlockIndex(CDiskBlockIndex(pprevindex.get()))) {
+                    TxnAbort();
+                    cerr << ("WriteBlockIndex failed when scanning the block indexes\n");
+                    return false;
+                }
+                nFixed++;
+            }
+            pindex = pprevindex;
+            pprevindex = pindex->pprev();
+        }
+
+        if (!TxnCommit()) {
+            cerr << ("TxnCommit failed when scanning the block indexes\n");
+            return false;
+        }
+        progress.PrintStatus(1, strprintf("scanned: %d, fixed: %d", nTotalScanned, nFixed));
+        cout << "\n";
     }
 
-    // Load bnBestInvalidWork, OK if it doesn't exist
-
-    ReadBestInvalidWork(bnBestInvalidWork);
+    /////////////////////////////////////////////////////////////////////////////////////
+    //HC: upgrade to v0.7.3.802
+    int nTxVersion = 0;
+    if (is_upgrade_to_v73 || !ReadTxVersion(nTxVersion) || nTxVersion < TXIDX_VERSION) {
+        cout << "Para: need to upgrade transaction indexes format of v0.7.2...\n";
+        if (UpgradeTxIndexFormatofV72()) {
+            WriteTxVersion(TXIDX_VERSION);
+        } else {
+            cerr << ("Failed to upgrade transaction indexes format of v0.7.2\n");
+            return false;
+        }
+    }
+    /////////////////////////////////////////////////////////////////////////////////////
 
     cout << "Paracoin: verifying blocks in the best chain...\n";
 
-
+    //HC: Check about 50 blocks
     int nCurrHeight = nBestHeight - 1;
     CBlockIndexSP pindexFork = nullptr;
     CBlockIndexSP pindex = pindexBest->pprev();
@@ -622,7 +841,7 @@ bool CTxDB::LoadBlockIndex()
         if (pindex->nHeight < nBestHeight - 50 && !mapArgs.count("-checkblocks"))
             break;
 
-        if (!pindex->addr.isValid() && !mapBlocks.contain(pindex->GetBlockHash())) {
+        if (!pindex->triaddr.isValid() && !mapBlocks.contain(pindex->GetBlockHash())) {
             continue;
         }
 
@@ -640,7 +859,8 @@ bool CTxDB::LoadBlockIndex()
     }
 
     if (pindex && !pindex->pprev() && nCurrHeight > 0) {
-        return ERROR_FL("LoadBlockIndex(): block index is bad, To rebuild, please remove blkindex.dat and restart the program\n");
+        cerr << ("LoadBlockIndex(): block index is bad, To rebuild, please remove blkindex.dat and restart the program\n");
+        return false;
 
         //pindexBest = pindexGenesisBlock;
         //while (pindexBest && pindexBest->pnext) {
@@ -651,9 +871,10 @@ bool CTxDB::LoadBlockIndex()
 
     if (pindexFork) {
         // Reorg back to the fork
-        ERROR_FL("LoadBlockIndex() : *** moving best chain pointer back to block %d\n", pindexFork->nHeight);
+        cout << StringFormat("LoadBlockIndex() : *** moving best chain pointer back to block %d\n", pindexFork->nHeight);
         if (!SwitchChainTo(pindexFork)) {
-            return ERROR_FL("block.ReadFromDisk failed");
+            cerr << ("LoadBlockIndex() : SwitchChainTo failed\n");
+            return false;
         }
     }
 
@@ -664,10 +885,9 @@ bool CTxDB::LoadBlockIndex()
 //CBlockDB
 //
 
-
+//HC: Load the blocks which waiting to do global buddy consensus
 bool CBlockDB::LoadBlockUnChained(CBlockBloomFilter &filterBlk)
 {
-
     bool ret = Load("block", [&](CDataStream& ssKey, CDataStream& ssValue) -> bool {
 
         //CBlock block;
@@ -685,7 +905,7 @@ bool CBlockDB::LoadBlockUnChained(CBlockBloomFilter &filterBlk)
 }
 
 
-
+//HC: Load the blocks which waiting to do global buddy consensus
 bool CBlockDB::LoadBlockUnChained(const uint256& hash, std::function<bool(CDataStream&, CDataStream&)> f)
 {
     return Load("block",hash, f);
@@ -714,16 +934,11 @@ bool CBlockDB::EraseBlock(uint256 hash)
 //
 //CTxDB
 //
-bool CTxDB::ReadSP(const uint256& hash, CBlockIndexSP &blockindex)
+bool CTxDB::ReadSP(const uint256& hash, CDiskBlockIndex & diskindex)
 {
-    CBlockIndex blkindex;
-    CDiskBlockIndex diskindex(&blkindex);
     if (!ReadBlockIndex(hash, diskindex)) {
         return false;
     }
-
-    //Construct block index object
-    blockindex = ConstructBlockIndex(diskindex);
 
     return true;
 }
@@ -740,7 +955,7 @@ bool CTxDB::WriteSP(const CBlockIndex* blockindex)
 //
 bool CBlockTripleAddressDB::LoadBlockTripleAddress()
 {
-    Load("triaddr", [](CDataStream& ssKey, CDataStream& ssValue) -> bool {
+    return Load("triaddr", [](CDataStream& ssKey, CDataStream& ssValue) -> bool {
 
         BLOCKTRIPLEADDRESS blocktripleaddr;
         ssValue >> blocktripleaddr;
@@ -749,7 +964,6 @@ bool CBlockTripleAddressDB::LoadBlockTripleAddress()
         LatestParaBlock::AddBlockTripleAddress(hash, blocktripleaddr);
         return true;
     });
-    return true;
 }
 
 
@@ -953,7 +1167,11 @@ int CWalletDB::BulkLoadWalletUser(CWallet* pwallet)
         CDataStream& ssValue, string& strAddress) ->bool {
 
         ssKeySecond >> strAddress;
-        ssValue >> pwallet->mapAddressBook[strAddress];
+        CTxDestination address = DecodeDestination(strAddress);
+        if (!IsValidDestination(address))
+            cerr << "Error: Invalid address calling BulkLoadWalletUser: " << strAddress << endl;
+        else
+            ssValue >> pwallet->mapAddressBook[address];
         return true;
     };
 
@@ -962,7 +1180,7 @@ int CWalletDB::BulkLoadWalletUser(CWallet* pwallet)
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("name"), nextT);
-        msgstatus = strprintf("name : %s", nextT.c_str());
+        msgstatus = strprintf("name : %s", nextT.c_str());  //HC: status message
         return ssNxtKey;
     };
 
@@ -1019,7 +1237,7 @@ int CWalletDB::BulkLoadWalletTx(CWallet* pwallet, vector<uint256>& vWalletUpgrad
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("tx"), nextT);
-        msgstatus = strprintf("tx : %s", nextT.ToPreViewString().c_str());
+        msgstatus = strprintf("tx : %s", nextT.ToPreViewString().c_str());  //HC: status message
         return ssNxtKey;
     };
 
@@ -1051,7 +1269,7 @@ int CWalletDB::BulkLoadWalletAcentry(CWallet* pwallet)
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("acentry"), nextT);
-        msgstatus = strprintf("acentry : %s", nextT.c_str());
+        msgstatus = strprintf("acentry : %s", nextT.c_str());  //HC: status message
         return ssNxtKey;
     };
 
@@ -1064,19 +1282,56 @@ int CWalletDB::BulkLoadWalletAcentry(CWallet* pwallet)
     return true;
 }
 
+int CWalletDB::BulkLoadWalletCScript(CWallet* pwallet)
+{
+    LegacyScriptPubKeyMan* pman = pwallet->GetOrCreateLegacyScriptPubKeyMan();
+    if (!pman) {
+        cerr << "Error reading wallet database: CWallet::GetOrCreateLegacyScriptPubKeyMan failed\n";
+        return false;
+    }
+
+    std::function<bool(CDataStream&, CDataStream&, std::vector<unsigned char>&)> fn = [pman](CDataStream& ssKeySecond,
+        CDataStream& ssValue, std::vector<unsigned char>& vchPubKey) ->bool {
+
+            CScript redeemScript;
+            ssValue >> redeemScript;
+            pman->LoadCScript(redeemScript);
+            return true;
+    };
+
+    std::function<CDataStream(const std::vector<unsigned char>&, string&)> fnNext = [](const std::vector<unsigned char>& nextT,
+        string& msgstatus) ->CDataStream {
+
+            CDataStream ssNxtKey;
+            ssNxtKey << make_pair(string("cscript"), nextT);
+            msgstatus = "cscript : ******";  //HC: status message
+            return ssNxtKey;
+    };
+
+    CDataStream ssKey;
+    std::vector<unsigned char> veckey;
+    ssKey << make_pair(string("cscript"), veckey);
+
+    if (!BulkLoad("cscript", ssKey, fn, fnNext)) {
+        return false;
+    }
+    return true;
+}
+
+
 int CWalletDB::BulkLoadWalletKey(CWallet* pwallet)
 {
     std::function<bool(CDataStream&, CDataStream&, std::vector<unsigned char>&)> fn = [pwallet](CDataStream& ssKeySecond,
         CDataStream& ssValue, std::vector<unsigned char>& vchPubKey) ->bool {
 
-
+        //HC: read all used key pairs
         ssKeySecond >> vchPubKey;
         CKey key;
         CPrivKey pkey;
         ssValue >> pkey;
         key.SetPrivKey(pkey);
 
-        if (!pwallet->LoadKey(key))
+        if (!pwallet->LoadKey(vchPubKey, key))
             return false; //DB_CORRUPT;
         return true;
     };
@@ -1086,7 +1341,7 @@ int CWalletDB::BulkLoadWalletKey(CWallet* pwallet)
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("key"), nextT);
-        msgstatus = "key : ******";
+        msgstatus = "key : ******";  //HC: status message
         return ssNxtKey;
     };
 
@@ -1105,13 +1360,13 @@ int CWalletDB::BulkLoadWalletWKey(CWallet* pwallet)
     std::function<bool(CDataStream&, CDataStream&, std::vector<unsigned char>&)> fn = [pwallet](CDataStream& ssKeySecond,
         CDataStream& ssValue, std::vector<unsigned char>& vchPubKey) ->bool {
 
-
+        //HC: read all used key pairs
         ssKeySecond >> vchPubKey;
         CKey key;
         CWalletKey wkey;
         ssValue >> wkey;
         key.SetPrivKey(wkey.vchPrivKey);
-        if (!pwallet->LoadKey(key))
+        if (!pwallet->LoadKey(vchPubKey, key))
             return false; //DB_CORRUPT;
         return true;
     };
@@ -1121,7 +1376,7 @@ int CWalletDB::BulkLoadWalletWKey(CWallet* pwallet)
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("wkey"), nextT);
-        msgstatus = "wallet key : ******";
+        msgstatus = "wallet key : ******";  //HC: status message
         return ssNxtKey;
     };
 
@@ -1156,7 +1411,7 @@ int CWalletDB::BulkLoadWalletMKey(CWallet* pwallet)
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("mkey"), nextT);
-        msgstatus = "mkey : ******";
+        msgstatus = "mkey : ******";  //HC: status message
         return ssNxtKey;
     };
 
@@ -1186,7 +1441,7 @@ int CWalletDB::BulkLoadWalletCKey(CWallet* pwallet)
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("ckey"), nextT);
-        msgstatus = "ckey : ******";
+        msgstatus = "ckey : ******";  //HC: status message
         return ssNxtKey;
     };
 
@@ -1205,7 +1460,7 @@ int CWalletDB::BulkLoadWalletPool(CWallet* pwallet)
     std::function<bool(CDataStream&, CDataStream&, int64&)> fn = [pwallet](CDataStream& ssKeySecond,
         CDataStream& ssValue, int64& nIndex) ->bool {
 
-
+        //HC: read all unused key pairs
         ssKeySecond >> nIndex;
         pwallet->setKeyPool.insert(nIndex);
         return true;
@@ -1216,7 +1471,7 @@ int CWalletDB::BulkLoadWalletPool(CWallet* pwallet)
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("pool"), nextT);
-        msgstatus = "pool : ******";
+        msgstatus = "pool : ******";  //HC: status message
         return ssNxtKey;
     };
 
@@ -1233,7 +1488,7 @@ int CWalletDB::BulkLoadWalletSettings(CWallet* pwallet)
     std::function<bool(CDataStream&, CDataStream&, string&)> fn = [pwallet](CDataStream& ssKeySecond,
         CDataStream& ssValue, string& strKey) ->bool {
 
-
+        //HC: read all unused key pairs
         ssKeySecond >> strKey;
 
         // Options
@@ -1256,7 +1511,7 @@ int CWalletDB::BulkLoadWalletSettings(CWallet* pwallet)
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("setting"), nextT);
-        msgstatus = "setting : ******";
+        msgstatus = "setting : ******";  //HC: status message
         return ssNxtKey;
     };
 
@@ -1271,24 +1526,71 @@ int CWalletDB::BulkLoadWalletSettings(CWallet* pwallet)
 int CWalletDB::BulkLoadWallet(CWallet* pwallet, vector<uint256> &vWalletUpgrade, int &nFileVersion)
 {
     BulkLoadWalletUser(pwallet);
-    BulkLoadWalletTx(pwallet, vWalletUpgrade);
-    BulkLoadWalletAcentry(pwallet);
 
-    if (!BulkLoadWalletKey(pwallet))
-        return DB_CORRUPT;
+    bool isLoadTxAndKey = !GetBoolArg("-noloadwallet");
+    if (isLoadTxAndKey) {
+        //HC: load tx and keys
+        BulkLoadWalletTx(pwallet, vWalletUpgrade);
+        BulkLoadWalletAcentry(pwallet);
 
-    if (!BulkLoadWalletWKey(pwallet))
-        return DB_CORRUPT;
+        if (!BulkLoadWalletCScript(pwallet))
+            return DB_CORRUPT;
 
-    if (!BulkLoadWalletMKey(pwallet))
-        return DB_CORRUPT;
+        if (!BulkLoadWalletKey(pwallet))
+            return DB_CORRUPT;
 
-    if (!BulkLoadWalletCKey(pwallet))
-        return DB_CORRUPT;
+        if (!BulkLoadWalletWKey(pwallet))
+            return DB_CORRUPT;
+
+        if (!BulkLoadWalletMKey(pwallet))
+            return DB_CORRUPT;
+
+        if (!BulkLoadWalletCKey(pwallet))
+            return DB_CORRUPT;
+    } else {
+        cout << "Skip Txes and Keys in the wallets\n";
+    }
 
     ReadDefaultKey(pwallet->vchDefaultKey);
+    bool ret = ReadDefaultKeyType(pwallet->defaultType);
+    if (!ret) {
+        //HC: version < v0.7.5 will return false
+        pwallet->defaultType = OutputType::LEGACY;
+    }
 
     BulkLoadWalletPool(pwallet);
+
+    if (!isLoadTxAndKey) {
+        //HC: load a part of keys
+        if (!pwallet->vchDefaultKey.empty()) {
+            CDataStream ssKey;
+            ssKey << make_pair(string("key"), pwallet->vchDefaultKey);
+            //HC: Load default key
+            CPrivKey pkey;
+            if (Read(ssKey, pkey)) {
+                CKey key;
+                key.SetPrivKey(pkey);
+                pwallet->LoadKey(pwallet->vchDefaultKey, key);
+            }
+        }
+
+        //HC: Load keys in KeyPool
+        for (auto nIndex : pwallet->setKeyPool) {
+            CKeyPool keypool;
+            if (!ReadPool(nIndex, keypool))
+                continue;
+
+            CDataStream ssKey;
+            ssKey << make_pair(string("key"), keypool.vchPubKey);
+            CPrivKey pkey;
+            if (Read(ssKey, pkey)) {
+                CKey key;
+                key.SetPrivKey(pkey);
+                pwallet->LoadKey(keypool.vchPubKey, key);
+            }
+        }
+    }
+
     BulkLoadWalletSettings(pwallet);
 
     ReadVersion(nFileVersion);
@@ -1320,7 +1622,7 @@ int CWalletDB::LoadWallet(CWallet* pwallet)
     //// todo: shouldn't we catch exceptions and try to recover and continue?
     CRITICAL_BLOCK(pwallet->cs_wallet)
     {
-
+        //HC: bulk load
         int ret = BulkLoadWallet(pwallet, vWalletUpgrade, nFileVersion);
         if (ret != 0) {
             return ret;
@@ -1459,4 +1761,50 @@ bool BackupWallet(const CWallet& wallet, const string& strDest, string &errmsg)
     }
     return false;
 }
+
+//////////////////////////////////////////////////////////////////////////
+extern ParaMQCenter paramqcenter;
+bool CMainTrunkDB::LoadData()
+{
+    int nMaxHeight = 0;
+    Read(string("maxheight"), nMaxHeight);
+
+    CBlockLocatorEx &mtc = paramqcenter.GetMTC();
+    uint256 hash;
+    for (int i = 0; i <= nMaxHeight; i+= mtc.nHeightSpan) {
+        if (ReadData(i, hash)) {
+            mtc.Add(i, hash);
+        }
+    }
+
+    int h = mtc.GetLInnerHeight();
+    if (ReadData(h, hash)) {
+        mtc.hashvHaveLInner = hash;
+    }
+
+    return true;
+}
+
+
+bool CMainTrunkDB::ReadData(int nHeight, uint256 &hash)
+{
+    return Read(make_pair(string("mtrunk"), nHeight), hash);
+}
+
+bool CMainTrunkDB::WriteData(int nHeight, const uint256 &hash)
+{
+    return Write(make_pair(string("mtrunk"), nHeight), hash);
+}
+
+
+bool CMainTrunkDB::WriteMaxHeight(int nMaxHeight)
+{
+    return Write(string("maxheight"), nMaxHeight);
+}
+
+bool CMainTrunkDB::EraseData(int nHeight)
+{
+    return Erase(make_pair(string("mtrunk"), nHeight));
+}
+
 

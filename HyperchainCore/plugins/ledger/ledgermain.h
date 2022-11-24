@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -78,8 +78,6 @@ extern int64 nTimeBestReceived;
 extern CCriticalSection cs_setpwalletRegistered;
 extern std::set<CWallet*> setpwalletRegistered;
 
-extern T_LOCALBLOCKADDRESS addrMaxChain;
-
 // Settings
 extern int fGenerateBitcoins;
 extern int64 nTransactionFee;
@@ -97,10 +95,10 @@ class CBlockIndexSimplified;
 CBlockIndex* LatestBlockIndexOnChained();
 void RegisterWallet(CWallet* pwalletIn);
 void UnregisterWallet(CWallet* pwalletIn);
-bool CheckDiskSpace(uint64 nAdditionalBytes=0);
-FILE* OpenBlockFile(unsigned int nFile, unsigned int nBlockPos, const char* pszMode="rb");
+bool CheckDiskSpace(uint64 nAdditionalBytes = 0);
+FILE* OpenBlockFile(unsigned int nFile, unsigned int nBlockPos, const char* pszMode = "rb");
 FILE* AppendBlockFile(unsigned int& nFileRet);
-bool LoadBlockIndex(bool fAllowNew=true);
+bool LoadBlockIndex(bool fAllowNew = true);
 bool LoadBlockUnChained();
 void PrintBlockTree();
 bool ProcessMessages(CNode* pfrom);
@@ -109,8 +107,8 @@ void GenerateBitcoins(bool fGenerate, CWallet* pwallet);
 CBlock* CreateNewBlock(CReserveKey& reservekey);
 bool CommitChainToConsensus(vector<CBlock>& vblock, string& requestid, string& errmsg);
 
-CBlockSP CreateInitBlock(uint64 amount, const CBitcoinAddress &address);
-bool CommitGenesisToConsensus(CBlock *pblock, std::string &requestid, std::string &errmsg);
+CBlockSP CreateInitBlock(uint64 amount, const CBitcoinAddress& address);
+bool CommitGenesisToConsensus(CBlock* pblock, std::string& requestid, std::string& errmsg);
 
 void IncrementExtraNonce(CBlock* pblock, unsigned int& nExtraNonce);
 void FormatHashBuffers(CBlock* pblock, char* pmidstate, char* pdata, char* phash1);
@@ -120,16 +118,16 @@ std::string GetWarnings(std::string strFor);
 
 bool ProcessBlock(CNode* pfrom, CBlock* pblock);
 
-bool ProcessBlockFromAcceptedHyperBlock(CBlock* pblock, T_LOCALBLOCKADDRESS* pblockaddr);
+bool ProcessBlockWithTriaddr(CNode* pfrom, CBlock* pblock, BLOCKTRIPLEADDRESS* pblockaddr);
 
-bool GetWalletFile(CWallet* pwallet, std::string &strWalletFileOut);
-bool GetBlockData(const uint256& hashBlock, CBlock& block, T_LOCALBLOCKADDRESS& addrblock);
+bool GetWalletFile(CWallet* pwallet, std::string& strWalletFileOut);
+bool GetBlockData(const uint256& hashBlock, CBlock& block, BLOCKTRIPLEADDRESS& addrblock, char** pWhere);
 
 template<typename T>
 bool WriteSetting(const std::string& strKey, const T& value)
 {
     bool fOk = false;
-    BOOST_FOREACH(CWallet* pwallet, setpwalletRegistered)
+    BOOST_FOREACH(CWallet * pwallet, setpwalletRegistered)
     {
         std::string strWalletFile;
         if (!GetWalletFile(pwallet, strWalletFile))
@@ -162,14 +160,14 @@ public:
 
     explicit CBlockLocator(uint256 hashBlock);
 
-     IMPLEMENT_SERIALIZE
+    IMPLEMENT_SERIALIZE
     (
         if (!(nType & SER_GETHASH))
             READWRITE(nVersion);
-        READWRITE(vHave);
+    READWRITE(vHave);
     )
 
-    void SetNull()
+        void SetNull()
     {
         vHave.clear();
     }
@@ -240,23 +238,23 @@ public:
     IMPLEMENT_SERIALIZE
     (
         READWRITE(this->nVersion);
-        nVersion = this->nVersion;
-        READWRITE(nRelayUntil);
-        READWRITE(nExpiration);
-        READWRITE(nID);
-        READWRITE(nCancel);
-        READWRITE(setCancel);
-        READWRITE(nMinVer);
-        READWRITE(nMaxVer);
-        READWRITE(setSubVer);
-        READWRITE(nPriority);
+    nVersion = this->nVersion;
+    READWRITE(nRelayUntil);
+    READWRITE(nExpiration);
+    READWRITE(nID);
+    READWRITE(nCancel);
+    READWRITE(setCancel);
+    READWRITE(nMinVer);
+    READWRITE(nMaxVer);
+    READWRITE(setSubVer);
+    READWRITE(nPriority);
 
-        READWRITE(strComment);
-        READWRITE(strStatusBar);
-        READWRITE(strReserved);
+    READWRITE(strComment);
+    READWRITE(strStatusBar);
+    READWRITE(strReserved);
     )
 
-    void SetNull()
+        void SetNull()
     {
         nVersion = 1;
         nRelayUntil = 0;
@@ -283,21 +281,21 @@ public:
         BOOST_FOREACH(std::string str, setSubVer)
             strSetSubVer += "\"" + str + "\" ";
         return strprintf(
-                "CAlert(\n"
-                "    nVersion     = %d\n"
+            "CAlert(\n"
+            "    nVersion     = %d\n"
 
-                "    nRelayUntil  = %" PRI64d "\n"
-                "    nExpiration  = %" PRI64d "\n"
-                "    nID          = %d\n"
-                "    nCancel      = %d\n"
-                "    setCancel    = %s\n"
-                "    nMinVer      = %d\n"
-                "    nMaxVer      = %d\n"
-                "    setSubVer    = %s\n"
-                "    nPriority    = %d\n"
-                "    strComment   = \"%s\"\n"
-                "    strStatusBar = \"%s\"\n"
-                ")\n",
+            "    nRelayUntil  = %" PRI64d "\n"
+            "    nExpiration  = %" PRI64d "\n"
+            "    nID          = %d\n"
+            "    nCancel      = %d\n"
+            "    setCancel    = %s\n"
+            "    nMinVer      = %d\n"
+            "    nMaxVer      = %d\n"
+            "    setSubVer    = %s\n"
+            "    nPriority    = %d\n"
+            "    strComment   = \"%s\"\n"
+            "    strStatusBar = \"%s\"\n"
+            ")\n",
             nVersion,
             nRelayUntil,
             nExpiration,
@@ -332,10 +330,10 @@ public:
     IMPLEMENT_SERIALIZE
     (
         READWRITE(vchMsg);
-        READWRITE(vchSig);
+    READWRITE(vchSig);
     )
 
-    void SetNull()
+        void SetNull()
     {
         CUnsignedAlert::SetNull();
         vchMsg.clear();
@@ -367,8 +365,8 @@ public:
     bool AppliesTo(int nVersion, std::string strSubVerIn) const
     {
         return (IsInEffect() &&
-                nMinVer <= nVersion && nVersion <= nMaxVer &&
-                (setSubVer.empty() || setSubVer.count(strSubVerIn)));
+            nMinVer <= nVersion && nVersion <= nMaxVer &&
+            (setSubVer.empty() || setSubVer.count(strSubVerIn)));
     }
 
     bool AppliesToMe() const
@@ -419,18 +417,18 @@ public:
 
     void Init();
 
-
+    //HC: Pre-prepare phase, 执行至少2个区块，产生签名，并将签名后的区块广播给所有共识节点
     bool Preprepare(vector<CBlock>&& vblock);
 
-
+    //HC: Prepare phase, 负责收集签名包，某节点收集满2 * _f + 1的签名包后，表明自身达到可以提交区块的状态
     bool Prepare(int pkidx, const vector<unsigned char>& vchSig);
 
-
+    //HC: 节点收集满2 * _f + 1后，等待共识层通知到来，将本地缓存的最新区块提交到共识层
     bool Commit();
 
     bool IsSignEnough()
     {
-
+        //HC: must add myself，so should be (2 * _f + 1 - 1)
         return _s_verified.size() >= (2 * _f + 1 - 1);
     }
 

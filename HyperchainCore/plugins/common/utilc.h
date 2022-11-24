@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -25,7 +25,82 @@ DEALINGS IN THE SOFTWARE.
 #include <chrono>
 #include <string>
 
- class CSpentTime
+#define HAS_MEMBER(member)\
+template<typename T, typename... Args>struct has_member_##member\
+{\
+private:\
+        template<typename U> static auto Check(int) -> decltype(std::declval<U>().member(std::declval<Args>()...), std::true_type()); \
+    template<typename U> static std::false_type Check(...);\
+public:\
+    enum{value = std::is_same<decltype(Check<T>(0)), std::true_type>::value};\
+};\
+
+HAS_MEMBER(Foo)
+HAS_MEMBER(Before)
+HAS_MEMBER(After)
+
+
+class NonCopyableBase
+{
+public:
+    NonCopyableBase(const NonCopyableBase&) = delete;
+    NonCopyableBase& operator = (const NonCopyableBase&) = delete;
+    NonCopyableBase() = default;
+};
+
+
+template<typename Func, typename... Args>
+struct Aspect : NonCopyableBase
+{
+    Aspect(Func&& f) : m_func(std::forward<Func>(f))
+    { }
+
+    template<typename T>
+    typename std::enable_if<has_member_Before<T, Args...>::value&& has_member_After<T, Args...>::value>::type Invoke(Args&&... args, T&& aspect)
+    {
+        aspect.Before(std::forward<Args>(args)...); //核心逻辑之前的切面逻辑
+        m_func(std::forward<Args>(args)...);        //核心逻辑
+        aspect.After(std::forward<Args>(args)...);  //核心逻辑之后的切面逻辑
+    }
+
+    template<typename T>
+    typename std::enable_if<has_member_Before<T, Args...>::value && !has_member_After<T, Args...>::value>::type Invoke(Args&&... args, T&& aspect)
+    {
+        aspect.Before(std::forward<Args>(args)...); //核心逻辑之前的切面逻辑
+        m_func(std::forward<Args>(args)...);        //核心逻辑
+    }
+
+    template<typename T>
+    typename std::enable_if<!has_member_Before<T, Args...>::value&& has_member_After<T, Args...>::value>::type Invoke(Args&&... args, T&& aspect)
+    {
+        m_func(std::forward<Args>(args)...);        //核心逻辑
+        aspect.After(std::forward<Args>(args)...);  //核心逻辑之后的切面逻辑
+    }
+
+    template<typename Head, typename... Tail>
+    void Invoke(Args&&... args, Head&& headAspect, Tail&&... tailAspect)
+    {
+        headAspect.Before(std::forward<Args>(args)...);
+        Invoke(std::forward<Args>(args)..., std::forward<Tail>(tailAspect)...);
+        headAspect.After(std::forward<Args>(args)...);
+    }
+
+private:
+    Func m_func;
+};
+
+template<typename T> using identity_t = T;
+
+//AOP help
+template<typename... AP, typename... Args, typename Func, typename FuncAfter>
+void AOPInvoke(FuncAfter&& fAfter, Func&& f, Args&&... args)
+{
+    Aspect<Func, Args...> asp(std::forward<Func>(f));
+    asp.Invoke(std::forward<Args>(args)..., identity_t<AP>()...);
+}
+
+
+class CSpentTime
 {
 public:
     CSpentTime();
@@ -35,7 +110,39 @@ private:
     std::chrono::system_clock::time_point  _StartTimePoint;
 };
 
+template<typename CBFN, typename Func, typename... Args>
+class CSpentTimeAOP : public CSpentTime
+{
+    typedef Func func_type;
+public:
+    CSpentTimeAOP(CBFN&& fn) : m_func(std::forward<CBFN>(fn))
+    { }
 
+    void Before(Args&&... args)
+    {
+        m_spent.Reset();
+    }
+
+    void After(Args&&... args)
+    {
+        m_func(typeid(func_type).name(), m_spent.Elapse());
+    }
+
+private:
+    CSpentTime m_spent;
+    CBFN m_func;
+};
+
+template<typename... Args, typename Func, typename FuncAfter>
+void AOPInvokeCost(FuncAfter&& fAfter, Func&& f, Args&&... args)
+{
+    Aspect<Func, Args...> asp(std::forward<Func>(f));
+    CSpentTimeAOP<FuncAfter, Func, Args...> ap_time(std::forward<FuncAfter>(fAfter));
+    asp.Invoke(std::forward<Args>(args)..., ap_time);
+}
+
+
+//HC: two ways for display the progress: percent and already handled
 class CommadLineProgress
 {
 public:
@@ -46,6 +153,10 @@ public:
     //Way 2:
     void Start();
     void PrintStatus(uint32_t nAddCount, const std::string& msg = "");
+
+    uint64_t GetCount() {
+        return _ncount;
+    }
 
 
 private:

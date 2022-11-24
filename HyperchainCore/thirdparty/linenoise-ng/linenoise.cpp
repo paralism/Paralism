@@ -3358,7 +3358,7 @@ int linenoiseHistorySave(const char* filename, const char* linesettings) {
     return -1;
   }
 
-
+  //HC: line settings
   if (linesettings) {
       fprintf(fp, "%s %s\n", prefixlinesettings, linesettings);
   } else {
@@ -3416,7 +3416,7 @@ int linenoiseHistoryLoad(const char* filename, char** linesettings) {
 
   char buf[LINENOISE_MAX_LINE];
 
-
+  //HC: read line settings
   if (fgets(buf, LINENOISE_MAX_LINE, fp) == NULL) {
       fclose(fp);
       return 0;
@@ -3433,7 +3433,7 @@ int linenoiseHistoryLoad(const char* filename, char** linesettings) {
       *linesettings = strdup(buf + sizeof(prefixlinesettings) - 1);
   }
 
-
+  //HC: read commands
   while (fgets(buf, LINENOISE_MAX_LINE, fp) != NULL) {
     char* p = strchr(buf, '\r');
     if (!p) {

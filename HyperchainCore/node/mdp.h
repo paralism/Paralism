@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -22,18 +22,18 @@ DEALINGS IN THE SOFTWARE.
 
 #pragma once
 
-
+//HC: This is the version of MDP/Client we implement
 #define MDPC_CLIENT         "MDPC01"
 #define MDPC_CONSOLECLIENT  "MDPC02"
 #define MDPC_CONSOLESERVER  "MDPS01"
 
-
+//HC: This is the version of MDP/Worker we implement
 #define MDPW_WORKER         "MDPW01"
 
-
+//HC: This is the version of MDP/Monitor we implement
 #define MDP_MON "MDPMON"
 
-
+//HC: MDP/Server commands, as strings
 #define MDPW_READY          "\001"
 #define MDPW_IDLE           "\002"
 #define MDPW_REQUEST        "\003"
@@ -51,6 +51,8 @@ DEALINGS IN THE SOFTWARE.
 
 #define HYPERCHAINSPACE_SERVICE "hyperchainspace"
 #define HYPERCHAINSPACE_T_SERVICE "hyperchain_task"
+
+#define PARA_SERVICE "para"
 
 #define HYPERBLOCK_PUB_SERVICE "inproc://hyperblock_pub"
 

@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -72,12 +72,19 @@ DEALINGS IN THE SOFTWARE.
 
 #include "consolecommandhandler.h"
 #include "consensus/consensus_engine.h"
-
+#include "ntpclient.h"
 
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
 #include <boost/program_options/detail/config_file.hpp>
+
+//#include <boost/asio.hpp>
+//#include <boost/date_time/posix_time/posix_time.hpp>
+#include <UpdateInfo.h>
+#define Miningversion 100
+
+using namespace std;
 using namespace boost::program_options;
 
 #ifdef WIN32
@@ -85,6 +92,7 @@ using namespace boost::program_options;
 #else
 #include <client/linux/handler/exception_handler.h>
 #endif
+
 
 string GetHyperChainDataDir()
 {
@@ -137,6 +145,120 @@ static std::string make_db_path()
 
 extern NodeType g_nodetype;
 string g_localip;
+
+bool CheckLocalTime()
+{
+    bool Flag = false;
+    string ntpservers[] = {"ntp.aliyun.com","time.asia.apple.com","cn.ntp.org.cn","time.google.com","time.windows.com","time.apple.com"};
+
+    for (int i = 0; i < 5; i++) {
+        struct hostent* host = gethostbyname(ntpservers[i].c_str());
+        if (NULL == host) {
+#ifdef WIN32
+            cout << "CheckLocalTime(), gethostbyname[" << ntpservers[i].c_str() << "] failed! " << WSAGetLastError() << endl;
+#else
+            cout << "CheckLocalTime(), gethostbyname[" << ntpservers[i].c_str() << "] failed! " << strerror(h_errno) << endl;
+#endif
+            //return false;
+            continue;
+        }
+
+        for (int i = 0; host->h_addr_list[i] != NULL; ++i) {
+            char ipStr[32];
+            const char* ret = inet_ntop(host->h_addrtype, host->h_addr_list[i], ipStr, sizeof(ipStr));
+            if (NULL == ret) {
+#ifdef WIN32
+                cout << "CheckLocalTime(), inet_ntop failed! " << WSAGetLastError() << endl;
+#else
+                cout << "CheckLocalTime(), inet_ntop failed! " << strerror(errno) << endl;
+#endif
+                //return false;
+                continue;
+            }
+
+            cout << "CheckLocalTime(), ntpserver:[" << ntpservers[i].c_str() << "], ip: [" << ipStr << "]" << endl;
+
+            NtpClient ntp(ipStr);
+            time_t tt = ntp.getTime();
+            if (tt == 0) {
+#ifndef WIN32
+                sleep(1);
+#else
+                Sleep(1000);
+#endif
+                continue;
+            }
+
+            time_t now = time(nullptr);
+            time_t delay = 0;
+
+            if (now >= tt) {
+                delay = now - tt;
+            }
+            else {
+                delay = tt - now;
+            }
+
+            //HC: 时间误差为10秒(含)内
+            if (delay <= 10)
+                return true;
+
+            //HC: 设置系统时间为网络时间
+            cout << "System time has big difference with ntpserver and will stop only if set time to ntpserver time!" << endl;
+            cout << "Do you want to set time to ntpserver time?(y/n, default:n)?";
+
+            char c_action;
+            cin >> std::noskipws >> c_action;
+
+            if (c_action == 'y' || c_action == 'Y') {
+
+                time_t tt = ntp.getTime();
+
+#ifdef WIN32
+                tm* temptm = localtime(&tt);
+                SYSTEMTIME systime = { 1900 + temptm->tm_year,
+                                        1 + temptm->tm_mon,
+                                        temptm->tm_wday,
+                                        temptm->tm_mday,
+                                        temptm->tm_hour,
+                                        temptm->tm_min,
+                                        temptm->tm_sec,
+                                        0 };
+
+                if (SetLocalTime(&systime))
+                    return true;
+
+#else
+                struct timeval tv;
+                struct timezone tz;
+                gettimeofday(&tv, &tz);
+
+                tv.tv_sec = tt;
+                tv.tv_usec = 0;
+
+                if (settimeofday(&tv, &tz) == 0)
+                    return true;
+#endif
+            
+            }
+
+            //HC: 没有设置或没有成功
+            char ntpstamp[32] = { 0 };
+            strftime(ntpstamp, 32, "%Y-%m-%d %H:%M:%S", std::localtime(&tt));
+
+            char localstamp[32] = { 0 };
+            strftime(localstamp, 32, "%Y-%m-%d %H:%M:%S", std::localtime(&now));
+
+            //ntp.show(tt);
+            std::cout << "System time error! " << '\t' << "Local Time: " << localstamp << ',  ' << "NTP Server Time: " << ntpstamp << std::endl;
+
+            return false;
+        }
+    }
+
+    std::cout << "Unable to connect to NTP server! Please check network!" << endl;
+    return false;
+}
 
 bool GetLocalHostInfo()
 {
@@ -242,7 +364,7 @@ void GenerateNodeslist()
     int myip = std::stoi(g_localip.substr(found + 1));
 
     for (int i = 1; i < 255; i++) {
-
+        //HC: for example: 10.0.0.1-10.0.0.254
         if (i == myip)
             continue;
 
@@ -274,6 +396,37 @@ void parseNetAddress(const string &netaddress, string &ip, int &port)
         ip = netaddress.substr(0, found);
         port = std::stoi(netaddress.substr(found + 1));
     }
+
+    uint32 ipu32 = StringIPtoUint32(ip);
+    if (ipu32 == 0) {
+        struct hostent* host = gethostbyname(ip.c_str());
+        if (NULL == host) {
+#ifdef WIN32
+            cout << "parseNetAddress(), gethostbyname[" << ip.c_str() << "] failed! " << WSAGetLastError() << endl;
+#else
+            cout << "parseNetAddress(), gethostbyname[" << ip.c_str() << "] failed! " << strerror(h_errno) << endl;
+#endif
+            return;
+        }
+
+        for (int i = 0; host->h_addr_list[i] != NULL; ++i) {
+            char ipStr[32];
+            const char* ret = inet_ntop(host->h_addrtype, host->h_addr_list[i], ipStr, sizeof(ipStr));
+            if (NULL == ret) {
+#ifdef WIN32
+                g_daily_logger->error("parseNetAddress(), inet_ntop() failed! [{}]", WSAGetLastError());
+#else
+                g_daily_logger->error("parseNetAddress(), inet_ntop() failed! [{}]", strerror(errno));
+#endif
+                continue;
+            }
+
+            cout << "parseNetAddress(), hostname:[" << ip.c_str() << "], ip: [" << ipStr << "]" << endl;
+
+            ip = ipStr;
+            return;
+        }
+    }
 }
 
 static char vNodeID[] = "0123456789abcdef";
@@ -284,7 +437,7 @@ void makeSeedServer(const vector<string> & seedservers)
     int i = 0;
     for (auto &ss : seedservers) {
         if (i > 15) {
-
+            //HC: at mostly 16 seed servers
             break;
         }
         string nodeid(CUInt128::value * 2, vNodeID[i++]);
@@ -354,12 +507,12 @@ public:
         std::string dlog = logpath + "/hyperchain.log";
         std::string flog = logpath + "/hyperchain_basic.log";
         std::string rlog = logpath + "/hyperchain_rotating.log";
-        spdlog::set_level(spdlog::level::err);
+        spdlog::set_level(spdlog::level::err); //HC: Set specific logger's log level
         spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] [thread %t] %v");
         g_daily_logger = spdlog::daily_logger_mt("daily_logger", dlog.c_str(), 0, 30);
         g_daily_logger->set_level(spdlog::level::info);
         g_basic_logger = spdlog::basic_logger_mt("file_logger", flog.c_str());
-
+        //HC: Create a file rotating logger with 100M size max and 3 rotated files.
         g_rotating_logger = spdlog::rotating_logger_mt("rotating_logger", rlog.c_str(), 1048576 * 100, 3);
         g_console_logger = spdlog::stdout_color_mt("console");
         g_console_logger->set_level(spdlog::level::err);
@@ -392,7 +545,7 @@ void stopAll()
         g_appPlugin->StopAllApp();
     }
 
-    g_sys_interrupted = 1;
+    g_sys_interrupted = 1; //HC: stop MQ
     auto datahandler = Singleton<UdpRecvDataHandler>::getInstance();
     if (datahandler) {
         cout << "Stopping UdpRecvDataHandler..." << endl;
@@ -440,7 +593,7 @@ void stopAll()
     }
 
     if (Singleton<DBmgr>::instance()->isOpen()) {
-        cout << "Closing Database..." << endl;
+        cout << "Closing Database" << endl;
         Singleton<DBmgr>::instance()->close();
     }
 }
@@ -471,7 +624,7 @@ bool dumpCallback(const google_breakpad::MinidumpDescriptor& descriptor, void* c
     stopAll();
     cout << "Rebooting..." << endl;
 
-
+    //HC: add child options
     std::shared_ptr<char*> hc_argv(new char*[g_argc + 2]);
 
     int i = 0;
@@ -629,9 +782,52 @@ inline const char* _(const char* psz)
 static bool foreground = true;
 static google_breakpad::ExceptionHandler* exceptionhandler = nullptr;
 
+//every 13 hours to check if there is update;
+void checkupdate()
+{
+    while (true) {
+        //Check if needs to update
+        UpdateInfo updateinfo;
+        string localmd5;
+
+        if (updateinfo.GetUpdateInfo()) {
+
+            int fminingversion = Miningversion;
+            if (fminingversion < updateinfo.fminingversion) {
+                auto f = (*g_appPlugin)["paracoin"];
+                if (f) {
+                    std::list<string> cmdlist;
+                    cmdlist.emplace_back("c");
+                    cmdlist.emplace_back("d");
+                    cmdlist.emplace_back("versionlow");
+                    string info;
+                    f->appConsoleCmd(cmdlist, info, info);
+                }
+
+                cout << "Paracoin version is too low,coin mining is stopped!" << endl;
+            }
+
+            if (updateinfo.CheckUpdate())
+                cout << "Program has new version! Type 'update' to update the program!" << endl;
+
+        }
+
+        std::this_thread::sleep_for(std::chrono::hours(13));
+    }
+}
+
 int main(int argc, char *argv[])
 {
     SoftwareInfo();
+
+    if (!CheckLocalTime())
+        return 0;
+
+    //boost::filesystem::path pathHC(argv[0]);
+    //pathHC = pathHC.branch_path() / ".";
+    //pathHC = boost::filesystem::system_complete(pathHC);
+    //boost::filesystem::current_path(pathHC);
+
     ParseParameters(argc, argv);
     ProgramConfigFile::LoadSettings();
 
@@ -652,7 +848,7 @@ int main(int argc, char *argv[])
         "  -model=<type>   \t\t   " + _("which network node will be connected to, type can be sandbox, informal or formal (default: sandbox)\n") +
         "  -datadir=<dir>   \t\t  " + _("Specify data directory\n") +
         "  -conf[=file]     \t\t  " + _("Specify configuration file (default: <datadir>/<model>/hc.cfg)\n") +
-
+        //HC: Paracoin and Ledger parameter
         "  -with=<app>      \t\t  " + _("Start with application, for example:-with=ledger, -with=paracoin\n") +
         //"  -pid=<file>      \t\t  " + _("Specify pid file (default: bitcoind.pid)\n") +
         //"  -gen             \t\t  " + _("Generate coins\n") +
@@ -683,7 +879,7 @@ int main(int argc, char *argv[])
         "  -rpcpassword=<pw>\t  " + _("Password for JSON-RPC connections\n") +
         "  -rpcallowip=<ip> \t\t  " + _("Allow JSON-RPC connections from specified IP address\n") +
         //"  -rpcconnect=<ip> \t  " + _("Send commands to node running on <ip> (default: 127.0.0.1)\n");
-        "  -rpcparaport=<port>  \t\t  " + _("Listen for ParaCoin JSON-RPC connections on <port> (default: 8118)\n") +
+        "  -rpcparaport=<port>  \t\t  " + _("Listen for Paracoin JSON-RPC connections on <port> (default: 8118)\n") +
         "  -rpcledgerport=<port>  \t\t  " + _("Listen for Ledger JSON-RPC connections on <port> (default: 8119)\n");
     //"  -keypool=<n>     \t  " + _("Set key pool size to <n> (default: 100)\n") +
     //"  -rescan          \t  " + _("Rescan the block chain for missing wallet transactions\n");
@@ -710,6 +906,7 @@ int main(int argc, char *argv[])
         cout << VERSION_STRING << endl;
         return 0;
     }
+
     if (mapHCArgs.count("-daemon")) {
         foreground = false;
     }
@@ -737,7 +934,7 @@ int main(int argc, char *argv[])
     }
 #else
 
-
+    //HC: fork myself, become a daemon
     umask(0);
     while (!foreground) {
         pid_t pid = fork();
@@ -763,7 +960,7 @@ int main(int argc, char *argv[])
             exit(0);
         }
 
-
+        //HC: redirect stdin stdout to null
         int fd = open("/dev/null", O_RDWR);
         dup2(fd, 0);
         dup2(fd, 1);
@@ -784,7 +981,7 @@ int main(int argc, char *argv[])
 #endif
 
     if (mapHCArgs.count("-connect")) {
-
+        //HC: run as client and connect to server
         string strServer = mapHCArgs.at(string("-connect"));
 
         int port = 8115;
@@ -805,6 +1002,7 @@ int main(int argc, char *argv[])
     brk->start();
     cout << "HCBroker::Start..." << endl;
 
+    bool bGetIp = GetLocalHostInfo();
     if (mapHCArgs.count("-rpcclient")) {
         g_nodetype = NodeType::LedgerRPCClient;
     }
@@ -819,7 +1017,7 @@ int main(int argc, char *argv[])
         makeSeedServer(seedservers);
     }
     else if (!mapHCArgs.count("-me")) {
-        if (GetLocalHostInfo())
+        if (bGetIp)
             g_nodetype = NodeType::Autonomous;
     }
     else {
@@ -836,6 +1034,8 @@ int main(int argc, char *argv[])
         pro_ver = ProtocolVer::NET::INFORMAL_NET;
 
     NodeManager *nodemgr = Singleton<NodeManager>::instance();
+    nodemgr->SetLocalIP(g_localip);
+
     nodemgr->start();
 
     string udpip;
@@ -860,7 +1060,7 @@ int main(int argc, char *argv[])
     NodeUPKeepThreadPool* nodeUpkeepThreadpool = Singleton<NodeUPKeepThreadPool>::instance();
 
     CloneArgs cargs(argc, argv);
-    g_appPlugin = Singleton<AppPlugins,int, char**>::instance(cargs.nArgc, cargs.ppArgv);
+    g_appPlugin = Singleton<AppPlugins, int, char**>::instance(cargs.nArgc, cargs.ppArgv);
 
     if (g_nodetype != NodeType::LedgerRPCClient) {
 
@@ -893,15 +1093,18 @@ int main(int argc, char *argv[])
         cout << "NodeManager MQID: " << Singleton<NodeManager>::getInstance()->MQID() << endl << endl;
     }
     else {
-
+        //HC: application RPC query client
         g_appPlugin->StartAllApp();
     }
 
-    ConsoleCommNetServer netserver(g_inproc_context);
+    ConsoleCommNetServer netserver(g_inproc_context); //HC: Here is tcp port
     if (mapHCArgs.count("-server")) {
         int port = std::stoi(mapHCArgs["-server"]);
         netserver.start(port);
     }
+
+    std::thread thrCheck(checkupdate);
+    thrCheck.detach();
 
     ConsoleCommandHandler *console =
         Singleton<ConsoleCommandHandler, std::streambuf* , std::streambuf*>::instance(cin.rdbuf(), cout.rdbuf());
@@ -913,6 +1116,9 @@ int main(int argc, char *argv[])
     console->run(r);
 
     stopAll();
+
+    if (console->_bUpdate)
+        execlp("./Autoupdate", "Autoupdate", (char*)0);
 
     return 0;
 }

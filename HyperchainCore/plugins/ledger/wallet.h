@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -29,16 +29,25 @@ DEALINGS IN THE SOFTWARE.
 #include "bignum.h"
 #include "key.h"
 #include "script.h"
+#include "scriptpubkeyman.h"
+#include <outputtype.h>
 
 class CWalletTx;
 class CReserveKey;
 class CWalletDB;
 
+//! Default for -addresstype
+constexpr OutputType DEFAULT_ADDRESS_TYPE{ OutputType::BECH32 };
+
+
 class CWallet : public CCryptoKeyStore
 {
 private:
-    bool SelectCoinsMinConf(int64 nTargetValue, int nConfMine, int nConfTheirs, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet) const;
-    bool SelectCoins(int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet) const;
+    bool SelectCoinsMinConf(int64 nTargetValue, int nConfMine, int nConfTheirs, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet,
+        const list<CTxDestination>& fromaddrs) const;
+
+    bool SelectCoins(int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet,
+        const list<CTxDestination>& fromaddrs) const;
 
     CWalletDB *pwalletdbEncryption;
 
@@ -76,18 +85,27 @@ public:
     }
 
     std::map<uint256, CWalletTx> mapWallet;
-
+    //HC: UI
     //std::vector<uint256> vWalletUpdated;
 
     std::map<uint256, int> mapRequestCount;
 
-    std::map<CBitcoinAddress, std::string> mapAddressBook;
+    //HC: support SegWit
+    std::map<CTxDestination, std::string> mapAddressBook;
 
     std::vector<unsigned char> vchDefaultKey;
+    OutputType defaultType;
 
     // keystore implementation
-    bool AddKey(const CKey& key);
-    bool LoadKey(const CKey& key) { return CCryptoKeyStore::AddKey(key); }
+    void ImportScripts(const vector<unsigned char>& vchPubKey, const CKey& key);
+    bool AddKey(const vector<unsigned char>& vchPubKey, const CKey& key);
+
+    //HC: vchPubKey has two kinds of types: uncompressed, compressed, only the latter supports SegWit
+    bool LoadKey(const vector<unsigned char>& vchPubKey, const CKey& key);
+
+    CBitcoinAddress GetKeyFromDestination(const CTxDestination& address, CKey& keyOut, string& error) const;
+
+
     bool AddCryptedKey(const std::vector<unsigned char> &vchPubKey, const std::vector<unsigned char> &vchCryptedSecret);
     bool LoadCryptedKey(const std::vector<unsigned char> &vchPubKey, const std::vector<unsigned char> &vchCryptedSecret) { return CCryptoKeyStore::AddCryptedKey(vchPubKey, vchCryptedSecret); }
 
@@ -108,7 +126,7 @@ public:
     bool CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey);
     bool BroadcastTransaction(CWalletTx& wtxNew);
     std::string SendMoney(CScript scriptPubKey, int64 nValue, CWalletTx& wtxNew, bool fAskFee=false);
-    std::string SendMoneyToBitcoinAddress(const CBitcoinAddress& address, int64 nValue, CWalletTx& wtxNew, bool fAskFee=false);
+    std::string SendMoneyToBitcoinAddress(const CBitcoinAddress& address, int64 nValue, CWalletTx& wtxNew, bool fAskFee = false);
 
     bool TopUpKeyPool();
     void ReserveKeyFromKeyPool(int64& nIndex, CKeyPool& keypool);
@@ -121,7 +139,12 @@ public:
     int64 GetDebit(const CTxIn& txin) const;
     bool IsMine(const CTxOut& txout) const
     {
-        return ::IsMine(*this, txout.scriptPubKey);
+        for (const auto& spk_man_pair : m_spk_managers) {
+            if (spk_man_pair.second->IsMine(txout.scriptPubKey))
+                return true;
+        }
+        return false;
+        //return ::IsMine(*this, txout.scriptPubKey);
     }
     int64 GetCredit(const CTxOut& txout) const
     {
@@ -129,15 +152,17 @@ public:
             throw std::runtime_error("CWallet::GetCredit() : value out of range");
         return (IsMine(txout) ? txout.nValue : 0);
     }
+
     bool IsChange(const CTxOut& txout) const
     {
-        CBitcoinAddress address;
-        if (ExtractAddress(txout.scriptPubKey, this, address))
+        CTxDestination address;
+        if (ExtractDestination(txout.scriptPubKey, address))
             CRITICAL_BLOCK(cs_wallet)
                 if (!mapAddressBook.count(address))
                     return true;
         return false;
     }
+
     int64 GetChange(const CTxOut& txout) const
     {
         if (!MoneyRange(txout.nValue))
@@ -197,9 +222,11 @@ public:
     int LoadWallet(bool& fFirstRunRet);
 //    bool BackupWallet(const std::string& strDest);
 
-    bool SetAddressBookName(const CBitcoinAddress& address, const std::string& strName);
+    bool SetAddressBookName(const CTxDestination& address, const std::string& strName);
 
-    bool DelAddressBookName(const CBitcoinAddress& address);
+    bool HavingAddressBookName(const CTxDestination& address);
+
+    bool DelAddressBookName(const CTxDestination& address);
 
     void UpdatedTransaction(const uint256 &hashTx)
     {
@@ -226,10 +253,48 @@ public:
 
     bool GetTransaction(const uint256 &hashTx, CWalletTx& wtx);
 
-    bool SetDefaultKey(const std::vector<unsigned char> &vchPubKey);
+    CBitcoinAddress GetDefaultKeyAddress()
+    {
+        return CBitcoinAddress(vchDefaultKey);
+    }
+
+    //////////////////////////////////////////////////////////////////////////
+    //HC: SegWit
+    //
+    //
+
+    LegacyScriptPubKeyMan* GetLegacyScriptPubKeyMan() const;
+    LegacyScriptPubKeyMan* GetOrCreateLegacyScriptPubKeyMan();
+
+    void SetupLegacyScriptPubKeyMan();
+
+    bool SetDefaultKey(const std::vector<unsigned char> &vchPubKey, OutputType utype = DEFAULT_ADDRESS_TYPE);
+    CTxDestination GetDefaultKey();
+
+    bool WriteCScript(const uint160& hash, const CScript& redeemScript)
+    {
+        CWalletDB_Wrapper walletdb(strWalletFile);
+        return walletdb.WriteCScript(hash, redeemScript);
+    }
+
+    ScriptPubKeyMan* GetScriptPubKeyMan(const OutputType& type, bool internal) const;
+
+    bool GetNewDestination(const OutputType type, const std::string label, std::vector<unsigned char>& vchPubKey, CTxDestination& dest, std::string& error);
+
+private:
+    //HC: witness
+    bool SignTransaction(CMutableTransaction& tx, set<pair<const CWalletTx*, unsigned int>>& setCoins);
+    bool SignTransaction(CMutableTransaction& tx, const std::map<COutPoint, Coin>& coins, int sighash, std::map<int, std::string>& input_errors);
+
+    OutputType TransactionChangeType(const std::vector<pair<CScript, int64>>& vecSend);
 
 private:
     std::unique_ptr<std::thread> m_threadFlushWallet;
+
+    std::map<OutputType, ScriptPubKeyMan*> m_external_spk_managers;
+    std::map<OutputType, ScriptPubKeyMan*> m_internal_spk_managers;
+
+    std::map<uint256, std::unique_ptr<ScriptPubKeyMan>> m_spk_managers;
 
 };
 
@@ -254,6 +319,7 @@ public:
     }
 
     void ReturnKey();
+    CScript GetDefaultKeyScript();
     std::vector<unsigned char> GetReservedKey();
     void KeepKey();
 };
@@ -504,8 +570,18 @@ public:
         return nChangeCached;
     }
 
-    void GetAmounts(int64& nGeneratedImmature, int64& nGeneratedMature, std::list<std::pair<CBitcoinAddress, int64> >& listReceived,
-                    std::list<std::pair<CBitcoinAddress, int64> >& listSent, int64& nFee, std::string& strSentAccount) const;
+    void GetAmounts(int64& nGeneratedImmature, int64& nGeneratedMature, std::list<std::pair<CTxDestination, int64> >& listReceived,
+                    std::list<std::pair<CTxDestination, int64> >& listSent, int64& nFee, std::string& strSentAccount) const;
+
+    //HC: fixed the bugs for RPC command: listaccounts, getbalance
+    using DestReceived = tuple<CTxDestination, int64, bool>;
+    void GetAmountsForBalance(list<DestReceived>& listReceived, int64& nFee, int nMinDepth) const;
+
+
+    //HC: Extract address for coinbase tx
+    void GetAmountsEx(int64& nGeneratedImmature, int64& nGeneratedMature, std::list<std::pair<CTxDestination, int64> >& listReceived,
+        std::list<std::pair<CTxDestination, int64> >& listSent, int64& nFee, std::string& strSentAccount, bool& isCoinbase) const;
+
 
     void GetAccountAmounts(const std::string& strAccount, int64& nGenerated, int64& nReceived,
                            int64& nSent, int64& nFee) const;
@@ -561,13 +637,17 @@ public:
     int64 GetTxTime() const;
     int GetRequestCount() const;
 
-    void AddSupportingTransactions(CTxDB_Wrapper &txdb);
+    void AddSupportingTransactions(CTxDB_Wrapper& txdb);
 
-    bool AcceptWalletTransaction(CTxDB_Wrapper &txdb, bool fCheckInputs=true);
+    bool AcceptWalletTransaction(CTxDB_Wrapper& txdb, bool fCheckInputs=true);
     bool AcceptWalletTransaction();
 
     void RelayWalletTransaction(CTxDB_Wrapper& txdb);
     void RelayWalletTransaction();
+
+private:
+    void GetReceiveOrSent(list<pair<CTxDestination, int64> >& listReceived, list<pair<CTxDestination, int64> >& listSent) const;
+    void GetReceiveOrSentForBalance(list<DestReceived>& listReceived, int nMinDepth) const;
 };
 
 
@@ -613,23 +693,25 @@ public:
 class CAccount
 {
 public:
-    std::vector<unsigned char> vchPubKey;
+    //HC: support SegWit
+    //std::vector<unsigned char> vchPubKey;
+    std::string address; //HC: a string from type CTxDestination
 
     CAccount()
     {
-        SetNull();
+        //SetNull();
     }
 
     void SetNull()
     {
-        vchPubKey.clear();
+        address = "";
     }
 
     IMPLEMENT_SERIALIZE
     (
         if (!(nType & SER_GETHASH))
             READWRITE(nVersion);
-        READWRITE(vchPubKey);
+        READWRITE(address);
     )
 };
 

@@ -1120,7 +1120,7 @@ int CUDTUnited::epoll_remove_usock(const int eid, const UDTSOCKET u)
    }
    else
    {
-
+       //HC: sometimes locate(u) return null
        m_EPoll.remove_usock_of_ready(eid, u);
    }
 

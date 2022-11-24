@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -23,7 +23,7 @@ DEALINGS IN THE SOFTWARE.
 #include "HCNode.h"
 #include <random>
 
-
+//HC:  K桶个数和每个桶里节点数
 uint32_t KBUCKRT_NUM = 256;
 uint32_t KNODE_NUM = 10;
 
@@ -36,7 +36,7 @@ CKBNode::CKBNode(const CUInt128& id)
 
 CKBuckets::~CKBuckets()
 {
-    for (int k = 0; k < KBUCKRT_NUM; k++)
+    for (uint32_t k = 0; k < KBUCKRT_NUM; k++)
         m_vecBuckets[k].clear();
     m_vecBuckets.clear();
     m_setNodes.clear();
@@ -52,7 +52,7 @@ void CKBuckets::InitKbuckets(CUInt128 myID)
 bool CKBuckets::AddNode(CUInt128 nID, CUInt128& nRemoveID)
 {
     int kBK = LocateKBucket(nID);
-
+    //HC: 查看是否存在，存在就去掉，然后加到最后，否则就加到最后）
     for (auto iter = m_vecBuckets[kBK].begin(); iter != m_vecBuckets[kBK].end(); iter++) {
         if (iter->m_id == nID) {
             m_vecBuckets[kBK].erase(iter);
@@ -98,7 +98,7 @@ std::set<CUInt128> CKBuckets::PickRandomNodes(int nNum)
     std::default_random_engine e(time(0));
     std::uniform_int_distribution<int> u(0, m_setNodes.size() - 1);
 
-    while (setResult.size() < nNum){
+    while (setResult.size() < nNum) {
         auto iter = m_setNodes.begin();
         advance(iter, u(e));
         setResult.insert(*iter);
@@ -108,22 +108,22 @@ std::set<CUInt128> CKBuckets::PickRandomNodes(int nNum)
 
 vector<CUInt128> CKBuckets::PickNeighbourNodes(CUInt128 targetID, int nNum)
 {
-    int kBK = LocateKBucket(targetID);
-    int rk = kBK;
+    uint32_t kBK = LocateKBucket(targetID);
+    uint32_t rk = kBK;
     int lk = kBK;
     int nActNum = 0;
     vector<CUInt128> vecResult;
 
-    int nKBucket = m_vecBuckets.size();
+    int nKBucket = (int)m_vecBuckets.size();
     while ((rk < KBUCKRT_NUM || lk > 0) && nActNum < nNum) {
-
+        //HC: 向右读取邻近桶
         if (nKBucket > rk && rk < KBUCKRT_NUM) {
             for (auto Riter = m_vecBuckets[rk].begin(); Riter != m_vecBuckets[rk].end() && nActNum < nNum; Riter++, nActNum++)
                 vecResult.push_back(Riter->m_id);
         }
         rk++;
 
-
+        //HC: 向左读取邻近桶
         if (nKBucket > lk && lk > 0) {
             lk--;
             for (auto Liter = m_vecBuckets[lk].begin(); Liter != m_vecBuckets[lk].end() && nActNum < nNum; Liter++, nActNum++)
@@ -139,17 +139,17 @@ vector<CUInt128> CKBuckets::PickNeighbourNodes(CUInt128 targetID, int nNum)
 
 vector<CUInt128> CKBuckets::PickLastActiveNodes(CUInt128 targetID, int nNum, int nMinutes)
 {
-    int kBK = LocateKBucket(targetID);
-    int rk = kBK;
+    uint32_t kBK = LocateKBucket(targetID);
+    uint32_t rk = kBK;
     int lk = kBK;
     int nActNum = 0;
     std::chrono::minutes timespan;
     system_clock::time_point curr = system_clock::now();
     vector<CUInt128> vecResult;
 
-    int nKBucket = m_vecBuckets.size();
+    int nKBucket = (int)m_vecBuckets.size();
     while ((rk < KBUCKRT_NUM || lk > 0) && nActNum < nNum) {
-
+        //HC: 向右读取邻近桶
         if (nKBucket > rk && rk < KBUCKRT_NUM) {
             for (auto Riter = m_vecBuckets[rk].begin(); Riter != m_vecBuckets[rk].end() && nActNum < nNum; Riter++) {
                 timespan = std::chrono::duration_cast<std::chrono::minutes>(curr - Riter->m_lastTime);
@@ -162,7 +162,7 @@ vector<CUInt128> CKBuckets::PickLastActiveNodes(CUInt128 targetID, int nNum, int
         }
         rk++;
 
-
+        //HC: 向左读取邻近桶
         if (nKBucket > lk && lk > 0) {
             lk--;
             for (auto Liter = m_vecBuckets[lk].begin(); Liter != m_vecBuckets[lk].end() && nActNum < nNum; Liter++) {
@@ -197,7 +197,7 @@ bool CKBuckets::IsNodeInKBuckets(CUInt128 nID)
     return m_setNodes.count(nID);
 }
 
-int CKBuckets::LocateKBucket(CUInt128 nID)
+uint32_t CKBuckets::LocateKBucket(CUInt128 nID)
 {
     CUInt128 r = m_localID ^ nID;
     r >>= 120;

@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -40,7 +40,7 @@ ElapsedTime::~ElapsedTime()
 void ElapsedTime::Start()
 {
 #ifdef WIN32
-	m_start = m_end = ::GetTickCount();
+	m_start = m_end = ::GetTickCount64();
 #else
 	struct timespec ts;
 	clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -51,7 +51,7 @@ void ElapsedTime::Start()
 void ElapsedTime::End()
 {
 #ifdef WIN32
-	m_end = ::GetTickCount();
+	m_end = ::GetTickCount64();
 #else
 	struct timespec ts;
 	clock_gettime(CLOCK_MONOTONIC, &ts);

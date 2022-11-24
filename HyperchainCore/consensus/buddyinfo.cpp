@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -123,9 +123,10 @@ uint16 _tp2pmanagerstatus::GetNodeState()const
 uint64 _tp2pmanagerstatus::GettTimeOfConsensus()
 {
     time_t now = time(nullptr);
-    if (now < latestHyperblockCTime) {
-        return latestHyperblockCTime + _NEXTBUDDYTIME;
-    }
+    //HC: During starting, HC has already checked system time if it is consistent with UTC, so use current time
+    //if (now < latestHyperblockCTime) {
+    //    return latestHyperblockCTime + _NEXTBUDDYTIME;
+    //}
     return now;
 }
 
@@ -145,7 +146,6 @@ CONSENSUS_PHASE _tp2pmanagerstatus::GetCurrentConsensusPhase() const
     }
     return CONSENSUS_PHASE::PREPARE_LOCALBUDDY_PHASE;
 }
-
 
 T_PEERADDRESS _tp2pmanagerstatus::GetLocalBuddyAddr()const
 {
@@ -204,9 +204,17 @@ void _tp2pmanagerstatus::RequestOnChain(const T_LOCALCONSENSUS& LocalConsensusIn
 {
     if (threadid == std::this_thread::get_id()) {
         listOnChainReq.push_back(LocalConsensusInfo);
+
+        string requestid = LocalConsensusInfo.GetLocalBlock().GetUUID();
+        NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
+        HCNodeSH me = nodemgr->myself();
+        string accesspoint = me->serializeAP();
+        int queuenum = listOnChainReq.size();
+        Singleton<DBmgr>::instance()->RecordRequestTime(requestid, accesspoint, queuenum);
+
     }
     else {
-        zmsg *rspmsg = MQRequest(CONSENSUS_SERVICE, (int)T_P2PMANAGERSTATUS::SERVICE::RequestOnChain, &LocalConsensusInfo);
+        zmsg* rspmsg = MQRequest(CONSENSUS_SERVICE, (int)T_P2PMANAGERSTATUS::SERVICE::RequestOnChain, &LocalConsensusInfo);
         if (rspmsg) {
             delete rspmsg;
         }
@@ -285,7 +293,7 @@ bool _tp2pmanagerstatus::ApplicationCheck(T_HYPERBLOCK &hyperblock)
     map<T_APPTYPE, vector<T_PAYLOADADDR>> mapPayload;
     ToAppPayloads(hyperblock, mapPayload);
 
-
+    //HC:let application layer check the payload data.
     for (auto& a : mapPayload) {
         CBRET ret = AppCallback<cbindex::VALIDATECHAINIDX>(a.first, a.second);
         if (ret == CBRET::REGISTERED_FALSE) {
@@ -300,7 +308,7 @@ bool _tp2pmanagerstatus::ApplicationAccept(uint32_t hidFork, T_HYPERBLOCK &hyper
     map<T_APPTYPE, vector<T_PAYLOADADDR>> mapPayload;
     ToAppPayloads(hyperblock, mapPayload);
 
-
+    //HC: let application layer handle their genesis block
     T_APPTYPE genesisledger(APPTYPE::ledger, 0, 0, 0);
     if (mapPayload.count(genesisledger)) {
         AppCallback<cbindex::HANDLEGENESISIDX>(genesisledger, mapPayload.at(genesisledger));
@@ -316,7 +324,7 @@ bool _tp2pmanagerstatus::ApplicationAccept(uint32_t hidFork, T_HYPERBLOCK &hyper
     T_SHA256 thash = hyperblock.GetHashSelf();
     uint32_t hid = hyperblock.GetID();
 
-
+    //HC:let application layer accept block data.
     AllAppCallback<cbindex::ACCEPTCHAINIDX>(mapPayload, hidFork, hid, thash, isLatest);
     return true;
 }
@@ -333,7 +341,7 @@ void _tp2pmanagerstatus::UpdateOnChainingState(const T_HYPERBLOCK &hyperblock)
             continue;
         }
 
-
+        //HC: only likely a local block belong to me in a hyper block
         std::find_if(childchain.begin(), childchain.end(), [this, &isfound, &hyperblock, uiChainNum](const T_LOCALBLOCK & elem) {
 
             T_SEARCHINFO searchInfo;
@@ -342,6 +350,8 @@ void _tp2pmanagerstatus::UpdateOnChainingState(const T_HYPERBLOCK &hyperblock)
             LB_UUID uuid = elem.GetUUID();
             if (mapSearchOnChain.count(uuid) > 0) {
                 mapSearchOnChain[uuid] = searchInfo;
+                if(searchInfo.addr.isValid())
+                    Singleton<DBmgr>::instance()->RecordOnchainTime(uuid);
             }
             isfound = (Singleton<DBmgr>::instance()->updateOnChainState(uuid, searchInfo.addr) > 0);
             return isfound;
@@ -357,7 +367,7 @@ void _tp2pmanagerstatus::UpdateLocalBuddyBlockToLatest(uint64 prehyperblockid, c
 {
     if (listLocalBuddyChainInfo.size() == ONE_LOCAL_BLOCK) {
 
-
+        //HC: notify application layer to update data
         auto itr = listLocalBuddyChainInfo.begin();
         T_LOCALBLOCK& localblock = itr->GetLocalBlock();
         string newPayload;
@@ -368,12 +378,12 @@ void _tp2pmanagerstatus::UpdateLocalBuddyBlockToLatest(uint64 prehyperblockid, c
             localblock.CalculateHashSelf();
         }
 
-
+        //HC: update child block's hyper block info into the latest hyper block.
         localblock.updatePreHyperBlockInfo(prehyperblockid, preHyperBlockHash);
     }
 }
 
-
+//HC: clear consensus data struct
 void _tp2pmanagerstatus::CleanConsensusEnv()
 {
     listGlobalBuddyChainInfo.clear();
@@ -381,6 +391,11 @@ void _tp2pmanagerstatus::CleanConsensusEnv()
     listRecvLocalBuddyRsp.clear();
     listCurBuddyReq.clear();
     listRecvLocalBuddyReq.clear();
+
+    //optimise consensus
+    mapLocalBuddyInfo.clear();
+    mapGlobalBuddyInfo.clear();
+    mapLocalConsensus.clear();
 }
 
 
@@ -406,6 +421,7 @@ void _tp2pmanagerstatus::RehandleOnChainingState(uint64 hid)
         }
     }
     Singleton<DBmgr>::instance()->rehandleOnChainState(hid);
+    Singleton<DBmgr>::instance()->ResetOnchainTime(hid);
 }
 
 void _tp2pmanagerstatus::SetAppCallback(const T_APPTYPE &app, const CONSENSUSNOTIFY &notify)
@@ -418,12 +434,12 @@ void _tp2pmanagerstatus::RemoveAppCallback(const T_APPTYPE & app)
     if (_mapcbfn.count(app)) {
         auto &app_cb_noti = _mapcbfn[app];
         app_cb_noti->unreging = true;
-        int n = app_cb_noti.use_count();
-        if (n > 1) {
-
+        while (app_cb_noti.use_count() > 1) {
+            //HC: some fibers are using, wait for a while
             boost::this_fiber::sleep_for(std::chrono::milliseconds(300));
         }
         _mapcbfn.erase(app);
+        cout << StringFormat("\tApplication module removed: %s\n", app.tohexstring());
     }
 }
 
@@ -456,8 +472,8 @@ void _tp2pmanagerstatus::GetMulticastNodes(vector<CUInt128> &MulticastNodes)
 
     itrList = (*itr).begin();
     T_APPTYPE localapptype = (*itrList).GetLocalBlock().GetAppType();
-    if (localapptype.isParaCoin() || localapptype.isLedger()) {
-
+    if (localapptype.isParacoin() || localapptype.isLedger() || localapptype.isEthereum()) {
+        //HC: paracoin get multicast nodes list from app interface
         std::list<string> nodelist;
         CBRET ret = AppCallback<cbindex::GETNEIGHBORNODESIDX>(localapptype, nodelist);
         if (ret == CBRET::REGISTERED_TRUE) {
@@ -485,7 +501,7 @@ void _tp2pmanagerstatus::SetLatestHyperBlock(uint64 hyperid, const T_SHA256 &hha
     latestHyperblockCTime = hyperctime;
 
     bHyperBlockCreated = false;
-    bGlobalChainChangeFlag = true;
+    //bGlobalChainChangeFlag = true;
 
 }
 

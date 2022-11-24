@@ -694,7 +694,7 @@ struct property_proxy
     template <typename T>
     explicit operator T() const { return as<T>(); }
 
-
+    //HC: Here is a bug,if template type name is Value, it will conflict with class Value, so change Value into V
     template <typename T>
     property_proxy& operator =(T value)
     {
@@ -1210,10 +1210,10 @@ public:
 
         } while (false);
 
-
+        //HC: exception occurs
         //js_std_dump_error(ctx);
         throw qjs::exception{};
-
+        //HC: or return the following value
         //return Value{ ctx, JS_EXCEPTION };
     }
 
@@ -1319,7 +1319,7 @@ struct js_traits<std::function<R(Args...)>>
     {
         return [jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}](Args&& ... args) -> R {
             const int argc = sizeof...(Args);
-
+            //HC: why argc + 1 ? if argc == 0, avoid compile error in vs2019
             JSValue argv[argc + 1];
             detail::wrap_args(jsfun_obj.ctx, argv, std::forward<Args>(args)...);
             JSValue result = JS_Call(jsfun_obj.ctx, jsfun_obj.v, JS_UNDEFINED, argc, const_cast<JSValueConst *>(argv));

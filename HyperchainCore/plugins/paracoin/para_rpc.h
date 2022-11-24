@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -23,9 +23,11 @@ DEALINGS IN THE SOFTWARE.
 // Copyright (c) 2011 The Bitcoin developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file license.txt or http://www.opensource.org/licenses/mit-license.php.
+#include "protocol_rpc.h"
 #include "json/json_spirit_reader_template.h"
 #include "json/json_spirit_writer_template.h"
 #include "json/json_spirit_utils.h"
+
 
 
 void ThreadRPCServer(void* parg);
@@ -51,11 +53,12 @@ void ConvertTo(Value& value)
 
 
 Array toArray(const list<string>& cmdlist);
-Object CallRPC(const string& strMethod, const Array& params);
+Object CallRPC(const string& strMethod, const Array& params, const string& strServer, const string& strPort);
 
 Value issuecoin(const Array& params, bool fHelp);
 Value importcoin(const Array& params, bool fHelp);
 Value listaccounts(const Array& params, bool fHelp);
+Value getbalance(const Array& params, bool fHelp);
 Value listaddrbalance(const Array& params, bool fHelp);
 Value getaddressesbyaccount(const Array& params, bool fHelp);
 
@@ -75,5 +78,6 @@ Value setaccount(const Array& params, bool fHelp);
 Value settxfee(const Array& params, bool fHelp);
 
 Value getinfo(const Array& params, bool fHelp);
+Value getrawtransaction(const Array& params, bool fHelp);
 
 

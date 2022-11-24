@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -141,10 +141,10 @@ typedef struct _tagCONSENSUSNOTIFYSTATE
 
 public:
 
-    _tagCONSENSUSNOTIFYSTATE(const CONSENSUSNOTIFY &notify) : notify_fns(notify)
+    _tagCONSENSUSNOTIFYSTATE(const CONSENSUSNOTIFY& notify) : notify_fns(notify)
     { }
 
-    _tagCONSENSUSNOTIFYSTATE(_tagCONSENSUSNOTIFYSTATE&&src) {
+    _tagCONSENSUSNOTIFYSTATE(_tagCONSENSUSNOTIFYSTATE&& src) {
         notify_fns = src.notify_fns;
         unreging = src.unreging;
     }
@@ -190,6 +190,10 @@ typedef struct _tp2pmanagerstatus
     bool bHyperBlockCreated;
     T_HYPERBLOCK tHyperBlock;
 
+    map<CUInt128, T_BUDDYINFO> mapLocalBuddyInfo;           //HC: first:发送方nodeid, second:LOCAL阶段BLOCK数据不完整的buddy信息
+    map<CUInt128, T_BUDDYINFO> mapGlobalBuddyInfo;          //HC: first:发送方nodeid, second:GLOBAL阶段BLOCK数据不完整的buddy信息
+    map< T_SHA256, T_LOCALCONSENSUS > mapLocalConsensus;    //HC: first:子块hash, second:子块consensus
+
     void ClearStatus();
 
     _tp2pmanagerstatus()
@@ -204,7 +208,7 @@ typedef struct _tp2pmanagerstatus
         _NEXTBUDDYTIME = nxt;
     }
 
-    void GetConsensusTime(uint32 &l, uint32 &g, uint32 &nxt)
+    void GetConsensusTime(uint32& l, uint32& g, uint32& nxt)
     {
         l = _LOCALBUDDYTIME;
         g = _GLOBALBUDDYTIME;
@@ -223,7 +227,7 @@ typedef struct _tp2pmanagerstatus
 
     bool HaveOnChainReq()const;
 
-
+    //HC: 返回当前共识子块头里存放的前一个超块Hash,这不完全等同于本节点最新超块的hash
     T_SHA256 GetConsensusPreHyperBlockHash()const;
 
     uint16 GetNodeState()const;
@@ -240,7 +244,7 @@ typedef struct _tp2pmanagerstatus
         TrackLocalBlock,
     };
 
-    bool ReplyMsg(int t, zmsg *msg);
+    bool ReplyMsg(int t, zmsg* msg);
 
 
     size_t GetListOnChainReqCount();
@@ -256,24 +260,24 @@ typedef struct _tp2pmanagerstatus
 
     void SetBuddyInfo(T_STRUCTBUDDYINFO info);
 
-    void SetLatestHyperBlock(uint64 hyperid,  const T_SHA256 &hhash, uint64 hyperctime);
+    void SetLatestHyperBlock(uint64 hyperid, const T_SHA256& hhash, uint64 hyperctime);
 
     inline uint64 GetLatestHyperBlockId() const { return latestHyperblockId; };
 
-    const T_SHA256 & GetLatestHyperBlockHash() const { return latestHyperBlockHash; };
+    const T_SHA256& GetLatestHyperBlockHash() const { return latestHyperBlockHash; };
 
-    void GetMulticastNodes(vector<CUInt128> &MulticastNodes);
+    void GetMulticastNodes(vector<CUInt128>& MulticastNodes);
 
     void UpdateOnChainingState(const T_HYPERBLOCK& hyperblock);
 
     bool ApplicationCheck(T_HYPERBLOCK& hyperblock);
-    bool ApplicationAccept(uint32_t hidFork,T_HYPERBLOCK& hyperblock, bool isLatest);
+    bool ApplicationAccept(uint32_t hidFork, T_HYPERBLOCK& hyperblock, bool isLatest);
 
     void UpdateLocalBuddyBlockToLatest(uint64 prehyperblockid, const T_SHA256& preHyperBlockHash);
 
     void CleanConsensusEnv();
 
-
+    //HC:跟踪本地块上链状态
     void TrackLocalBlock(const T_LOCALBLOCK& localblock);
     void InitOnChainingState(uint64 hid);
     void RehandleOnChainingState(uint64 hid);
@@ -284,11 +288,11 @@ typedef struct _tp2pmanagerstatus
     template<cbindex I, typename... Args>
     bool AllAppCallback(Args&... args)
     {
+        //HC: copy _mapcbfn, avoid crash when exiting the program which will call RemoveAppCallback to unregister the application
+        //HC: RemoveAppCallback will erase the elements in _mapcbfn, so here traversing _mapcbfn maybe cause crash
+        auto tmpmapcbfn = _mapcbfn;  //HC: reference count increase
 
-
-        auto tmpmapcbfn = _mapcbfn;
-
-        for (auto &appnoti : tmpmapcbfn) {
+        for (auto& appnoti : tmpmapcbfn) {
             if (appnoti.second->unreging) {
                 continue;
             }
@@ -303,8 +307,8 @@ typedef struct _tp2pmanagerstatus
     template<cbindex I, typename... Args>
     CBRET AppCallback(const T_APPTYPE& app, Args&... args)
     {
-
-
+        //HC: If use lock, it will cause dead lock when calling RPC command addamounttoaddress
+        //HC: which hold mutex: cs_main then _muxmapcbfn
         if (_mapcbfn.count(app)) {
 
             if (_mapcbfn[app]->unreging) {

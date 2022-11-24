@@ -117,8 +117,8 @@ void CTimer::rdtsc(uint64_t &x)
       x = hval;
       x = (x << 32) | lval;
    #elif defined(WIN32)
-      //HANDLE hCurThread = ::GetCurrentThread(); 
-      //DWORD_PTR dwOldMask = ::SetThreadAffinityMask(hCurThread, 1); 
+      //HANDLE hCurThread = ::GetCurrentThread();
+      //DWORD_PTR dwOldMask = ::SetThreadAffinityMask(hCurThread, 1);
       BOOL ret = QueryPerformanceCounter((LARGE_INTEGER *)&x);
       //SetThreadAffinityMask(hCurThread, dwOldMask);
       if (!ret)
@@ -254,21 +254,23 @@ uint64_t CTimer::getTime()
       gettimeofday(&t, 0);
       return t.tv_sec * 1000000ULL + t.tv_usec;
    #else
-      LARGE_INTEGER ccf;
-      HANDLE hCurThread = ::GetCurrentThread(); 
-      DWORD_PTR dwOldMask = ::SetThreadAffinityMask(hCurThread, 1);
-      if (QueryPerformanceFrequency(&ccf))
-      {
-         LARGE_INTEGER cc;
-         if (QueryPerformanceCounter(&cc))
-         {
-            SetThreadAffinityMask(hCurThread, dwOldMask); 
-            return (cc.QuadPart * 1000000ULL / ccf.QuadPart);
-         }
-      }
+    //HC: comment the following code
+      //LARGE_INTEGER ccf;
+      //HANDLE hCurThread = ::GetCurrentThread();
+      //DWORD_PTR dwOldMask = ::SetThreadAffinityMask(hCurThread, 1);
+      //if (QueryPerformanceFrequency(&ccf))
+      //{
+      //   LARGE_INTEGER cc;
+      //   if (QueryPerformanceCounter(&cc))
+      //   {
+      //      SetThreadAffinityMask(hCurThread, dwOldMask);
+      //      return (cc.QuadPart * 1000000ULL / ccf.QuadPart);
+      //   }
+      //}
 
-      SetThreadAffinityMask(hCurThread, dwOldMask); 
-      return GetTickCount() * 1000ULL;
+      //SetThreadAffinityMask(hCurThread, dwOldMask);
+    //HC: GetTickCount64 instead of GetTickCount
+      return GetTickCount64() * 1000ULL;
    #endif
 }
 
@@ -524,7 +526,7 @@ const char* CUDTException::getErrorMessage()
 
       case 5:
         m_strMsg = "Operation not supported";
- 
+
         switch (m_iMinor)
         {
         case 1:

@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -52,6 +52,9 @@ bool fPrintToDebugFile = false;
 bool fPrintBacktracking = false;
 bool fPrintBacktracking_node = false;
 string strBacktracking_node;
+
+bool fPrintgrep = false;            //filter
+std::vector<std::string> vecgreps;
 
 bool fPrintToDebugger = false;
 char pszSetDataDir[MAX_PATH] = "";
@@ -172,6 +175,46 @@ void RandAddSeedPerfmon()
         TRACE_FL("%s RandAddSeed() %d bytes\n", DateTimeStrFormat("%x %H:%M", GetTime()).c_str(), nSize);
     }
 #endif
+}
+
+
+FILE* GetOutputFilePt()
+{
+    static FILE* fileout = NULL;
+
+    if (!fileout) {
+        char pszFile[MAX_PATH + 100];
+        GetDataDir(pszFile);
+        strlcat(pszFile, "/debug_para_x.log", sizeof(pszFile));
+        fileout = fopen(pszFile, "a");
+        if (fileout) setbuf(fileout, NULL); // unbuffered
+    }
+
+    return fileout;
+}
+
+int OutputToFile(const char* pszFormat, ...)
+{
+    int ret = 0;
+    FILE* fileout = GetOutputFilePt();
+
+    if (fileout) {
+        static bool fStartedNewLine = true;
+
+        // Debug print useful for profiling
+        if (fLogTimestamps && fStartedNewLine)
+            fprintf(fileout, "%s ", DateTimeStrFormat("%x %H:%M:%S", GetTime()).c_str());
+        if (pszFormat[strlen(pszFormat) - 1] == '\n')
+            fStartedNewLine = true;
+        else
+            fStartedNewLine = false;
+
+        va_list arg_ptr;
+        va_start(arg_ptr, pszFormat);
+        ret = vfprintf(fileout, pszFormat, arg_ptr);
+        va_end(arg_ptr);
+    }
+    return ret;
 }
 
 int OutputDebugStringF(const char* pszFormat, ...)
@@ -476,7 +519,7 @@ void PrintException(std::exception* pex, const char* pszThread)
     printf("\n\n************************\n%s\n", pszMessage);
     fprintf(stderr, "\n\n************************\n%s\n", pszMessage);
     strMiscWarning = pszMessage;
-
+    //HC:
     //throw;
 }
 

@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -110,8 +110,8 @@ bool HCNode::getUDPAP(string& ip, int& nport) const
 
 int HCNode::send(const string &msgbuf) const
 {
-
-
+    //HC: Choose the first access point to send.
+    //HC: TODO: improve performance
     for (auto &ap : _aplist) {
         return ap->write(msgbuf.c_str(), msgbuf.size());
     }

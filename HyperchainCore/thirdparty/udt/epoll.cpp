@@ -142,7 +142,7 @@ int CEPoll::add_ssock(const int eid, const SYSSOCKET& s, const int* events)
    return 0;
 }
 
-
+//HC: add
 int CEPoll::remove_usock_of_ready(const int eid, const UDTSOCKET& u)
 {
     CGuard pg(m_EPollLock);

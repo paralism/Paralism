@@ -213,7 +213,7 @@ typedef struct JSValue {
 
 #if defined(__cplusplus) && defined(_MSC_VER)
 
-
+//HC: VCpp don't support c99 https://blog.csdn.net/ixidof/article/details/7893680
 #define JS_MKVAL(tag, val) JSValue { JSValueUnion{ val }, tag }
 inline JSValue JS_MKPTR(int64_t tag, void *p) {
     auto ju = JSValueUnion{};

@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -31,6 +31,7 @@ SOFTWARE.
 #include "net.h"
 #include "util.h"
 
+#include "key_io.h"
 #include "latestledgerblock.h"
 
 #include <boost/make_shared.hpp>
@@ -73,7 +74,7 @@ extern bool ResolveBlock(CBlock& block, const char* payload, size_t payloadlen);
 
 CCriticalSection::~CCriticalSection()
 {
-
+    //HC: debug cs_db
     //int a = 0;
     //if (this == cs_db.get()) {
     //    a = 1;
@@ -204,7 +205,7 @@ void CDB::Close()
         --mapFileUseCount[strFile];
 }
 
-void static CloseDb(const string& strFile)
+void CloseDb(const string& strFile)
 {
     CRITICAL_BLOCK(*cs_db)
     {
@@ -219,11 +220,11 @@ void static CloseDb(const string& strFile)
     }
 }
 
-void DBFlush(bool fShutdown)
+void DBFlush(bool fRemove)
 {
     // Flush log data to the actual data file
     //  on all files that are not in use
-    TRACE_FL("DBFlush(%s)%s\n", fShutdown ? "true" : "false", fDbEnvInit ? "" : " db not started");
+    TRACE_FL("DBFlush(%s)%s\n", fRemove ? "true" : "false", fDbEnvInit ? "" : " db not started");
     if (!fDbEnvInit)
         return;
     CRITICAL_BLOCK(*cs_db)
@@ -246,7 +247,7 @@ void DBFlush(bool fShutdown)
             else
                 mi++;
         }
-        if (fShutdown)
+        if (fRemove)
         {
             char** listp;
             if (mapFileUseCount.empty())
@@ -407,24 +408,6 @@ bool CTxDB::WriteHashBestChain(uint256 hashBestChain)
     return Write(string("hashBestChain"), hashBestChain);
 }
 
-
-bool CTxDB::ReadAddrMaxChain(T_LOCALBLOCKADDRESS& addrMax)
-{
-    string strAddrMax;
-    bool ret =Read(string("addrMaxChain"), strAddrMax);
-    if (ret) {
-        addrMax.fromstring(strAddrMax);
-    }
-    return ret;
-}
-
-
-bool CTxDB::WriteAddrMaxChain(const T_LOCALBLOCKADDRESS& addrMax)
-{
-    string str = addrMax.tostring();
-    return Write(string("addrMaxChain"), str);
-}
-
 bool CTxDB::ReadBestInvalidWork(CBigNum& bnBestInvalidWork)
 {
     return Read(string("bnBestInvalidWork"), bnBestInvalidWork);
@@ -504,8 +487,8 @@ bool CTxDB::LoadBlockIndex()
             pindexNew->pprev          = InsertBlockIndex(diskindex.hashPrev);
             pindexNew->pnext          = InsertBlockIndex(diskindex.hashNext);
             pindexNew->nHeight        = diskindex.nHeight;
-
-            pindexNew->addr           = diskindex.addr;
+            //HC: add block address
+            pindexNew->triaddr        = diskindex.triaddr;
             pindexNew->nVersion       = diskindex.nVersion;
             pindexNew->hashMerkleRoot = diskindex.hashMerkleRoot;
             pindexNew->nTime          = diskindex.nTime;
@@ -527,23 +510,23 @@ bool CTxDB::LoadBlockIndex()
     pcursor->close();
 
     // Calculate bnChainWork
-
+    //HC:
     //vector<pair<int, CBlockIndex*> > vSortedByHeight;
     //vSortedByHeight.reserve(mapBlockIndex.size());
-    //BOOST_FOREACH(const PAIRTYPE(uint256, CBlockIndex*)& item, mapBlockIndex)
+    //BOOST_FOREACH(const PAIRTYPE(uint256, CBlockIndex*) & item, mapBlockIndex)
     //{
     //    CBlockIndex* pindex = item.second;
     //    vSortedByHeight.push_back(make_pair(pindex->Height(), pindex));
     //}
     //sort(vSortedByHeight.begin(), vSortedByHeight.end());
-    //BOOST_FOREACH(const PAIRTYPE(int, CBlockIndex*)& item, vSortedByHeight)
+    //BOOST_FOREACH(const PAIRTYPE(int, CBlockIndex*) & item, vSortedByHeight)
     //{
     //    CBlockIndex* pindex = item.second;
     //    pindex->bnChainWork = (pindex->pprev ? pindex->pprev->bnChainWork : 0) + pindex->GetBlockWork();
     //}
 
 
-
+    //HC: Read best chain from database
     // Load hashBestChain pointer to end of best chain
     if (!ReadHashBestChain(hashBestChain))
     {
@@ -559,22 +542,17 @@ bool CTxDB::LoadBlockIndex()
 
     pindexBest = mapBlockIndex[hashBestChain];
 
-
+    //HC:
     //auto maxindex = std::max_element(mapBlockIndex.begin(), mapBlockIndex.end());
     CheckBestBlockIndex();
 
-
-    if (!ReadAddrMaxChain(addrMaxChain)) {
-        addrMaxChain = pindexBest ? pindexBest->addr : T_LOCALBLOCKADDRESS();
-    }
-
     // Load bnBestInvalidWork, OK if it doesn't exist
-
+    //HC:
     //ReadBestInvalidWork(bnBestInvalidWork);
 
     cout << "Ledger: verifying blocks in the best chain...\n";
 
-
+    //HC: Check about 20 blocks
     int nCurrHeight = nBestHeight - 1;
     CBlockIndex *pindexFork = nullptr;
     CBlockIndex *pindex = pindexBest->pprev;
@@ -592,7 +570,7 @@ bool CTxDB::LoadBlockIndex()
         if (pindex->Height() < nBestHeight - 20 && !mapArgs.count("-checkblocks"))
             break;
 
-        if (!pindex->addr.isValid() && !mapBlocks.contain(pindex->GetBlockHash())) {
+        if (!pindex->triaddr.isValid() && !mapBlocks.contain(pindex->GetBlockHash())) {
             continue;
         }
 
@@ -633,7 +611,7 @@ bool CTxDB::LoadBlockIndex()
 //CBlockDB
 //
 
-
+//HC: Load the blocks which waiting to do global buddy consensus
 bool CBlockDB::LoadBlockUnChained(CBlockBloomFilter &filterBlk)
 {
 
@@ -654,7 +632,7 @@ bool CBlockDB::LoadBlockUnChained(CBlockBloomFilter &filterBlk)
 }
 
 
-
+//HC: Load the blocks which waiting to do global buddy consensus
 bool CBlockDB::LoadBlockUnChained(const uint256& hash, std::function<bool(CDataStream&, CDataStream&)> f)
 {
     return Load("block",hash, f);
@@ -890,6 +868,450 @@ void CWalletDB::ListAccountCreditDebit(const string& strAccount, list<CAccountin
 }
 
 
+int CWalletDB::BulkLoadWalletUser(CWallet* pwallet)
+{
+    std::function<bool(CDataStream&, CDataStream&, string&)> fn = [this,pwallet](CDataStream& ssKeySecond,
+        CDataStream& ssValue, string& strAddress) ->bool {
+
+        ssKeySecond >> strAddress;
+        CTxDestination address = DecodeDestination(strAddress);
+        if (!IsValidDestination(address))
+            cerr << "Error: Invalid address calling BulkLoadWalletUser: " << strAddress << endl;
+        else
+            ssValue >> pwallet->mapAddressBook[address];
+        return true;
+    };
+
+    std::function<CDataStream(const string&, string&)> fnNext = [](const string& nextT,
+        string& msgstatus) ->CDataStream {
+
+        CDataStream ssNxtKey;
+        ssNxtKey << make_pair(string("name"), nextT);
+        msgstatus = strprintf("name : %s", nextT.c_str());  //HC: status message
+        return ssNxtKey;
+    };
+
+    CDataStream ssKey;
+    ssKey << make_pair(string("name"), string(""));
+
+    if (!BulkLoad("name", ssKey, fn, fnNext)) {
+        return false;
+    }
+    return true;
+}
+
+int CWalletDB::BulkLoadWalletTx(CWallet* pwallet, vector<uint256>& vWalletUpgrade)
+{
+    std::function<bool(CDataStream&, CDataStream&, uint256&)> fn = [pwallet, &vWalletUpgrade](CDataStream& ssKeySecond,
+        CDataStream& ssValue, uint256& hash) ->bool {
+
+        ssKeySecond >> hash;
+        CWalletTx& wtx = pwallet->mapWallet[hash];
+        ssValue >> wtx;
+        wtx.pwallet = pwallet;
+
+        if (wtx.GetHash() != hash)
+            ERROR_FL("Error in wallet.dat, hash mismatch\n");
+
+        // Undo serialize changes in 31600
+        if (31404 <= wtx.fTimeReceivedIsTxTime && wtx.fTimeReceivedIsTxTime <= 31703) {
+            if (!ssValue.empty()) {
+                char fTmp;
+                char fUnused;
+                ssValue >> fTmp >> fUnused >> wtx.strFromAccount;
+                TRACE_FL("LoadWallet() upgrading tx ver=%d %d '%s' %s\n", wtx.fTimeReceivedIsTxTime, fTmp, wtx.strFromAccount.c_str(), hash.ToString().c_str());
+                wtx.fTimeReceivedIsTxTime = fTmp;
+            }
+            else {
+                TRACE_FL("LoadWallet() repairing tx ver=%d %s\n", wtx.fTimeReceivedIsTxTime, hash.ToString().c_str());
+                wtx.fTimeReceivedIsTxTime = 0;
+            }
+            vWalletUpgrade.push_back(hash);
+        }
+
+        //// debug print
+        //DEBUG_FL("LoadWallet  %s\n", wtx.GetHash().ToString().c_str());
+        //DEBUG_FL(" %12I64d  %s  %s  %s\n",
+        //    wtx.vout[0].nValue,
+        //    DateTimeStrFormat("%x %H:%M:%S", wtx.GetBlockTime()).c_str(),
+        //    wtx.hashBlock.ToString().substr(0,20).c_str(),
+        //    wtx.mapValue["message"].c_str());        return true;
+        return true;
+    };
+
+    std::function<CDataStream(const uint256&, string&)> fnNext = [](const uint256& nextT,
+        string& msgstatus) ->CDataStream {
+
+        CDataStream ssNxtKey;
+        ssNxtKey << make_pair(string("tx"), nextT);
+        msgstatus = strprintf("tx : %s", nextT.ToPreViewString().c_str());  //HC: status message
+        return ssNxtKey;
+    };
+
+    CDataStream ssKey;
+    ssKey << make_pair(string("tx"), uint256(0));
+
+    if (!BulkLoad("tx", ssKey, fn, fnNext)) {
+
+        return false;
+    }
+    return true;
+}
+
+int CWalletDB::BulkLoadWalletAcentry(CWallet* pwallet)
+{
+    std::function<bool(CDataStream&, CDataStream&, string&)> fn = [](CDataStream& ssKeySecond,
+        CDataStream& ssValue, string& strAccount) ->bool {
+
+        ssKeySecond >> strAccount;
+        uint64 nNumber;
+        ssKeySecond >> nNumber;
+        if (nNumber > nAccountingEntryNumber)
+            nAccountingEntryNumber = nNumber;
+        return true;
+    };
+
+    std::function<CDataStream(const string&, string&)> fnNext = [](const string& nextT,
+        string& msgstatus) ->CDataStream {
+
+        CDataStream ssNxtKey;
+        ssNxtKey << make_pair(string("acentry"), nextT);
+        msgstatus = strprintf("acentry : %s", nextT.c_str());  //HC: status message
+        return ssNxtKey;
+    };
+
+    CDataStream ssKey;
+    ssKey << make_pair(string("acentry"), string(""));
+
+    if (!BulkLoad("acentry", ssKey, fn, fnNext)) {
+        return false;
+    }
+    return true;
+}
+
+int CWalletDB::BulkLoadWalletCScript(CWallet* pwallet)
+{
+    LegacyScriptPubKeyMan* pman = pwallet->GetOrCreateLegacyScriptPubKeyMan();
+    if (!pman) {
+        cerr << "Error reading wallet database: CWallet::GetOrCreateLegacyScriptPubKeyMan failed\n";
+        return false;
+    }
+
+    std::function<bool(CDataStream&, CDataStream&, std::vector<unsigned char>&)> fn = [pman](CDataStream& ssKeySecond,
+        CDataStream& ssValue, std::vector<unsigned char>& vchPubKey) ->bool {
+
+            CScript redeemScript;
+            ssValue >> redeemScript;
+            pman->LoadCScript(redeemScript);
+            return true;
+    };
+
+    std::function<CDataStream(const std::vector<unsigned char>&, string&)> fnNext = [](const std::vector<unsigned char>& nextT,
+        string& msgstatus) ->CDataStream {
+
+            CDataStream ssNxtKey;
+            ssNxtKey << make_pair(string("cscript"), nextT);
+            msgstatus = "cscript : ******";  //HC: status message
+            return ssNxtKey;
+    };
+
+    CDataStream ssKey;
+    std::vector<unsigned char> veckey;
+    ssKey << make_pair(string("cscript"), veckey);
+
+    if (!BulkLoad("cscript", ssKey, fn, fnNext)) {
+        return false;
+    }
+    return true;
+}
+
+
+int CWalletDB::BulkLoadWalletKey(CWallet* pwallet)
+{
+    std::function<bool(CDataStream&, CDataStream&, std::vector<unsigned char>&)> fn = [pwallet](CDataStream& ssKeySecond,
+        CDataStream& ssValue, std::vector<unsigned char>& vchPubKey) ->bool {
+
+        //HC: read all used key pairs
+        ssKeySecond >> vchPubKey;
+        CKey key;
+        CPrivKey pkey;
+        ssValue >> pkey;
+        key.SetPrivKey(pkey);
+
+        if (!pwallet->LoadKey(vchPubKey, key))
+            return false; //DB_CORRUPT;
+        return true;
+    };
+
+    std::function<CDataStream(const std::vector<unsigned char>&, string&)> fnNext = [](const std::vector<unsigned char>& nextT,
+        string& msgstatus) ->CDataStream {
+
+        CDataStream ssNxtKey;
+        ssNxtKey << make_pair(string("key"), nextT);
+        msgstatus = "key : ******";  //HC: status message
+        return ssNxtKey;
+    };
+
+    CDataStream ssKey;
+    std::vector<unsigned char> veckey;
+    ssKey << make_pair(string("key"), veckey);
+
+    if (!BulkLoad("key", ssKey, fn, fnNext)) {
+        return false;
+    }
+    return true;
+}
+
+int CWalletDB::BulkLoadWalletWKey(CWallet* pwallet)
+{
+    std::function<bool(CDataStream&, CDataStream&, std::vector<unsigned char>&)> fn = [pwallet](CDataStream& ssKeySecond,
+        CDataStream& ssValue, std::vector<unsigned char>& vchPubKey) ->bool {
+
+        //HC: read all used key pairs
+        ssKeySecond >> vchPubKey;
+        CKey key;
+        CWalletKey wkey;
+        ssValue >> wkey;
+        key.SetPrivKey(wkey.vchPrivKey);
+        if (!pwallet->LoadKey(vchPubKey, key))
+            return false; //DB_CORRUPT;
+        return true;
+    };
+
+    std::function<CDataStream(const std::vector<unsigned char>&, string&)> fnNext = [](const std::vector<unsigned char>& nextT,
+        string& msgstatus) ->CDataStream {
+
+        CDataStream ssNxtKey;
+        ssNxtKey << make_pair(string("wkey"), nextT);
+        msgstatus = "wallet key : ******";  //HC: status message
+        return ssNxtKey;
+    };
+
+    CDataStream ssKey;
+    std::vector<unsigned char> veckey;
+    ssKey << make_pair(string("wkey"), veckey);
+
+    if (!BulkLoad("wkey", ssKey, fn, fnNext)) {
+        return false;
+    }
+    return true;
+}
+
+int CWalletDB::BulkLoadWalletMKey(CWallet* pwallet)
+{
+    std::function<bool(CDataStream&, CDataStream&, unsigned int&)> fn = [pwallet](CDataStream& ssKeySecond,
+        CDataStream& ssValue, unsigned int &nID) ->bool {
+
+        ssKeySecond >> nID;
+        CMasterKey kMasterKey;
+        ssValue >> kMasterKey;
+        if (pwallet->mapMasterKeys.count(nID) != 0)
+            return false; //DB_CORRUPT;
+        pwallet->mapMasterKeys[nID] = kMasterKey;
+        if (pwallet->nMasterKeyMaxID < nID)
+            pwallet->nMasterKeyMaxID = nID;
+        return true;
+    };
+
+    std::function<CDataStream(const unsigned int&, string&)> fnNext = [](const unsigned int &nextT,
+        string& msgstatus) ->CDataStream {
+
+        CDataStream ssNxtKey;
+        ssNxtKey << make_pair(string("mkey"), nextT);
+        msgstatus = "mkey : ******";  //HC: status message
+        return ssNxtKey;
+    };
+
+    CDataStream ssKey;
+    ssKey << make_pair(string("mkey"), 0);
+    if (!BulkLoad("mkey", ssKey, fn, fnNext)) {
+        return false;
+    }
+    return true;
+}
+
+int CWalletDB::BulkLoadWalletCKey(CWallet* pwallet)
+{
+    std::function<bool(CDataStream&, CDataStream&, std::vector<unsigned char>&)> fn = [pwallet](CDataStream& ssKeySecond,
+        CDataStream& ssValue, std::vector<unsigned char>& vchPubKey) ->bool {
+
+        ssKeySecond >> vchPubKey;
+        vector<unsigned char> vchPrivKey;
+        ssValue >> vchPrivKey;
+        if (!pwallet->LoadCryptedKey(vchPubKey, vchPrivKey))
+            return false;//DB_CORRUPT;
+        return true;
+    };
+
+    std::function<CDataStream(const std::vector<unsigned char>&, string&)> fnNext = [](const std::vector<unsigned char>& nextT,
+        string& msgstatus) ->CDataStream {
+
+        CDataStream ssNxtKey;
+        ssNxtKey << make_pair(string("ckey"), nextT);
+        msgstatus = "ckey : ******";  //HC: status message
+        return ssNxtKey;
+    };
+
+    CDataStream ssKey;
+    std::vector<unsigned char> veckey;
+    ssKey << make_pair(string("ckey"), veckey);
+
+    if (!BulkLoad("ckey", ssKey, fn, fnNext)) {
+        return false;
+    }
+    return true;
+}
+
+int CWalletDB::BulkLoadWalletPool(CWallet* pwallet)
+{
+    std::function<bool(CDataStream&, CDataStream&, int64&)> fn = [pwallet](CDataStream& ssKeySecond,
+        CDataStream& ssValue, int64& nIndex) ->bool {
+
+        //HC: read all unused key pairs
+        ssKeySecond >> nIndex;
+        pwallet->setKeyPool.insert(nIndex);
+        return true;
+    };
+
+    std::function<CDataStream(const int64&, string&)> fnNext = [](const int64 &nextT,
+        string& msgstatus) ->CDataStream {
+
+        CDataStream ssNxtKey;
+        ssNxtKey << make_pair(string("pool"), nextT);
+        msgstatus = "pool : ******";  //HC: status message
+        return ssNxtKey;
+    };
+
+    CDataStream ssKey;
+    ssKey << make_pair(string("pool"), 0);
+    if (!BulkLoad("pool", ssKey, fn, fnNext)) {
+        return false;
+    }
+    return true;
+}
+
+int CWalletDB::BulkLoadWalletSettings(CWallet* pwallet)
+{
+    std::function<bool(CDataStream&, CDataStream&, string&)> fn = [pwallet](CDataStream& ssKeySecond,
+        CDataStream& ssValue, string& strKey) ->bool {
+
+        //HC: read all unused key pairs
+        ssKeySecond >> strKey;
+
+        // Options
+#ifndef GUI
+        if (strKey == "fGenerateBitcoins")  ssValue >> fGenerateBitcoins;
+#endif
+        if (strKey == "nTransactionFee")    ssValue >> nTransactionFee;
+        if (strKey == "fLimitProcessors")   ssValue >> fLimitProcessors;
+        if (strKey == "nLimitProcessors")   ssValue >> nLimitProcessors;
+        if (strKey == "fMinimizeToTray")    ssValue >> fMinimizeToTray;
+        if (strKey == "fMinimizeOnClose")   ssValue >> fMinimizeOnClose;
+        if (strKey == "fUseProxy")          ssValue >> fUseProxy;
+        if (strKey == "addrProxy")          ssValue >> addrProxy;
+        if (fHaveUPnP && strKey == "fUseUPnP")           ssValue >> fUseUPnP;
+        return true;
+    };
+
+    std::function<CDataStream(const string&, string&)> fnNext = [](const string& nextT,
+        string& msgstatus) ->CDataStream {
+
+        CDataStream ssNxtKey;
+        ssNxtKey << make_pair(string("setting"), nextT);
+        msgstatus = "setting : ******";  //HC: status message
+        return ssNxtKey;
+    };
+
+    CDataStream ssKey;
+    ssKey << make_pair(string("setting"), string(""));
+    if (!BulkLoad("setting", ssKey, fn, fnNext)) {
+        return false;
+    }
+    return true;
+}
+
+int CWalletDB::BulkLoadWallet(CWallet* pwallet, vector<uint256> &vWalletUpgrade, int &nFileVersion)
+{
+    BulkLoadWalletUser(pwallet);
+
+    bool isLoadTxAndKey = !GetBoolArg("-noloadwallet");
+    if (isLoadTxAndKey) {
+        //HC: load tx and keys
+        BulkLoadWalletTx(pwallet, vWalletUpgrade);
+        BulkLoadWalletAcentry(pwallet);
+
+        if (!BulkLoadWalletCScript(pwallet))
+            return DB_CORRUPT;
+
+        if (!BulkLoadWalletKey(pwallet))
+            return DB_CORRUPT;
+
+        if (!BulkLoadWalletWKey(pwallet))
+            return DB_CORRUPT;
+
+        if (!BulkLoadWalletMKey(pwallet))
+            return DB_CORRUPT;
+
+        if (!BulkLoadWalletCKey(pwallet))
+            return DB_CORRUPT;
+    } else {
+        cout << "Skip Txes and Keys in the wallets\n";
+    }
+
+    ReadDefaultKey(pwallet->vchDefaultKey);
+    bool ret = ReadDefaultKeyType(pwallet->defaultType);
+    if (!ret) {
+        //HC: version < v0.7.5 will return false
+        pwallet->defaultType = OutputType::LEGACY;
+    }
+
+    BulkLoadWalletPool(pwallet);
+
+    if (!isLoadTxAndKey) {
+        //HC: load a part of keys
+        if (!pwallet->vchDefaultKey.empty()) {
+            CDataStream ssKey;
+            ssKey << make_pair(string("key"), pwallet->vchDefaultKey);
+            //HC: Load default key
+            CPrivKey pkey;
+            if (Read(ssKey, pkey)) {
+                CKey key;
+                key.SetPrivKey(pkey);
+                pwallet->LoadKey(pwallet->vchDefaultKey, key);
+            }
+        }
+
+        //HC: Load keys in KeyPool
+        for (auto nIndex : pwallet->setKeyPool) {
+            CKeyPool keypool;
+            if (!ReadPool(nIndex, keypool))
+                continue;
+
+            CDataStream ssKey;
+            ssKey << make_pair(string("key"), keypool.vchPubKey);
+            CPrivKey pkey;
+            if (Read(ssKey, pkey)) {
+                CKey key;
+                key.SetPrivKey(pkey);
+                pwallet->LoadKey(keypool.vchPubKey, key);
+            }
+        }
+    }
+
+    BulkLoadWalletSettings(pwallet);
+
+    ReadVersion(nFileVersion);
+    if (nFileVersion == 10300)
+        nFileVersion = 300;
+
+    int nMinVersion = 0;
+    Read(std::string("minversion"), nMinVersion);
+    if (nMinVersion > VERSION)
+        return DB_TOO_NEW;
+
+    return 0;
+}
+
 int CWalletDB::LoadWallet(CWallet* pwallet)
 {
     pwallet->vchDefaultKey.clear();
@@ -907,164 +1329,11 @@ int CWalletDB::LoadWallet(CWallet* pwallet)
     //// todo: shouldn't we catch exceptions and try to recover and continue?
     CRITICAL_BLOCK(pwallet->cs_wallet)
     {
-        // Get cursor
-        Dbc* pcursor = GetCursor();
-        if (!pcursor)
-            return DB_CORRUPT;
-
-        loop
-        {
-            // Read next record
-            CDataStream ssKey;
-            CDataStream ssValue;
-            int ret = ReadAtCursor(pcursor, ssKey, ssValue);
-            if (ret == DB_NOTFOUND)
-                break;
-            else if (ret != 0)
-                return DB_CORRUPT;
-
-            // Unserialize
-            // Taking advantage of the fact that pair serialization
-            // is just the two items serialized one after the other
-            string strType;
-            ssKey >> strType;
-            if (strType == "name")
-            {
-                string strAddress;
-                ssKey >> strAddress;
-                ssValue >> pwallet->mapAddressBook[strAddress];
-            }
-            else if (strType == "tx")
-            {
-                uint256 hash;
-                ssKey >> hash;
-                CWalletTx& wtx = pwallet->mapWallet[hash];
-                ssValue >> wtx;
-                wtx.pwallet = pwallet;
-
-                if (wtx.GetHash() != hash)
-                    ERROR_FL("Error in wallet.dat, hash mismatch\n");
-
-                // Undo serialize changes in 31600
-                if (31404 <= wtx.fTimeReceivedIsTxTime && wtx.fTimeReceivedIsTxTime <= 31703)
-                {
-                    if (!ssValue.empty())
-                    {
-                        char fTmp;
-                        char fUnused;
-                        ssValue >> fTmp >> fUnused >> wtx.strFromAccount;
-                        TRACE_FL("LoadWallet() upgrading tx ver=%d %d '%s' %s\n", wtx.fTimeReceivedIsTxTime, fTmp, wtx.strFromAccount.c_str(), hash.ToString().c_str());
-                        wtx.fTimeReceivedIsTxTime = fTmp;
-                    }
-                    else
-                    {
-                        TRACE_FL("LoadWallet() repairing tx ver=%d %s\n", wtx.fTimeReceivedIsTxTime, hash.ToString().c_str());
-                        wtx.fTimeReceivedIsTxTime = 0;
-                    }
-                    vWalletUpgrade.push_back(hash);
-                }
-
-                //// debug print
-                //DEBUG_FL("LoadWallet  %s\n", wtx.GetHash().ToString().c_str());
-                //DEBUG_FL(" %12I64d  %s  %s  %s\n",
-                //    wtx.vout[0].nValue,
-                //    DateTimeStrFormat("%x %H:%M:%S", wtx.GetBlockTime()).c_str(),
-                //    wtx.hashBlock.ToString().substr(0,20).c_str(),
-                //    wtx.mapValue["message"].c_str());
-            }
-            else if (strType == "acentry")
-            {
-                string strAccount;
-                ssKey >> strAccount;
-                uint64 nNumber;
-                ssKey >> nNumber;
-                if (nNumber > nAccountingEntryNumber)
-                    nAccountingEntryNumber = nNumber;
-            }
-            else if (strType == "key" || strType == "wkey")
-            {
-                vector<unsigned char> vchPubKey;
-                ssKey >> vchPubKey;
-                CKey key;
-                if (strType == "key")
-                {
-                    CPrivKey pkey;
-                    ssValue >> pkey;
-                    key.SetPrivKey(pkey);
-                }
-                else
-                {
-                    CWalletKey wkey;
-                    ssValue >> wkey;
-                    key.SetPrivKey(wkey.vchPrivKey);
-                }
-                if (!pwallet->LoadKey(key))
-                    return DB_CORRUPT;
-            }
-            else if (strType == "mkey")
-            {
-                unsigned int nID;
-                ssKey >> nID;
-                CMasterKey kMasterKey;
-                ssValue >> kMasterKey;
-                if(pwallet->mapMasterKeys.count(nID) != 0)
-                    return DB_CORRUPT;
-                pwallet->mapMasterKeys[nID] = kMasterKey;
-                if (pwallet->nMasterKeyMaxID < nID)
-                    pwallet->nMasterKeyMaxID = nID;
-            }
-            else if (strType == "ckey")
-            {
-                vector<unsigned char> vchPubKey;
-                ssKey >> vchPubKey;
-                vector<unsigned char> vchPrivKey;
-                ssValue >> vchPrivKey;
-                if (!pwallet->LoadCryptedKey(vchPubKey, vchPrivKey))
-                    return DB_CORRUPT;
-            }
-            else if (strType == "defaultkey")
-            {
-                ssValue >> pwallet->vchDefaultKey;
-            }
-            else if (strType == "pool")
-            {
-                int64 nIndex;
-                ssKey >> nIndex;
-                pwallet->setKeyPool.insert(nIndex);
-            }
-            else if (strType == "version")
-            {
-                ssValue >> nFileVersion;
-                if (nFileVersion == 10300)
-                    nFileVersion = 300;
-            }
-            else if (strType == "setting")
-            {
-                string strKey;
-                ssKey >> strKey;
-
-                // Options
-#ifndef GUI
-                if (strKey == "fGenerateBitcoins")  ssValue >> fGenerateBitcoins;
-#endif
-                if (strKey == "nTransactionFee")    ssValue >> nTransactionFee;
-                if (strKey == "fLimitProcessors")   ssValue >> fLimitProcessors;
-                if (strKey == "nLimitProcessors")   ssValue >> nLimitProcessors;
-                if (strKey == "fMinimizeToTray")    ssValue >> fMinimizeToTray;
-                if (strKey == "fMinimizeOnClose")   ssValue >> fMinimizeOnClose;
-                if (strKey == "fUseProxy")          ssValue >> fUseProxy;
-                if (strKey == "addrProxy")          ssValue >> addrProxy;
-                if (fHaveUPnP && strKey == "fUseUPnP")           ssValue >> fUseUPnP;
-            }
-            else if (strType == "minversion")
-            {
-                int nMinVersion = 0;
-                ssValue >> nMinVersion;
-                if (nMinVersion > VERSION)
-                    return DB_TOO_NEW;
-            }
+        //HC: bulk load
+        int ret = BulkLoadWallet(pwallet, vWalletUpgrade, nFileVersion);
+        if (ret != 0) {
+            return ret;
         }
-        pcursor->close();
     }
 
     BOOST_FOREACH(uint256 hash, vWalletUpgrade)

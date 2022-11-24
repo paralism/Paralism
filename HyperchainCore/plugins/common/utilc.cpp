@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -30,7 +30,7 @@ DEALINGS IN THE SOFTWARE.
 #include <iostream>
 using namespace std;
 
-
+//HC: two ways for display the progress: percent and already handled
 void CommadLineProgress::Update(double newProgress)
 {
     currentProgress += newProgress;

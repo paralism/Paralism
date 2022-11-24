@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -58,7 +58,7 @@ public:
     void exec() override;
     void execRespond() override;
 private:
-    CUInt128 _toNodeId; // ���Ͷ���
+    CUInt128 _toNodeId; // 发送对象
 };
 
 class ActiveNodeTask : public ITask, public std::integral_constant<TASKTYPE, TASKTYPE::ACTIVE_NODE>
@@ -70,7 +70,7 @@ public:
     void execRespond() override
     {
         NodeUPKeepThreadPool* nodeUpkeep = Singleton<NodeUPKeepThreadPool>::instance();
-        NodeManager *nodemanager = Singleton<NodeManager>::getInstance();
+        NodeManager* nodemanager = Singleton<NodeManager>::getInstance();
 
         uint32_t port = 0;
 
@@ -78,8 +78,8 @@ public:
         string ip(_payload + sizeof(uint32_t), _payloadlen - sizeof(uint32_t));
         nodemanager->updateNode(_sentnodeid, ip, port);
 
-        nodemanager->EnableNodeActive(_sentnodeid, true);
-        nodeUpkeep->RemoveNodeFromPingList(_sentnodeid);
+        nodemanager->EnableNodeActive(_sentnodeid, true);   //HC: 记录到活跃桶里
+        nodeUpkeep->RemoveNodeFromPingList(_sentnodeid);    //HC: 不再继续发送握手信号
     };
 private:
 };

@@ -80,7 +80,7 @@
 
 #if !defined(EMSCRIPTEN)
 /* enable stack limitation */
-
+//HC: close stack check, avoid crash on Linux
 //#define CONFIG_STACK_CHECK
 #endif
 
@@ -16105,7 +16105,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
     if (js_check_stack_overflow(rt, alloca_size))
         return JS_ThrowStackOverflow(caller_ctx);
 
-
+    //HC: 栈帧初始化
     sf->js_mode = b->js_mode;
     arg_buf = argv;
     sf->arg_count = argc;
@@ -16130,14 +16130,14 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
     for(i = 0; i < b->var_count; i++)
         var_buf[i] = JS_UNDEFINED;
 
-
+    //HC: 将栈缓存指向变量缓存末尾
     stack_buf = var_buf + b->var_count;
 
     sp = stack_buf;
     pc = b->byte_code_buf;
     sf->prev_frame = rt->current_stack_frame;
 
-
+    //HC: 切换运行时环境的当前栈帧为新栈帧
     rt->current_stack_frame = sf;
     ctx = b->realm; /* set the current realm */
 
@@ -19711,7 +19711,7 @@ enum {
     TOK_STRICT_EQ,
     TOK_NEQ,
     TOK_STRICT_NEQ,
-    TOK_LAND,
+    TOK_LAND,   //HC: logic and, &
     TOK_LOR,
 #ifdef CONFIG_BIGNUM
     TOK_MATH_POW,
@@ -23647,7 +23647,7 @@ static void put_lvalue_nokeep(JSParseState *s, int opcode, int scope,
         abort();
     }
 }
-
+//HC: 分析括号内部，parentheses
 static __exception int js_parse_expr_paren(JSParseState *s)
 {
     if (js_parse_expect(s, '('))
@@ -32570,7 +32570,7 @@ static __exception int js_parse_function_decl2(JSParseState *s,
     is_expr = (func_type != JS_PARSE_FUNC_STATEMENT &&
                func_type != JS_PARSE_FUNC_VAR);
 
-
+    //HC: 下面开始分析函数名，参数前面部分
     if (func_type == JS_PARSE_FUNC_STATEMENT ||
         func_type == JS_PARSE_FUNC_VAR ||
         func_type == JS_PARSE_FUNC_EXPR) {
@@ -32619,7 +32619,7 @@ static __exception int js_parse_function_decl2(JSParseState *s,
         func_name = JS_DupAtom(ctx, func_name);
     }
 
-
+    //HC: 函数名是否已定义
     if (fd->is_eval && fd->eval_type == JS_EVAL_TYPE_MODULE &&
         (func_type == JS_PARSE_FUNC_STATEMENT || func_type == JS_PARSE_FUNC_VAR)) {
         JSHoistedDef *hf;
@@ -32669,7 +32669,7 @@ static __exception int js_parse_function_decl2(JSParseState *s,
         }
     }
 
-
+    //HC: 下面开始分析函数参数和函数体
     fd = js_new_function_def(ctx, fd, FALSE, is_expr,
                              s->filename, function_line_num);
     if (!fd) {
@@ -32738,7 +32738,7 @@ static __exception int js_parse_function_decl2(JSParseState *s,
         if (js_parse_expect(s, '('))
             goto fail;
 
-
+        //HC: 开始分析函数参数列表
         while (s->token.val != ')') {
             JSAtom name;
             BOOL rest = FALSE;
@@ -32908,7 +32908,7 @@ static __exception int js_parse_function_decl2(JSParseState *s,
         }
     }
 
-
+    //HC: 分析函数体
     if (js_parse_expect(s, '{'))
         goto fail;
 
@@ -53505,7 +53505,7 @@ void JS_AddIntrinsicTypedArrays(JSContext *ctx)
 #endif
 }
 
-
+//HC: Convert string into format of writing string,and result put into parameter buf
 uint8_t* JS_StrFormatWriteStr(JSContext *ctx, size_t* psize, const char *str, size_t len)
 {
     BCWriterState ss, * s = &ss;

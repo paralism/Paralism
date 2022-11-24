@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -49,7 +49,7 @@ public:
 	long GetSeconds()const;
 
 private:
-	long m_start, m_end;
+	uint64_t m_start, m_end;
 
 };
 

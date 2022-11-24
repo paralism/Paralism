@@ -979,7 +979,7 @@ void CUDT::close()
       m_bListening = false;
       m_pRcvQueue->removeListener(this);
    }
-
+   //HC: should call removeConnector, or cause crash when CRendezvousQueue::updateConnStatus
    //else if (m_bConnecting)
    //{
       m_pRcvQueue->removeConnector(m_SocketID);
@@ -1091,7 +1091,7 @@ int CUDT::send(const char* data, int len)
 
    if (m_iSndBufSize <= m_pSndBuffer->getCurrBufSize())
    {
-
+      //HC: Here should reset the socket to tell UDT::epoll write is not available any more
       s_UDTUnited.m_EPoll.update_events(m_SocketID, m_sPollID, UDT_EPOLL_OUT, false);
       if (m_iSndTimeOut >= 0)
          throw CUDTException(6, 3, 0);
@@ -1547,12 +1547,19 @@ int64_t CUDT::recvfile(fstream& ofs, int64_t& offset, int64_t size, int block)
 
       #ifndef WIN32
          pthread_mutex_lock(&m_RecvDataLock);
-         while (!m_bBroken && m_bConnected && !m_bClosing && (0 == m_pRcvBuffer->getRcvDataSize()))
-            pthread_cond_wait(&m_RecvDataCond, &m_RecvDataLock);
+         while (!m_bBroken && m_bConnected && !m_bClosing && (0 == m_pRcvBuffer->getRcvDataSize())) {
+             //HC: avoid to wait infinitely, let high layer decide how to deal with
+             pthread_mutex_unlock(&m_RecvDataLock);
+             goto ret;
+             //pthread_cond_wait(&m_RecvDataCond, &m_RecvDataLock);
+         }
          pthread_mutex_unlock(&m_RecvDataLock);
       #else
-         while (!m_bBroken && m_bConnected && !m_bClosing && (0 == m_pRcvBuffer->getRcvDataSize()))
-            WaitForSingleObject(m_RecvDataCond, INFINITE);
+         while (!m_bBroken && m_bConnected && !m_bClosing && (0 == m_pRcvBuffer->getRcvDataSize())) {
+             //HC: avoid to wait infinitely, let high layer decide how to deal with
+             goto ret;
+            //WaitForSingleObject(m_RecvDataCond, INFINITE);
+         }
       #endif
 
       if (!m_bConnected)
@@ -1576,6 +1583,7 @@ int64_t CUDT::recvfile(fstream& ofs, int64_t& offset, int64_t size, int block)
       s_UDTUnited.m_EPoll.update_events(m_SocketID, m_sPollID, UDT_EPOLL_IN, false);
    }
 
+ret:
    return size - torecv;
 }
 

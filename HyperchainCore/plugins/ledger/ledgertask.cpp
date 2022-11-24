@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -58,7 +58,7 @@ int OperatorApplication(std::shared_ptr<OPAPP> parg)
     }
     else {
 
-
+        //HC: fill the data for protocol
         string s(CUInt128::value + sizeof(ProtocolVer),'1');
         s.append(sizeof(char), (char)TASKTYPE::LEDGER);
         s.append(sizeof(char), (char)LEDGER_TASKTYPE::REINIT);
@@ -81,9 +81,9 @@ int OperatorApplication(std::shared_ptr<OPAPP> parg)
     }
 }
 
-
-
-
+//HC: Token switching must called in main thread, otherwise two opened databases('bkindex.dat' and 'block.dat') cannot be closed.
+//HC: so to a RPC request, how to call 'SwitchToken' in main thread ?
+//HC: so it is a only way to switch token using commands: 'stop ledger' and 'start ledger'
 int SwitchToken(std::shared_ptr<OPAPP> parg)
 {
     if (isControlingApp) {
@@ -99,7 +99,7 @@ int SwitchToken(std::shared_ptr<OPAPP> parg)
 
     ShutdownExcludeRPCServer();
 
-
+    //HC: prepare the coin starting parameters
     std::deque<string> appli;
 
     appli.push_front("hc");
@@ -162,10 +162,10 @@ void sendToNode(CNode* pnode)
             int nBytes = vSend.size();
             if (nBytes > 0) {
 
-
-
-
-
+                //HC: copy data will be sent.
+                //HC: We cannot send out data directly before calling vSend.erase,
+                //HC: because calling ParaTask.exec() will possibly switch the message,
+                //HC: struct of vSend will be damaged, and cause unpredictable behavior.
 
                 sndbuf = string(vSend.begin(), vSend.begin() + nBytes);
                 vSend.erase(vSend.begin(), vSend.begin() + nBytes);
@@ -180,7 +180,7 @@ void sendToNode(CNode* pnode)
     }
 
     if (sndbuf.size() > 0 && !pnode->fDisconnect) {
-        LedgerTask tsk(pnode->nodeid, sndbuf.c_str(), sndbuf.size());
+        LedgerTask tsk(pnode->nodeid, std::move(sndbuf));
         tsk.exec();
     }
 }
@@ -262,7 +262,7 @@ void LedgerTask::execRespond()
         break;
     }
 
-
+    //HC:
     //case LEDGER_TASKTYPE::REINIT: {
 
     //    OPAPP* parg;

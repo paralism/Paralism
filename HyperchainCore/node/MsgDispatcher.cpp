@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -19,6 +19,7 @@ FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TOR
 OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 */
+#include "newLog.h"
 #include "ITask.hpp"
 
 #include <boost/thread/tss.hpp>
@@ -26,9 +27,11 @@ DEALINGS IN THE SOFTWARE.
 #include <thread>
 #include <functional>
 
+#include "Singleton.h"
+#include "NodeManager.h"
 #include "MsgDispatcher.h"
 
-
+//HC: TODO: how to delete to avoid memory leak?
 boost::thread_specific_ptr<zmq::socket_t> msgtransfer;
 
 MsgDispatcher::MsgDispatcher()
@@ -122,8 +125,29 @@ void MsgDispatcher::dispatch(const char *taskbuf, int len, const string& ip, uin
 
 void MsgDispatcher::dispatch_real(const char *taskbuf, int len, const string& ip, uint32_t port)
 {
+    NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
+    CUInt128 nodeid = ITask::getTaskNodeID(taskbuf);
 
+    //HC: Check GENHHASH first
+    nodemgr->updateNode(nodeid, ip, port);
+    if (!nodemgr->IsNodeInKBuckets(nodeid)) {
 
+        zmsg request((const char*)taskbuf, len);
+        TASKTYPE tt = ITask::getTaskType(taskbuf);
+        if (tt == TASKTYPE::BROADCAST_NEIGHBOR ||
+            tt == TASKTYPE::PING_PONG_WITH_GENHHASH ||
+            tt == TASKTYPE::PING_PONG_WITH_GENHHASH_RSP) {
+            send(NODE_T_SERVICE, &request);
+            return;
+        }
+
+        NodeUPKeepThreadPool* nodeUpkeep = Singleton<NodeUPKeepThreadPool>::instance();
+        nodeUpkeep->AddToPingList(nodeid);
+        return;
+    }       
+
+    //HC:: Tell NodeManager to mark node actively
+    //HC: Update neighbor node
     string buff(taskbuf, ProtocolHeaderLen);
     ITask::setTaskType(&buff[0], TASKTYPE::ACTIVE_NODE);
     buff.append((char*)&port, sizeof(uint32_t));
@@ -145,6 +169,17 @@ void MsgDispatcher::dispatch_real(const char *taskbuf, int len, const string& ip
     case TASKTYPE::ON_CHAIN_WAIT:
     case TASKTYPE::COPY_BLOCK:
     case TASKTYPE::ON_CHAIN_REFUSE:
+        //HC:HASH CONSENSUS:
+    case TASKTYPE::ON_CHAIN_HASH:
+    case TASKTYPE::ON_CHAIN_HASH_RSP:
+    case TASKTYPE::ON_CHAIN_BLOCK:
+    case TASKTYPE::GLOBAL_BUDDY_HASH_START_REQ:
+    case TASKTYPE::GLOBAL_BUDDY_HASH_RSP:
+    case TASKTYPE::GLOBAL_BUDDY_HASH_RSP_FORWARD:
+    case TASKTYPE::GLOBAL_BUDDY_HASH_SEND_REQ:
+    case TASKTYPE::GLOBAL_BUDDY_HASH_BLOCK:
+    case TASKTYPE::GLOBAL_BUDDY_HASH_BLOCK_RSP:
+    case TASKTYPE::GLOBAL_BUDDY_HASH_FORWARD:
         send(CONSENSUS_T_SERVICE, &request);
         break;
 
@@ -152,6 +187,9 @@ void MsgDispatcher::dispatch_real(const char *taskbuf, int len, const string& ip
     case TASKTYPE::SEARCH_NEIGHBOUR_RSP:
     case TASKTYPE::PING_PONG:
     case TASKTYPE::PING_PONG_RSP:
+    case TASKTYPE::PING_PONG_WITH_GENHHASH:
+    case TASKTYPE::PING_PONG_WITH_GENHHASH_RSP:
+    case TASKTYPE::BROADCAST_NEIGHBOR:
         send(NODE_T_SERVICE, &request);
         break;
 
@@ -174,10 +212,10 @@ void MsgDispatcher::dispatch_real(const char *taskbuf, int len, const string& ip
 
     default:
         if (!_mapAppTask.count(tt)) {
-
+            //HC: received unknown message type
             return;
         }
-
+        //HC: send messages to application
         send(_mapAppTask[tt], &request);
     }
 }
@@ -233,9 +271,9 @@ zmsg* MsgDispatcher::send(std::string service, zmsg *request)
 {
     assert(request);
 
-
-
-
+    //HC: Prefix request with protocol frames
+    //HC: Frame 1: "MDPCxy" (six bytes, MDP/Client x.y)
+    //HC: Frame 2: Service name (printable string)
     request->push_front((char*)service.c_str());
     request->push_front((char*)MDPC_CLIENT);
     request->push_front("");

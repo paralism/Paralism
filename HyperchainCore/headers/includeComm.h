@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -70,6 +70,20 @@ using namespace std;
 #else
 #define SLEEP(x)                    usleep(x*1000)	//mil
 #define IERROR errno
+#endif
+
+
+#ifndef PRI64d
+
+#if defined(_MSC_VER) || defined(__BORLANDC__) || defined(__MSVCRT__)
+#define PRI64d  "I64d"
+#define PRI64u  "I64u"
+#define PRI64x  "I64x"
+#else
+#define PRI64d  "lld"
+#define PRI64u  "llu"
+#define PRI64x  "llx"
+#endif
 #endif
 
 

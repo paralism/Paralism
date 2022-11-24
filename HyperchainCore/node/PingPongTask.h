@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -28,7 +28,7 @@ using namespace std;
 
 
 
-
+//HC: 握手响应任务
 class PingPongTask : public ITask, public std::integral_constant<TASKTYPE, TASKTYPE::PING_PONG> {
 public:
     using ITask::ITask;
@@ -39,7 +39,7 @@ public:
     void execRespond() override;
 
 private:
-    vector<CUInt128> _vNodes;
+    vector<CUInt128> _vNodes; //HC: 发送对象
 };
 
 class PingPongRspTask : public ITask, public std::integral_constant<TASKTYPE, TASKTYPE::PING_PONG_RSP>
@@ -54,5 +54,5 @@ public:
 
 private:
     CUInt128 _fromNodeId;
-    string _msg;
+    string _msg; //HC:  请求握手者的节点信息
 };

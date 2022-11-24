@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -38,7 +38,7 @@ string t2s(const utility::string_t& ts)
     //wstring_convert<std::codecvt<wchar_t, char, std::mbstate_t>> strCnv;
     //return strCnv.to_bytes(ts); //HC here throw exception(bad conversion) for Chinese
 
-
+    //HC: UCS2 to UTF-8
     std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
     return conv.to_bytes(ts);
 
@@ -64,7 +64,7 @@ utility::string_t s2t(const std::string& s)
 #endif
 }
 
-
+//HC: char to wchar_t, ignore any encoding format
 utility::string_t s2t_ign(const std::string& s)
 {
 #ifdef WIN32

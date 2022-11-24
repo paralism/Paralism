@@ -1,4 +1,4 @@
-#Copyright 2016-2021 hyperchain.net (Hyperchain)
+#Copyright 2016-2022 hyperchain.net (Hyperchain)
 #Distributed under the MIT software license, see the accompanying
 #file COPYING or https://opensource.org/licenses/MIT.
 
@@ -50,8 +50,6 @@ IF( NOT CMAKE_BUILD_TYPE )
 ENDIF()
 message(STATUS "Build Type: " "${CMAKE_BUILD_TYPE}")
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 #include current directory
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
@@ -90,11 +88,28 @@ if(NOT WIN32)
 list(FILTER main_SRC EXCLUDE REGEX "newLog.cpp")
 endif()
 
-FILE(GLOB node_SRC "${HC_DIR}/node/UInt128.cpp" "${HC_DIR}/node/HCMQBroker.cpp")
-FILE(GLOB node_HEAD "${HC_DIR}/node/UInt128.h" "${HC_DIR}/node/HCMQBroker.h")
+#FILE(GLOB node_SRC "${HC_DIR}/node/UInt128.cpp" "${HC_DIR}/node/HCMQBroker.cpp"
+#	"${HC_DIR}/node/HCMQClient.cpp"
+#	"${HC_DIR}/node/HCMQWrk.cpp"
+#	"${HC_DIR}/node/MsgHandler.cpp"
+#	"${HC_DIR}/node/NodeManager.cpp"
+#	"${HC_DIR}/node/zmsg.cpp")
 
-FILE(GLOB db_SRC "${HC_DIR}/db/dbmgr.cpp" "${HC_DIR}/db/HyperchainDB.cpp")
+#FILE(GLOB node_HEAD "${HC_DIR}/node/UInt128.h"
+#	"${HC_DIR}/node/ProtocolVer.h"
+#	"${HC_DIR}/node/HCMQBroker.h"
+#	"${HC_DIR}/node/zmsg.h")
+
+FILE(GLOB node_SRC "${HC_DIR}/node/*.cpp")
+FILE(GLOB node_HEAD "${HC_DIR}/node/*.h")
+
+FILE(GLOB udt_SRC "${HC_DIR}/thirdparty/udt/*.cpp")
+FILE(GLOB udt_HEAD "${HC_DIR}/thirdparty/udt/*.h")
+
+FILE(GLOB db_SRC "${HC_DIR}/db/dbmgr.cpp" "${HC_DIR}/db/HyperchainDB.cpp" "${HC_DIR}/db/RestApi.cpp")
 FILE(GLOB db_HEAD "${HC_DIR}/db/dbmgr.h" "${HC_DIR}/db/HyperchainDB.h")
+
+message(STATUS "*************${db_SRC}")
 
 FILE(GLOB crypto_SRC "${HC_DIR}/crypto/*.cpp")
 FILE(GLOB crypto_HEAD "${HC_DIR}/crypto/*.h")
@@ -125,6 +140,7 @@ set(final_HEAD
     ${chainspace_HEAD}
     ${main_HEAD}
 	${node_HEAD}
+	${udt_HEAD}
 	${db_HEAD}
 	${headers_HEAD}
 	${crypto_HEAD}
@@ -140,6 +156,7 @@ set(final_SRC
     ${chainspace_SRC}
     ${main_SRC}
 	${node_SRC}
+	${udt_SRC}
 	${db_SRC}
 	${data_SRC}
 	${headers_SRC}
@@ -164,6 +181,9 @@ target_link_libraries(${PROJECT_NAME} cpprestsdk::cpprest OpenSSL::Crypto ${Berk
 target_link_libraries(${PROJECT_NAME} Boost::system Boost::program_options Boost::serialization Boost::filesystem Boost::thread)
 target_link_libraries(${PROJECT_NAME} cppzmq libzmq cppzmq-static libzmq-static)
 target_link_libraries(${PROJECT_NAME} vm)
+
+target_include_directories(${PROJECT_NAME} PRIVATE
+	${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/thirdparty ${breakpad_INCLUDE_DIRS})
 
 
 configure_file (

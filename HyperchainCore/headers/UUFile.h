@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -79,7 +79,7 @@ public:
 		char buf[512];
 		struct ifreq *ifreq;
 		char* ip;
-
+		//HC: 初始化ifconf
 		ifconf.ifc_len = 512;
 		ifconf.ifc_buf = buf;
 		strcpy(outip, "127.0.0.1");
@@ -87,16 +87,16 @@ public:
 		{
 			return -1;
 		}
-		ioctl(sockfd, SIOCGIFCONF, &ifconf);
+		ioctl(sockfd, SIOCGIFCONF, &ifconf);    //HC: 获取所有接口信息
 		close(sockfd);
-
+		//HC: 接下来一个一个的获取IP地址
 		ifreq = (struct ifreq*)buf;
 		for (i = (ifconf.ifc_len / sizeof(struct ifreq)); i>0; i--)
 		{
 			ip = inet_ntoa(((struct sockaddr_in*)&(ifreq->ifr_addr))->sin_addr);
 
 
-			if (strcmp(ip, "127.0.0.1") == 0)
+			if (strcmp(ip, "127.0.0.1") == 0)  //HC: 排除127.0.0.1，继续下一个
 			{
 				ifreq++;
 				continue;
@@ -361,7 +361,7 @@ public:
 			if (End > Start) {
 				string LineData = FileContent.substr(Start+strStart.size(), End-Start-strStart.size());
 				StringList.push_back(LineData);
-
+				//HC: 载入完成
 				Start = End;
 			} else break;
 		}
@@ -384,7 +384,7 @@ public:
 			if (End > Start) {
 				string LineData = FileContent.substr(Start+strItem1.size(), End-Start-strItem1.size());
 				StringList.push_back(LineData);
-
+				//HC: 载入完成
 				Start = End;
 			} else break;
 		}

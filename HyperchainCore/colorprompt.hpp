@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -106,7 +106,7 @@ public:
     void clearhistories()
     {
         linenoiseHistoryFree();
-
+        //HC: clear commands in the file
         if (!_daemon && !_hisfile.empty()) {
             linenoiseHistorySave(_hisfile.c_str(), _clr.c_str());
         }
@@ -126,12 +126,12 @@ public:
         }
 
         _prompt = StringFormat("\x1b[1;%dm%s\x1b[0m ", _mapclr[s], _prompttxt);
-        _clr = s;
+        _clr = s; //HC: save color setting
     }
 
     string gethistories()
     {
-
+        //HC: Display the current history command
         if (_daemon) {
             return "";
         }
@@ -156,7 +156,7 @@ private:
     static void completionHook(char const* prefix, linenoiseCompletions* lc)
     {
         size_t i;
-
+        //HC: Press tab to complete input
         static const char* words_builtin[] = {
             "RED", "GREEN", "YELLOW", "BLUE", "MAGENTA", "CYAN", "WHITE",
             "add", "addmodule",
@@ -164,7 +164,7 @@ private:
             "debug", "trace", "critical", "ginfo", "sfee",
             "exit", "help", "sendfrom", "sendtoaddr", "test",
             "ledger", "paracoin", "start", "stop", "simulate",
-            "WIF", "WIFC", "ikpf", "ekpf", "sacc",
+            "WIF", "WIFC", "ikpf", "ekpf", "sacc", "getbalance",
             "wpass" , "chwpass", NULL
         };
 
@@ -185,7 +185,7 @@ private:
 private:
     bool _daemon = false;
     string _hisfile;
-
+    //HC: https://learnku.com/articles/26231
     string _prompttxt;
     string _prompt;
     string _clr = "GREEN";

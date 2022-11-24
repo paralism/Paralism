@@ -362,14 +362,14 @@ endfunction()
 # apply all variables easily just by 'include' command
 # (otherwise PARENT_SCOPE magic needed)
 macro(HunterGate)
-  if(HUNTER_GATE_DONE)
-    # variable HUNTER_GATE_DONE set explicitly for external project
+  if(HUNTER_GATE_DONE_PARA)
+    # variable HUNTER_GATE_DONE_PARA set explicitly for external project
     # (see `hunter_download`)
-    set_property(GLOBAL PROPERTY HUNTER_GATE_DONE YES)
+    set_property(GLOBAL PROPERTY HUNTER_GATE_DONE_PARA YES)
   endif()
 
   # First HunterGate command will init Hunter, others will be ignored
-  get_property(_hunter_gate_done GLOBAL PROPERTY HUNTER_GATE_DONE SET)
+  get_property(_hunter_gate_done GLOBAL PROPERTY HUNTER_GATE_DONE_PARA SET)
 
   if(NOT HUNTER_ENABLED)
     # Empty function to avoid error "unknown function"
@@ -538,6 +538,6 @@ macro(HunterGate)
       endif()
     endif()
     include("${_master_location}")
-    set_property(GLOBAL PROPERTY HUNTER_GATE_DONE YES)
+    set_property(GLOBAL PROPERTY HUNTER_GATE_DONE_PARA YES)
   endif()
 endmacro()

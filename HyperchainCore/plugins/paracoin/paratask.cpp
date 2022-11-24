@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -60,7 +60,7 @@ int OperatorApplication(std::shared_ptr<OPAPP> parg)
 
     ShutdownExcludeRPCServer();
 
-
+    //HC: prepare the coin starting parameters
     std::deque<string> appli;
 
     appli.push_front("hc");
@@ -92,7 +92,7 @@ int OperatorApplication(std::shared_ptr<OPAPP> parg)
     return 0;
 }
 
-void ThreadSearchParaCoinNode(void* parg)
+void ThreadSearchParacoinNode(void* parg)
 {
     std::function<void(int)> sleepfn = [](int sleepseconds) {
         int i = 0;
@@ -109,7 +109,7 @@ void ThreadSearchParaCoinNode(void* parg)
     while (!fShutdown) {
         ParaPingTask task;
         task.exec();
-        sleepfn(10);
+        sleepfn(30);
     }
 }
 
@@ -172,7 +172,7 @@ bool PickupMessages(CDataStream& vSendStream, uint32_t nLimitSize, string &tskms
         //        outputlog(strprintf("Block message:  height is %d", 0));
         //}
 
-
+        //HC: Message size
         unsigned int nMessageSize = hdr.nMessageSize;
         if (nMessageSize > MAX_SIZE) {
             ERROR_FL("PickupMessages(%u bytes) : nMessageSize > MAX_SIZE\n", nMessageSize);
@@ -180,13 +180,13 @@ bool PickupMessages(CDataStream& vSendStream, uint32_t nLimitSize, string &tskms
         }
 
         if (nMessageSize > vSendStream.size() || (nSize > 0 && nSize + nMessageSize > nLimitSize)) {
-
+            //HC: Rewind and wait for rest of message or reach size limit if append next message
             ERROR_FL("Rewind and wait for rest of message or reach size limit if append next message ");
             vSendStream.insert(vSendStream.begin(), vHeaderSave.begin(), vHeaderSave.end());
             break;
         }
 
-
+        //HC: Copy message to its own buffer
         tskmsg.append(vHeaderSave.begin(), vHeaderSave.end());
         tskmsg.append(vSendStream.begin(), vSendStream.begin() + nMessageSize);
         vSendStream.ignore(nMessageSize);
@@ -207,67 +207,67 @@ void sendToNode(CNode* pnode)
             int nBytes = vSend.size();
             if (nBytes > 0) {
 
-
-
-
-
+                //HC: copy data will be sent.
+                //HC: We cannot send out data directly before calling vSend.erase,
+                //HC: because calling ParaTask.exec() will possibly switch the message,
+                //HC: struct of vSend will be damaged, and cause unpredictable behavior.
 
                 sndbuf = string(vSend.begin(), vSend.begin() + nBytes);
                 vSend.erase(vSend.begin(), vSend.begin() + nBytes);
                 pnode->nLastSend = GetTime();
 
-
+                //HC: put 4096 bytes messages at most
                 //if (PickupMessages(vSend, 4096, sndbuf)) {
                 //    pnode->nLastSend = GetTime();
                 //}
             }
             if (vSend.size() > SendBufferSize()) {
                 if (!pnode->fDisconnect)
-                    TRACE_FL("socket send flood control disconnect (%d bytes)\n", vSend.size());
+                    cerr << StringFormat("%s: socket send flood control disconnect (%d bytes)\n",
+                        pnode->addr.ToString(), vSend.size());
                 pnode->CloseSocketDisconnect();
             }
         }
     }
 
     if (sndbuf.size() > 0 && !pnode->fDisconnect) {
-        ParaTask tsk(pnode->nodeid, sndbuf.c_str(), sndbuf.size());
+        ParaTask tsk(pnode->nodeid, std::move(sndbuf));
         tsk.exec();
     }
 }
 
 void recvFromNode(CNode* pnode, const char *pchBuf, size_t nBytes)
 {
-    TRY_CRITICAL_BLOCK(pnode->cs_vRecv)
-    {
-        CDataStream& vRecv = pnode->vRecv;
-        unsigned int nPos = vRecv.size();
+    CDataStream& vRecv = pnode->vRecv;
+    unsigned int nPos = vRecv.size();
 
-        if (nPos > ReceiveBufferSize()) {
+    if (nPos > ReceiveBufferSize()) {
+        if (!pnode->fDisconnect)
+            cerr << StringFormat("%s: socket recv flood control disconnect (%d bytes)********************************\n",
+                pnode->addr.ToString(),
+                vRecv.size());
+        pnode->CloseSocketDisconnect();
+    }
+    else {
+        // typical socket buffer is 8K-64K
+        if (nBytes > 0) {
+            vRecv.resize(nPos + nBytes);
+            memcpy(&vRecv[nPos], pchBuf, nBytes);
+            pnode->nLastRecv = GetTime();
+        }
+        else if (nBytes == 0) {
+            // socket closed gracefully
             if (!pnode->fDisconnect)
-                TRACE_FL("socket recv flood control disconnect (%d bytes)\n", vRecv.size());
+                TRACE_FL("socket closed\n");
             pnode->CloseSocketDisconnect();
         }
-        else {
-            // typical socket buffer is 8K-64K
-            if (nBytes > 0) {
-                vRecv.resize(nPos + nBytes);
-                memcpy(&vRecv[nPos], pchBuf, nBytes);
-                pnode->nLastRecv = GetTime();
-            }
-            else if (nBytes == 0) {
-                // socket closed gracefully
+        else if (nBytes < 0) {
+            // error
+            int nErr = WSAGetLastError();
+            if (nErr != WSAEWOULDBLOCK && nErr != WSAEMSGSIZE && nErr != WSAEINTR && nErr != WSAEINPROGRESS) {
                 if (!pnode->fDisconnect)
-                    TRACE_FL("socket closed\n");
+                    TRACE_FL("socket recv error %d\n", nErr);
                 pnode->CloseSocketDisconnect();
-            }
-            else if (nBytes < 0) {
-                // error
-                int nErr = WSAGetLastError();
-                if (nErr != WSAEWOULDBLOCK && nErr != WSAEMSGSIZE && nErr != WSAEINTR && nErr != WSAEINPROGRESS) {
-                    if (!pnode->fDisconnect)
-                        TRACE_FL("socket recv error %d\n", nErr);
-                    pnode->CloseSocketDisconnect();
-                }
             }
         }
     }
@@ -276,6 +276,103 @@ void recvFromNode(CNode* pnode, const char *pchBuf, size_t nBytes)
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
+ParaRecver recver;
+
+void ParaRecver::AddNodeData(const string &node, TASKBUF&& data)
+{
+    CRITICAL_BLOCK(_cs_NRecv)
+    {
+        auto& ndatas = _mapNodedata[node];
+        ndatas.datas.push_back(data);
+    }
+}
+
+
+void ParaRecver::HandleData()
+{
+    bool iscanremove = false;
+    TRY_CRITICAL_BLOCK(_cs_NRecv)
+    {
+        //HC: if cannot get locker, try it next time
+        TRY_CRITICAL_BLOCK(cs_vNodes)
+        {
+            iscanremove = true;
+            BOOST_FOREACH(CNode * pnode, vNodes)
+                if (!_activeNodes.count(pnode->nodeid) && !pnode->fDisconnect) {
+                    _activeNodes[pnode->nodeid] = pnode;
+                    pnode->AddRef();
+                }
+        }
+
+        auto it = _mapNodedata.begin();
+        for (; it != _mapNodedata.end(); ) {
+            if (_activeNodes.count(it->first)) {
+                CNode* pnode = _activeNodes[it->first];
+                TRY_CRITICAL_BLOCK(pnode->cs_vRecv)
+                {
+                    auto& ndatas = it->second;
+                    auto& datas = it->second.datas;
+                    for (auto& d : datas) {
+                        ndatas.totallenpushed += d->size();
+                        char* payload = (char*)(d->c_str() + ProtocolHeaderLen) + sizeof(PARA_TASKTYPE);
+                        int payloadlen = d->size() - ProtocolHeaderLen - sizeof(PARA_TASKTYPE);
+                        recvFromNode(pnode, payload, payloadlen);
+                    }
+                    ndatas.waitinghandle = pnode->vRecv.size();
+                    ndatas.tmlastpushed = time(nullptr);
+                    datas.clear();
+                }
+            }
+            else if (iscanremove) {
+                _mapNodedata.erase(it++);
+                continue;
+            }
+            ++it;
+        }
+
+        TRY_CRITICAL_BLOCK(cs_vNodes)
+        {
+            auto itNodes = _activeNodes.begin();
+            for (; itNodes != _activeNodes.end(); ) {
+                if (itNodes->second->fDisconnect) {
+                    itNodes->second->Release();
+                    _activeNodes.erase(itNodes++);
+                    continue;
+                }
+                ++itNodes;
+            }
+        }
+    }
+}
+
+
+std::string ParaRecver::GetStatus()
+{
+    CRITICAL_BLOCK(_cs_NRecv) {
+        ostringstream oss;
+        auto it = _mapNodedata.begin();
+        for (; it != _mapNodedata.end(); ++it) {
+            auto& ndatas = it->second;
+            if (_activeNodes.count(it->first)) {
+                CNode* pnode = _activeNodes[it->first];
+                oss << StringFormat("%s: MQ cache: %u, pushed: (%s) %s, sndbuf: %s, recvbuf: %s, proc: %s\n", pnode->addr.ToString(),
+                    ndatas.datas.size(),
+                    time2string(ndatas.tmlastpushed), toReadable(ndatas.totallenpushed),
+                    toReadable(pnode->vSend.size()),
+                    toReadable(pnode->vRecv.size()),
+                    time2string_s(pnode->tmlastProcessRecv) );
+            } else {
+                oss << StringFormat("%s: MQ cache: %u, pushed: %s %d, recvbuf: %s\n", it->first,
+                    ndatas.datas.size(),
+                    time2string(ndatas.tmlastpushed), toReadable(ndatas.totallenpushed),
+                    toReadable(ndatas.waitinghandle));
+            }
+        }
+        return oss.str();
+    }
+    return "";
+}
+
 void ParaTask::exec()
 {
     char prefix = (char)PARA_TASKTYPE::PARACOIN;
@@ -294,12 +391,9 @@ void ParaTask::execRespond()
     {
         case PARA_TASKTYPE::PARACOIN: {
             string sentnodeid = _sentnodeid.ToHexString();
-            //CRITICAL_BLOCK(cs_main)
-            CRITICAL_BLOCK(cs_vNodes)
-                BOOST_FOREACH(CNode* pnode, vNodes)
-                if (pnode->nodeid == sentnodeid) {
-                    recvFromNode(pnode, _payload + sizeof(PARA_TASKTYPE), _payloadlen - sizeof(PARA_TASKTYPE));
-                }
+            recver.AddNodeData(sentnodeid, getRecvBuf());
+
+            recver.HandleData();
             break;
         }
         case PARA_TASKTYPE::PARA_PING_NODE: {
@@ -361,7 +455,7 @@ void ParaPingRspTask::execRespond()
             TRACE_FL("cannot find udp access point\n");
             return;
         }
-        TRACE_FL("added a new ParaCoin node.\n");
+        TRACE_FL("added a new Paracoin node.\n");
     }
 
     CAddress addrConnect(udppoint.ip(), (int)udppoint.port());
@@ -387,10 +481,6 @@ void ParaPingRspTask::execRespond()
         vNodes.push_back(pNode);
     }
 
-    if (pNode) {
-        pNode->GetChkBlock();
-    }
-
     TRACE_FL("reachable node %s\n", addrConnect.ToString().c_str());
 }
 
@@ -401,9 +491,16 @@ void ParaPingTask::exec()
     char *p = databuf.payload();
     *p = (char)PARA_TASKTYPE::PARA_PING_NODE;
 
-    NodeManager *nodemgr = Singleton<NodeManager>::getInstance();
+    set<CUInt128> nodesExcluded;
+    CRITICAL_BLOCK(cs_vNodes)
+    {
+        BOOST_FOREACH(CNode * pnode, vNodes) {
+            nodesExcluded.insert({ CUInt128(pnode->nodeid) });
+        }
+    }
 
-    nodemgr->sendToAllNodes(databuf);
+    NodeManager *nodemgr = Singleton<NodeManager>::getInstance();
+    nodemgr->sendToNodes(databuf, nodesExcluded);
 }
 
 void ParaPingTask::execRespond()
@@ -443,6 +540,7 @@ void UnregisterTask(void* objFac)
 }
 
 MsgHandler paramsghandler;
+extern ParaMQCenter paramqcenter;
 
 static void handleParacoinTask(void *wrk, zmsg *msg)
 {
@@ -468,6 +566,7 @@ void StartMQHandler()
 
     paramsghandler.registerTaskWorker(PARACOIN_T_SERVICE, fwrk);
     paramsghandler.start();
+    paramqcenter.start();
     cout << "Para MQID:   " << paramsghandler.getID() << endl;
 
 }
@@ -476,4 +575,5 @@ void StopMQHandler()
 {
     //g_sys_interrupted = 1;
     paramsghandler.stop();
+    paramqcenter.stop();
 }

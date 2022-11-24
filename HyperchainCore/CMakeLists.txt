@@ -1,4 +1,4 @@
-#Copyright 2016-2021 hyperchain.net (Hyperchain)
+#Copyright 2016-2022 hyperchain.net (Hyperchain)
 #Distributed under the MIT software license, see the accompanying
 #file COPYING or https://opensource.org/licenses/MIT.
 
@@ -35,8 +35,9 @@ SET(CMAKE_CXX_FLAGS_RELEASE "${HC_FLAG} -O3")
 
 elseif(WIN32)
 
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /MD /EHsc")
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Zi /Od /MDd /EHsc")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /MD")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Zi /Od /MDd")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /utf-8")
 
 ADD_DEFINITIONS(/D__WXMSW__ /DNOMINMAX /DUDT_EXPORTS -DWIN32)
 
@@ -61,8 +62,7 @@ IF( NOT CMAKE_BUILD_TYPE )
 ENDIF()
 message(STATUS "Build Type: " "${CMAKE_BUILD_TYPE}")
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty)
+
 
 #include current directory
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
@@ -88,7 +88,8 @@ if(cppzmq_FOUND)
 endif()
 
 #set(Boost_USE_STATIC_LIBS ON)
-find_package (Boost REQUIRED COMPONENTS system program_options date_time filesystem thread serialization fiber iostreams)
+set(Boost_USE_MULTITHREADED ON)
+find_package (Boost REQUIRED COMPONENTS system program_options date_time filesystem thread serialization fiber iostreams log)
 
 
 if(UNIX)
@@ -97,10 +98,17 @@ elseif(WIN32)
     find_package(unofficial-breakpad CONFIG REQUIRED)
 endif()
 
-include_directories(${breakpad_INCLUDE_DIRS})
+
+
 
 
 cmake_policy(SET CMP0071 NEW)
+
+if( NOT DEFINED PACK_HYPERCHAIN )
+	set(EXE_ICON "logo.ico")
+else()
+	set(EXE_ICON "logo-hc.ico")
+endif()
 
 #set(CMAKE_AUTOMOC TRUE)
 #set(CMAKE_AUTORCC TRUE)
@@ -109,12 +117,17 @@ configure_file (
 "${PROJECT_SOURCE_DIR}/logo.rc.in"
 "${PROJECT_BINARY_DIR}/logo.rc")
 
+include( UPDATEURL.cmake )
+message(STATUS "*********************************************************************************")
+message(STATUS "* Using updating URL: " ${MIRALL_UPDATE_STRING})
+message(STATUS "*********************************************************************************")
+
 configure_file (
 "${PROJECT_SOURCE_DIR}/globalconfig.h.in"
 "${PROJECT_BINARY_DIR}/globalconfig.h")
 
-set(main_SRC Log.cpp newLog.cpp NodeInfo.cpp globalconfig.cpp main.cpp colorprompt.hpp consolecommandhandler.cpp AppPlugins.cpp)
-set(main_HEAD Log.h newLog.h NodeInfo.h Types.h consolecommandhandler.h AppPlugins.h plugins/PluginContext.h ${PROJECT_BINARY_DIR}/globalconfig.h)
+set(main_SRC Log.cpp newLog.cpp NodeInfo.cpp globalconfig.cpp main.cpp colorprompt.hpp consolecommandhandler.cpp AppPlugins.cpp ntpclient.cpp UpdateInfo.cpp)
+set(main_HEAD Log.h newLog.h NodeInfo.h Types.h consolecommandhandler.h AppPlugins.h plugins/PluginContext.h ${PROJECT_BINARY_DIR}/globalconfig.h ntpclient.h UpdateInfo.h)
 
 FILE(GLOB crypto_SRC "crypto/*.cpp")
 FILE(GLOB crypto_HEAD "crypto/*.h")
@@ -207,14 +220,13 @@ set(CORECOMPONET "HyperChain")
 
 add_subdirectory(vm)
 add_subdirectory(HyperChain)
-add_subdirectory(plugins/paracoin)
-add_subdirectory(plugins/ledger)
+add_subdirectory(plugins)
+add_subdirectory(Autoupdate)
+add_subdirectory(genmd5)
 
 # build liblinenoise
 add_library(linenoise STATIC ${linenoise_SRC} ${linenoise_HEAD})
-
 add_executable(${PROJECT_NAME} ${resource_SRC} ${final_SRC} ${final_HEAD} ${WRAP_FILES})
-
 
 if(WIN32)
 target_link_libraries(${PROJECT_NAME} bcrypt.lib)
@@ -229,6 +241,8 @@ target_link_libraries(${PROJECT_NAME} unofficial::breakpad::libbreakpad_client)
 target_link_libraries(${PROJECT_NAME} cppzmq libzmq cppzmq-static libzmq-static linenoise)
 target_link_libraries(${PROJECT_NAME} vm)
 
+target_include_directories(${PROJECT_NAME} PRIVATE
+	${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/thirdparty ${breakpad_INCLUDE_DIRS})
 
 include(HyperChainCPack.cmake)
 

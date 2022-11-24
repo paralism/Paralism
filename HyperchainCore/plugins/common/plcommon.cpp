@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -42,8 +42,8 @@ char log_prefix_i[] = "INFO";
 char log_prefix_e[] = "ERROR";
 char log_prefix_w[] = "WARNING";
 
-char log_prefix_bt[] = "Bt";
-char log_prefix_btf[] = "BtfNode";
+char log_prefix_bt[] = "Bt";        //HC: backtracking
+char log_prefix_btf[] = "BtfNode";  //HC: backtracking from node
 
 
 
@@ -63,6 +63,13 @@ string strprintf(const char* fmt, ...)
 
     buf.pop_back();
     return buf;
+}
+
+int64_t currentMillisecond()
+{
+    auto tNow = std::chrono::system_clock::now();
+    auto tMilli = std::chrono::duration_cast<std::chrono::milliseconds>(tNow.time_since_epoch());
+    return tMilli.count();
 }
 
 std::string currentTime()
@@ -102,27 +109,15 @@ extern bool fPrintBacktracking;
 extern bool fPrintBacktracking_node;
 extern std::string strBacktracking_node;
 
-void LogBacktrackingFromNode(const string& fromnode, const char* format, ...)
-{
-    if (fPrintBacktracking_node && fromnode == strBacktracking_node) {
-        va_list arg_ptr;
-        va_start(arg_ptr, format);
-        string fmt = strprintf("%s (%s!) %s", currentTime().c_str(), mdname, format);
-        vlog_output<log_prefix_btf, true>(fmt.c_str(), arg_ptr);
-        va_end(arg_ptr);
-    }
-}
+
 
 void LogBacktracking(const char* format, ...)
 {
-    if (fPrintBacktracking) {
-        // print to console
-        va_list arg_ptr;
-        va_start(arg_ptr, format);
-        string fmt = strprintf("%s (%s!) %s", currentTime().c_str(), mdname, format);
-        vlog_output<log_prefix_bt, true>(fmt.c_str(), arg_ptr);
-        va_end(arg_ptr);
-    }
+    // print to console
+    va_list arg_ptr;
+    va_start(arg_ptr, format);
+    vlog_output<log_prefix_bt, true>(format, arg_ptr);
+    va_end(arg_ptr);
 }
 
 static map<LOGLEVEL, string> mapll = {
@@ -196,9 +191,28 @@ bool TurnOnOffDebugOutput(const string & onoff, string & ret)
             fPrintBacktracking_node = true;
             strBacktracking_node = option.substr(3);
         }
+        else if (option == "nogrep") {
+            fPrintgrep = false;
+            vecgreps.clear();
+        }
+        else if (option.find("grep:") != string::npos) {
+            fPrintgrep = true;
+            string opt = option.substr(5);
+
+            bool bfind = false;
+            for (auto& str : vecgreps) {
+                if (str == opt) {
+                    bfind = true;
+                    break;
+                }
+            }
+
+            if(!bfind)
+                vecgreps.push_back(opt);
+        }
     }
 
-
+    //HC: show
     if (fPrintToConsole && fPrintToDebugFile) {
         optiononoff = "both";
     }
@@ -220,9 +234,16 @@ bool TurnOnOffDebugOutput(const string & onoff, string & ret)
         optiononoff += strBacktracking_node;
         optiononoff += ")";
     }
-    ret = strprintf("%s's debug settings: '%s' (log level: %s)",
+
+    string strgreps;
+    for (auto& str : vecgreps) {
+        strgreps += (str + " ");
+    }
+
+    ret = strprintf("%s's debug settings: '%s' (log level: %s) (output grep: %d %s)",
         mdname,
-        optiononoff.c_str(), mapll[floglevel].c_str());
+        optiononoff.c_str(), mapll[floglevel].c_str(),
+        fPrintgrep, strgreps.c_str() );
 
     return true;
 }

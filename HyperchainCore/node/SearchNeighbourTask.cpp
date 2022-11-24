@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -52,7 +52,7 @@ namespace SEED {
 
             minutes timespan = std::chrono::duration_cast<minutes>(curr - _tp);
             if (timespan.count() > 3) {
-
+                //HC: 3 minutes
                 return true;
             }
             return false;
@@ -106,7 +106,7 @@ int SearchNeighbourRspTask::getPeerList(CUInt128 nodeid, const string& targetid,
     return nodemgr->getPeerList(nodeid, vecResult, peerlist);
 }
 
-
+//HC: 发送给请求方的节点信息
 void SearchNeighbourRspTask::exec()
 {
     string nodeid(_fromNodeId.ToHexString());
@@ -130,10 +130,10 @@ void SearchNeighbourRspTask::execRespond()
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
     NodeUPKeepThreadPool* nodeUpkeep = Singleton<NodeUPKeepThreadPool>::instance();
 
-
+    //HC: 返回的节点进入Ping序列
     vector<CUInt128> vecNewNode;
     nodemgr->ParseNodeList(msg, vecNewNode);
-    nodeUpkeep->AddToPingList(vecNewNode);
+    nodeUpkeep->AddToPingList(vecNewNode); //HC:只把非K桶内的加入到ping
 
     g_console_logger->debug("SearchNeighbourRspTask::execRespond(), Nodes Num = {} from peer= {}",
         vecNewNode.size(),
@@ -147,7 +147,7 @@ void SearchNeighbourTask::exec()
     if (!toServer)
         return;
 
-
+    //HC: 发送的数据是 目标ID + 发送者节点信息
     CUInt128 _targetNodeId = _toNodeId;
 
     string msgbuf = nodemgr->myself()->serialize();

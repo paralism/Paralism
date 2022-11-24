@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -43,7 +43,5 @@ extern "C" BOOST_SYMBOL_EXPORT bool ConsoleCmd(const list<string> & cmdlist, str
 
 void Shutdown(void* parg);
 bool AppInit2(int argc, char* argv[]);
-
-
 
 #endif

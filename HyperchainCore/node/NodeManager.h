@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -36,20 +36,32 @@ using namespace std;
 
 class UdpAccessPoint;
 enum class NodeType : char {
-    Normal = 0,
-    Bootstrap,
-    LedgerRPCClient,
-    Autonomous
+    Normal = 0,       //HC: 可参与共识的节点
+    Bootstrap,        //HC: 除了Normal类型的功能外，带引导功能
+    LedgerRPCClient,  //HC: 只具备账本RPC调用功能
+    Autonomous        //HC: 自动获取本节点内网IP和发现同网段邻居
 };
 
+struct stNodeAPS {
+    stNodeAPS() {
+        strLanAPS = "EMPTY";
+        strPubAPS = "EMPTY";
+        lasttime = time(nullptr);
+    }
 
+    string strLanAPS;   //HC: 本地IP地址+端口
+    string strPubAPS;   //HC: 公网IP地址+端口
+    size_t lasttime;    //HC: 最新更新时间
+};
+
+//HC: Highest 4 bits is network type, other is version
 const uint16_t SAND_BOX = 0xD000;
 const uint16_t INFORMAL_NET = 0xE000;
 const uint16_t FORMAL_NET = 0xF000;
 
 using HCNodeMap = std::map<CUInt128, HCNodeSH>;
 extern ProtocolVer pro_ver;
-
+extern T_SHA256 genesis_block_header_hash;
 template<typename T>
 class DataBuffer {
 
@@ -58,7 +70,7 @@ public:
         setTaskMetaHeader();
     }
 
-    DataBuffer(string &&payload) :_data(std::forward<string>(payload)) {
+    DataBuffer(string&& payload) :_data(std::forward<string>(payload)) {
         _data.insert(0, ProtocolHeaderLen, '\0');
         setTaskMetaHeader();
     }
@@ -77,7 +89,7 @@ public:
         _data.resize(payloadlen + ProtocolHeaderLen);
     }
 
-    char *payload() { return const_cast<char*>(_data.c_str() + ProtocolHeaderLen); }
+    char* payload() { return const_cast<char*>(_data.c_str() + ProtocolHeaderLen); }
 
     typename std::enable_if<std::is_base_of<ITask, T>::value>::type
         setHeader(uint8_t h[CUInt128::value]) {
@@ -85,7 +97,7 @@ public:
     }
 
     typename std::enable_if<std::is_base_of<ITask, T>::value>::type
-        setHeader(CUInt128 &nodeid) {
+        setHeader(CUInt128& nodeid) {
 
         uint8_t h[CUInt128::value];
         nodeid.ToByteArray(h);
@@ -99,7 +111,7 @@ private:
         ProtocolVer::setVerNetType(payloadoffset(CUInt128::value), pro_ver.net());
         memcpy(payloadoffset(CUInt128::value + sizeof(ProtocolVer)), (char*)&(t), sizeof(TASKTYPE));
     }
-    char * payloadoffset(size_t offset) { return const_cast<char*>(_data.c_str() + offset); }
+    char* payloadoffset(size_t offset) { return const_cast<char*>(_data.c_str() + offset); }
 
     string _data;
 };
@@ -110,13 +122,13 @@ public:
 
     NodeManager();
 
-    NodeManager(const NodeManager &) = delete;
-    NodeManager & operator=(const NodeManager &) = delete;
+    NodeManager(const NodeManager&) = delete;
+    NodeManager& operator=(const NodeManager&) = delete;
 
     ~NodeManager() {}
 
-    void myself(HCNodeSH &me) { _me = std::move(me); }
-    HCNodeSH & myself() { return _me; }
+    void myself(HCNodeSH& me) { _me = std::move(me); }
+    HCNodeSH& myself() { return _me; }
 
     template<typename T>
     T getMyNodeId() {
@@ -130,23 +142,23 @@ public:
         return true;
     }
 
-    void seedServer(HCNodeSH &seed) {
+    void seedServer(HCNodeSH& seed) {
 
         _seeds.emplace_back(seed);
         _nodemap[seed->getNodeId<CUInt128>()] = seed;
     }
-    HCNodeSH & seedServer() { return _seeds[0]; }
+    HCNodeSH& seedServer() { return _seeds[0]; }
 
     vector<HCNodeSH>& seedServers() { return _seeds; }
 
-    HCNodeSH getNode(const CUInt128 &nodeid);
-    bool getNodeAP(const CUInt128 &nodeid, UdpAccessPoint *ap);
+    HCNodeSH getNode(const CUInt128& nodeid);
+    bool getNodeAP(const CUInt128& nodeid, UdpAccessPoint* ap);
 
-    void addNode(HCNodeSH & node);
-    void updateNode(const CUInt128 &strnodeid, const string &ip, uint32_t port);
+    void addNode(HCNodeSH& node);
+    void updateNode(const CUInt128& strnodeid, const string& ip, uint32_t port);
 
     template<typename T>
-    void sendToAllNodes(DataBuffer<T> & msgbuf)
+    void sendToAllNodes(DataBuffer<T>& msgbuf)
     {
         uint8_t b[CUInt128::value];
         _me->getNodeId(b);
@@ -156,7 +168,17 @@ public:
     }
 
     template<typename T>
-    int sendTo(HCNodeSH &targetNode, DataBuffer<T> & msgbuf)
+    void sendToNodes(DataBuffer<T>& msgbuf, const set<CUInt128>& nodesExcluded)
+    {
+        uint8_t b[CUInt128::value];
+        _me->getNodeId(b);
+        msgbuf.setHeader(b);
+
+        ToNodes(msgbuf.tostring(), nodesExcluded);
+    }
+
+    template<typename T>
+    int sendTo(HCNodeSH& targetNode, DataBuffer<T>& msgbuf)
     {
         uint8_t b[CUInt128::value];
         _me->getNodeId(b);
@@ -165,7 +187,7 @@ public:
         return targetNode->send(msgbuf.tostring());
     }
 
-    void sendToHlp(const string &targetNode, const string &msgbuf)
+    void sendToHlp(const string& targetNode, const string& msgbuf)
     {
         CUInt128 targetNodeid(targetNode);
         if (_nodemap.count(targetNodeid)) {
@@ -174,14 +196,14 @@ public:
     }
 
     template<typename T>
-    void sendTo(const CUInt128 &targetNodeid, DataBuffer<T> & msgbuf)
+    void sendTo(const CUInt128& targetNodeid, DataBuffer<T>& msgbuf)
     {
         uint8_t b[CUInt128::value];
         _me->getNodeId(b);
         msgbuf.setHeader(b);
 
         if (_msghandler.getID() == std::this_thread::get_id()) {
-
+            //HC: 检查该nodeid是否在活跃节点列表中
             if (!IsNodeInKBuckets(targetNodeid))
                 return;
 
@@ -199,41 +221,50 @@ public:
     const HCNodeMap* getNodeMap();
     size_t getNodeMapSize();
     void loadMyself();
+    bool RemoveMyself();
     void saveMyself();
 
     size_t GetNodesJson(vector<string>& vecNodes);
 
-    bool parseNode(const string &node, UdpAccessPoint *ap);
+    bool parseNode(const string& node, UdpAccessPoint* ap);
 
-    bool IsSeedServer(const HCNode & node);
+    bool IsSeedServer(const HCNode& node);
 
     string toFormatString();
     string GetMQCostStatistics();
 
-    void PickNeighbourNodes(const CUInt128 &nodeid, int num, vector<CUInt128> &vnodes);
-    void PickNeighbourNodesEx(const CUInt128 &nodeid, int num, vector<HCNode> &vnodes);
+    void PickNeighbourNodes(const CUInt128& nodeid, int num, vector<CUInt128>& vnodes);
+    void PickNeighbourNodesEx(const CUInt128& nodeid, int num, vector<HCNode>& vnodes);
 
-    bool IsNodeInKBuckets(const CUInt128 &nodeid);
-    void PickRandomNodes(int nNum, std::set<HCNode> &nodes);
-    void GetAllNodes(std::set<CUInt128> &setNodes);
+    bool IsNodeInKBuckets(const CUInt128& nodeid);
+    void PickRandomNodes(int nNum, std::set<HCNode>& nodes);
+    void GetAllNodes(std::set<CUInt128>& setNodes);
     int GetNodesNum();
 
     CKBuckets* GetKBuckets() {
         return &m_actKBuchets;
     }
     void InitKBuckets();
-    void EnableNodeActive(const CUInt128 &nodeid, bool bEnable);
+    void EnableNodeActive(const CUInt128& nodeid, bool bEnable);
 
 
+    //HC: 分析返还的节点列表值，记录到_nodemap， 同时提取出新节点，用于Ping测试
+    void ParseNodeList(const string& nodes, vector<CUInt128>& vecNewNode);
 
-    void ParseNodeList(const string &nodes, vector<CUInt128> &vecNewNode);
-
-
+    //HC: 新版加载邻居节点和退出保存节点
     void loadNeighbourNodes_New();
 
     void  GetNodeMapNodes(vector<CUInt128>& vecNodes);
     void SaveLastActiveNodesToDB();
-    int getPeerList(CUInt128 excludeID, vector<CUInt128>& vecNodes, string & peerlist);
+    int getPeerList(CUInt128 excludeID, vector<CUInt128>& vecNodes, string& peerlist);
+
+    void SetLocalIP(string& strIP) {
+        myLocalIP = strIP;
+    }
+
+    string GetLocalIP() {
+        return myLocalIP;
+    }
 
     void start()
     {
@@ -250,28 +281,38 @@ public:
         return _msghandler.details();
     }
 
+    map<CUInt128, stNodeAPS> mapBroadcastNodeAPS;
 
     MsgHandler& GetMsgHandler() { return _msghandler; }
-
-private:
-
-    void startMQHandler();
-    void DispatchService(void *wrk, zmsg *msg);
-
-    void ToAllNodes(const string& data);
-
-
-    bool SaveNodeToDB(const CUInt128 &nodeid, system_clock::time_point  lastActTime);
 
     void PushToKBuckets(const CUInt128 &nodeid);
     void AddToDeactiveNodeList(const CUInt128& nodeid);
     void RemoveNodeFromDeactiveList(const CUInt128 &nodeid);
+
+    void RemoveFromNodeMap(const CUInt128& nodeid) {
+        auto itr = _nodemap.find(nodeid);
+        if(itr != _nodemap.end())
+            _nodemap.erase(itr);
+    }
+
+private:
+
+    void startMQHandler();
+    void DispatchService(void* wrk, zmsg* msg);
+
+    void ToNodes(const string& data, const set<CUInt128>& nodesExcluded);
+    void ToAllNodes(const string& data);
+
+    //HC: 记录单个节点到数据库
+    bool SaveNodeToDB(const CUInt128& nodeid, system_clock::time_point  lastActTime);
+
 
 private:
 
     enum class SERVICE : short
     {
         ToAllNodes = 1,
+        ToNodes,
         UpdateNode,
         GetNodesJson,
         ParseNode,
@@ -300,4 +341,5 @@ private:
     MsgHandler _msghandler;
 
     CActionCostStatistics m_actioncoststt;
+    string myLocalIP;
  };

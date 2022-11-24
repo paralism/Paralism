@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -60,15 +60,15 @@ extern HyperBlockMsgs hyperblockMsgs;
 class CBlockIndexSimplified
 {
 public:
-    const uint256* phashBlock = nullptr;
+    const uint256* phashBlock = nullptr;  //HC: 块hash指针
     CBlockIndexSimplified* pprev = nullptr;
     CBlockIndexSimplified* pnext = nullptr;
     uint32_t nHeight = -1;
 
-    T_LOCALBLOCKADDRESS addr;
+    BLOCKTRIPLEADDRESS addr;
 
 public:
-    void Set(const T_LOCALBLOCKADDRESS& addrIn, const CBlock& block)
+    void Set(const BLOCKTRIPLEADDRESS& addrIn, const CBlock& block)
     {
         addr = addrIn;
         nHeight = block.nHeight;
@@ -88,13 +88,13 @@ public:
             "\thashPrevBlock=%s\n"
             "\thashNextBlock=%s\n",
             nHeight,
-            addr.tostring().c_str(),
+            addr.ToString().c_str(),
             phashBlock ? (phashBlock->ToString().c_str()) : "null",
             pprev ? (pprev->GetBlockHash().ToString().c_str()) : "null",
             pnext ? (pnext->GetBlockHash().ToString().c_str()) : "null");
     }
 
-   };
+};
 
 
 class BlockCheckPoint
@@ -171,51 +171,6 @@ private:
 };
 
 
-class BLOCKTRIPLEADDRESS
-{
-public:
-    uint32 hid = 0;
-    uint16 chainnum = 0;
-    uint16 id = 0;
-
-public:
-    BLOCKTRIPLEADDRESS() {}
-
-    BLOCKTRIPLEADDRESS(const T_LOCALBLOCKADDRESS& addr)
-    {
-        hid = addr.hid;
-        chainnum = addr.chainnum;
-        id = addr.id;
-    }
-    BLOCKTRIPLEADDRESS(const BLOCKTRIPLEADDRESS& addr)
-    {
-        hid = addr.hid;
-        chainnum = addr.chainnum;
-        id = addr.id;
-    }
-
-    IMPLEMENT_SERIALIZE
-    (
-        READWRITE(hid);
-        READWRITE(chainnum);
-        READWRITE(id);
-    )
-
-    T_LOCALBLOCKADDRESS ToAddr() const
-    {
-        T_LOCALBLOCKADDRESS addr;
-        addr.hid = hid;
-        addr.chainnum = chainnum;
-        addr.id = id;
-        return addr;
-    }
-
-    string ToString() const
-    {
-        return strprintf("[%d,%d,%d]", hid,chainnum,id);
-    }
-};
-
 typedef struct BackTrackingProgress
 {
     int nLatestBlockHeight = 0;
@@ -253,7 +208,7 @@ public:
 
     static uint32 GetBackSearchHeight()
     {
-        if (_pindexLatestRoot && _pindexLatestRoot->pnext &&  _pindexLatestRoot->pnext->nHeight >= 1) {
+        if (_pindexLatestRoot && _pindexLatestRoot->pnext && _pindexLatestRoot->pnext->nHeight >= 1) {
             return _pindexLatestRoot->pnext->nHeight - 1;
         }
         return 0;
@@ -261,34 +216,34 @@ public:
 
     static string GetMemoryInfo();
 
-
+    //HC: try switch to _indexLatest
     static void Switch();
     static bool IsOnChain();
-    static bool IsLackingBlock(std::function<void(const BackTrackingProgress &)> notiprogress);
+    static bool IsLackingBlock(std::function<void(const BackTrackingProgress&)> notiprogress);
 
     static bool Count(const uint256& hastblock);
 
     static void AddBlockTripleAddress(const uint256& hastblock, const BLOCKTRIPLEADDRESS& tripleaddr);
 
-    static bool GetBlockTripleAddr(const uint256& hashblock, T_LOCALBLOCKADDRESS& tripleaddr);
+    static bool GetBlockTripleAddr(const uint256& hashblock, BLOCKTRIPLEADDRESS& tripleaddr);
     static bool GetBlock(const uint256& hastblock, CBlock& block, BLOCKTRIPLEADDRESS& tripleaddr);
 
 private:
 
-    static bool LoadLatestBlock(uint32 &maxhid);
+    static bool LoadLatestBlock(uint32& maxhid);
     static void SetBestIndex(CBlockIndexSimplified* pIndex)
     {
         _pindexLatest = pIndex;
-        _nLatestLedgerHeight =  _pindexLatest->nHeight;
+        _nLatestLedgerHeight = _pindexLatest->nHeight;
     }
 
-    static CBlockIndexSimplified* AddBlockIndex(const T_LOCALBLOCKADDRESS& addrIn, const CBlock& block);
+    static CBlockIndexSimplified* AddBlockIndex(const BLOCKTRIPLEADDRESS& addrIn, const CBlock& block);
     static CBlockIndexSimplified* InsertBlockIndex(uint256 hash);
 
     static void PullingPrevBlocks();
 
 private:
-
+    //HC: The latest block is contained by latest hyper block
     static CBlockIndexSimplified* _pindexLatest;
     static int  _nLatestLedgerHeight;
 
@@ -308,7 +263,7 @@ public:
     ChainReadyCondition(const ChainReadyCondition&) = delete;
     ChainReadyCondition& operator =(const ChainReadyCondition&) = delete;
 
-    void ProgressChanged(const BackTrackingProgress &progress) {
+    void ProgressChanged(const BackTrackingProgress& progress) {
         _backTrackingProgress = progress;
         _eStatusCode = chainstatuscode::ChainIncomplete;
     }
@@ -319,43 +274,43 @@ public:
 
         CRITICAL_BLOCK_T_MAIN(cs_main)
             CRITICAL_BLOCK(_cs_chainstatus)
-            {
-                if (!hyperchainspace->IsLatestHyperBlockReady()) {
-                    _eStatusCode = chainstatuscode::HyperBlockNotReady;
-                    return false;
-                }
-                //else if (IsInitialBlockDownload()) {
-                //    _reason += "Initial Block is downloading";
-                //    return false;
-                //}
-                else if (g_cryptoToken.IsSysToken() || !g_cryptoToken.CheckGenesisBlock()) {
-                    _eStatusCode = chainstatuscode::InvalidGenesisBlock;
-                    return false;
-                }
-
-
-                hyperblockMsgs.process();
-
-                if (!LatestLedgerBlock::IsOnChain()) {
-                    auto f = std::bind(&ChainReadyCondition::ProgressChanged, this, std::placeholders::_1);
-                    if (!LatestLedgerBlock::IsLackingBlock(f)) {
-
-                        _eStatusCode = chainstatuscode::Switching;
-                        LatestLedgerBlock::Switch();
-                    }
-                    return false;
-                }
-                else if (NeighborIsMust && vNodes.empty()) {
-                    _eStatusCode = chainstatuscode::NoAnyNeighbor;
-                    return false;
-                }
-
-                string reason;
-                if (IsTooFar(reason)) {
-                    return false;
-                }
-                _eStatusCode = chainstatuscode::Ready;
+        {
+            if (!hyperchainspace->IsLatestHyperBlockReady()) {
+                _eStatusCode = chainstatuscode::HyperBlockNotReady;
+                return false;
             }
+            //else if (IsInitialBlockDownload()) {
+            //    _reason += "Initial Block is downloading";
+            //    return false;
+            //}
+            else if (g_cryptoToken.IsSysToken() || !g_cryptoToken.CheckGenesisBlock()) {
+                _eStatusCode = chainstatuscode::InvalidGenesisBlock;
+                return false;
+            }
+
+            //HC: if Latest hyper block has changed, process them.
+            hyperblockMsgs.process();
+
+            if (!LatestLedgerBlock::IsOnChain()) {
+                auto f = std::bind(&ChainReadyCondition::ProgressChanged, this, std::placeholders::_1);
+                if (!LatestLedgerBlock::IsLackingBlock(f)) {
+                    //HC: Try to switch chain
+                    _eStatusCode = chainstatuscode::Switching;
+                    LatestLedgerBlock::Switch();
+                }
+                return false;
+            }
+            else if (NeighborIsMust && vNodes.empty()) {
+                _eStatusCode = chainstatuscode::NoAnyNeighbor;
+                return false;
+            }
+
+            string reason;
+            if (IsTooFar(reason)) {
+                return false;
+            }
+            _eStatusCode = chainstatuscode::Ready;
+        }
 
         return true;
     }
@@ -372,7 +327,7 @@ public:
 
     string GetReadyStatus(bool* isAllowed) {
 
-        if(isAllowed)
+        if (isAllowed)
             *isAllowed = IsReady();
 
         return StatusCodeToReason();
@@ -419,8 +374,8 @@ private:
         HyperBlockNotReady = -2,
         NoAnyNeighbor = -3,
         InvalidGenesisBlock = -4,
-        MiningSettingClosed= -5,
-        ManyBlocksNonChained= -6,
+        MiningSettingClosed = -5,
+        ManyBlocksNonChained = -6,
         ChainIncomplete = -7,
         MonitorThreadExit = -8,
     };
@@ -507,7 +462,7 @@ public:
 
     void clear();
 
-
+    //HC: how to clean the bit flag?
     bool erase(const uint256& hashBlock);
 
     const CBlock& operator[](const uint256& hashBlock);
@@ -545,7 +500,7 @@ public:
 
     void clear();
 
-
+    //HC: how to clean the bit flag?
     bool erase(const uint256& hashBlock);
 
     const BLOCKTRIPLEADDRESS& operator[](const uint256& hashBlock);

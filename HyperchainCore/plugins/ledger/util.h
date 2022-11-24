@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -195,7 +195,6 @@ void RandAddSeedPerfmon();
 int OutputDebugStringF(const char* pszFormat, ...);
 
 void LogBacktracking(const char* format, ...);
-void LogBacktrackingFromNode(const string &fromnode, const char* format, ...);
 
 
 void LogException(std::exception* pex, const char* pszThread);
@@ -474,19 +473,21 @@ inline int64 atoi64(const char* psz)
 #endif
 }
 
-inline int64 atoi64(const std::string& str)
-{
-#ifdef _MSC_VER
-    return _atoi64(str.c_str());
-#else
-    return strtoll(str.c_str(), NULL, 10);
-#endif
-}
+int64 atoi64(const std::string& str);
+//inline int64 atoi64(const std::string& str)
+//{
+//#ifdef _MSC_VER
+//    return _atoi64(str.c_str());
+//#else
+//    return strtoll(str.c_str(), NULL, 10);
+//#endif
+//}
 
-inline int atoi(const std::string& str)
-{
-    return atoi(str.c_str());
-}
+int atoi(const std::string& str);
+//inline int atoi(const std::string& str)
+//{
+//    return atoi(str.c_str());
+//}
 
 inline int roundint(double d)
 {

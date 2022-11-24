@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -147,7 +147,7 @@ void CNode::PushGetBlocks(CBlockIndex *pindexBegin, uint256 hashEnd)
         }
         else {
             if (g_mapblkindexLocator.size() > 3) {
-
+                //HC: remove expired element
                 int64 mintm = time(nullptr);
                 auto bil = g_mapblkindexLocator.begin();
                 auto it = g_mapblkindexLocator.begin();
@@ -172,7 +172,7 @@ void CNode::PushGetBlocks(CBlockIndex *pindexBegin, uint256 hashEnd)
 void CNode::GetChkBlock()
 {
     auto now = time(nullptr);
-
+    //HC: every 150 seconds
     if (nLastGetchkblk + 150 < now) {
         TRY_CRITICAL_BLOCK(cs_vSend)
         {
@@ -185,10 +185,10 @@ void CNode::GetChkBlock()
 void CNode::PushGetBlocksReversely(uint256 hashEnd)
 {
     // Filter out duplicate requests
-
+    //HC: Calling PushMessage, vSend is thread safety, so cs_vSend is not necessary
     //TRY_CRITICAL_BLOCK(cs_vSend)
     {
-        LogBacktracking("\n*****************************************************************\n");
+        LogRequest("\n*****************************************************************\n");
         if (tmLastReqBlk + nReqBlkInterval < GetTime()) {
 
             tmLastReqBlk = GetTime();
@@ -196,12 +196,12 @@ void CNode::PushGetBlocksReversely(uint256 hashEnd)
 
             IncreReqBlkInterval();
 
-            LogBacktracking("PushGetBlocksReversely: rgetblocks %s to: %s(score:%d, interval:%d)\n\n",
+            LogRequest("PushGetBlocksReversely: rgetblocks %s to: %s(score:%d, interval:%d)\n\n",
                 hashEnd.ToPreViewString().c_str(),
                 nodeid.c_str(), nScore, nReqBlkInterval);
         }
         else {
-            LogBacktracking("PushGetBlocksReversely: wait for call, rgetblocks %s to: %s(score:%d, interval:%d)\n\n",
+            LogRequest("PushGetBlocksReversely: wait for call, rgetblocks %s to: %s(score:%d, interval:%d)\n\n",
                 hashEnd.ToPreViewString().c_str(),
                 nodeid.c_str(), nScore, nReqBlkInterval);
         }
@@ -458,7 +458,7 @@ bool AddAddress(CAddress addr, int64 nTimePenalty, CAddrDB *pAddrDB)
         if (it == mapAddresses.end())
         {
             // New address
-            printf("AddAddress(%s)\n", addr.ToString().c_str());
+            TRACE_FL("AddAddress(%s)\n", addr.ToString().c_str());
             mapAddresses.insert(make_pair(addr.GetKey(), addr));
             fUpdated = true;
             fNew = true;
@@ -850,21 +850,16 @@ void ThreadSocketHandler2(void* parg)
             //
             if (pnode->vSend.empty())
                 pnode->nLastSendEmpty = GetTime();
-            if (GetTime() - pnode->nTimeConnected > 300)
-            {
-                if (pnode->nLastRecv == 0 || pnode->nLastSend == 0)
-                {
-                    printf("socket no message in first 60 seconds, %d %d, will be disconnect\n", pnode->nLastRecv != 0, pnode->nLastSend != 0);
+            if (GetTime() - pnode->nTimeConnected > 300) {
+                if (pnode->nLastRecv == 0 || pnode->nLastSend == 0) {
+                    printf("socket(%s) no message in first 60 seconds, %d %d, will be disconnect\n", pnode->addr.ToString().c_str(),
+                        pnode->nLastRecv != 0, pnode->nLastSend != 0);
                     pnode->fDisconnect = true;
-                }
-                else if (GetTime() - pnode->nLastSend > 90*60 && GetTime() - pnode->nLastSendEmpty > 90*60)
-                {
-                    printf("socket not sending, will be disconnect\n");
+                } else if (GetTime() - pnode->nLastSend > 90*60 && GetTime() - pnode->nLastSendEmpty > 90*60) {
+                    printf("socket(%s) not sending, will be disconnect\n", pnode->addr.ToString().c_str());
                     pnode->fDisconnect = true;
-                }
-                else if (GetTime() - pnode->nLastRecv > 90*60)
-                {
-                    printf("socket inactivity timeout, will be disconnect\n");
+                } else if (GetTime() - pnode->nLastRecv > 90*60) {
+                    printf("socket(%s) inactivity timeout, will be disconnect\n", pnode->addr.ToString().c_str());
                     pnode->fDisconnect = true;
                 }
             }
@@ -1347,13 +1342,17 @@ void ThreadMessageHandler2(void* parg)
         BOOST_FOREACH(CNode* pnode, vNodesCopy)
         {
             // Receive messages
-            TRY_CRITICAL_BLOCK(pnode->cs_vRecv)
-                ProcessMessages(pnode);
+            if (pnode->vRecv.size() > 0) {
+                TRY_CRITICAL_BLOCK(pnode->cs_vRecv)
+                {
+                    ProcessMessages(pnode);
+                }
+            }
             if (fShutdown)
                 return;
 
             // Send messages
-
+            //HC: SendMessages and pushMessage can make sure sending data is thread safety
             //TRY_CRITICAL_BLOCK(pnode->cs_vSend)
                 SendMessages(pnode, pnode == pnodeTrickle);
             if (fShutdown)
@@ -1516,7 +1515,7 @@ void StartNode(void* parg)
 #endif
     DEBUG_FL("addrLocalHost = %s\n", addrLocalHost.ToString().c_str());
 
-
+	//HC:
     //if (fUseProxy || mapArgs.count("-connect") || fNoListen)
     //{
     //    // Proxies can't take incoming connections
@@ -1537,26 +1536,26 @@ void StartNode(void* parg)
         MapPort(fUseUPnP);
 
     // Get addresses from IRC and advertise ours
-
+	//HC: don't get IRC Seed
     //if (!CreateThread(ThreadIRCSeed, NULL))
-        //printf("Error: CreateThread(ThreadIRCSeed) failed\n");
+        //ERROR_FL("Error: CreateThread(ThreadIRCSeed) failed\n");
 
     // Send and receive from sockets, accept connections
     CreateThread(ThreadSocketHandler, NULL);
 
     // Initiate outbound connections
-
+	//HC: don't connect directly
     //if (!CreateThread(ThreadOpenConnections, NULL))
         //printf("Error: CreateThread(ThreadOpenConnections) failed\n");
 
     if (!CreateThread(ThreadSearchLedgerNode, NULL))
-        ERROR_FL("CreateThread(ThreadSearchParaCoinNode) failed\n");
+        ERROR_FL("CreateThread(ThreadSearchParacoinNode) failed\n");
     // Process messages
     if (!CreateThread(ThreadMessageHandler, NULL))
         ERROR_FL("CreateThread(ThreadMessageHandler) failed\n");
 
     // Generate coins in the background
-
+    //HC: don't dig mining, but will check if chain is integrated
     GenerateBitcoins(fGenerateBitcoins, pwalletMain);
 
     if (!CreateThread(ThreadBitcoinMiner, pwalletMain))

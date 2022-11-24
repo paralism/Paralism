@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -24,15 +24,36 @@ DEALINGS IN THE SOFTWARE.
 // Distributed under the MIT/X11 software license, see the accompanying
 // file license.txt or http://www.opensource.org/licenses/mit-license.php.
 
+#pragma once
+
+#include "protocol_rpc.h"
 #include "json/json_spirit_reader_template.h"
 #include "json/json_spirit_writer_template.h"
 #include "json/json_spirit_utils.h"
+
+using namespace json_spirit;
 
 
 void ThreadRPCServer(void* parg);
 int CommandLineRPC(int argc, char *argv[]);
 
-using namespace json_spirit;
+template<typename T>
+void ConvertTo(Value& value)
+{
+    if (value.type() == str_type)
+    {
+        // reinterpret string as unquoted json value
+        Value value2;
+        if (!read_string(value.get_str(), value2))
+            throw runtime_error("type mismatch");
+        value = value2.get_value<T>();
+    }
+    else
+    {
+        value = value.get_value<T>();
+    }
+}
+
 
 Value issuetoken(const Array& params, bool fHelp);
 Value importtoken(const Array& params, bool fHelp);

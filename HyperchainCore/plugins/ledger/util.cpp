@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -51,6 +51,9 @@ bool fPrintToDebugFile = false;
 bool fPrintBacktracking = false;
 bool fPrintBacktracking_node = false;
 string strBacktracking_node;
+
+bool fPrintgrep = false;            //filter
+std::vector<std::string> vecgreps;
 
 bool fPrintToDebugger = false;
 char pszSetDataDir[MAX_PATH] = "";
@@ -133,13 +136,13 @@ instance_of_cinit;
 
 
 
-void RandAddSeed()
-{
-    // Seed with CPU performance counter
-    int64 nCounter = GetPerformanceCounter();
-    RAND_add(&nCounter, sizeof(nCounter), 1.5);
-    memset(&nCounter, 0, sizeof(nCounter));
-}
+//void RandAddSeed()
+//{
+//    // Seed with CPU performance counter
+//    int64 nCounter = GetPerformanceCounter();
+//    RAND_add(&nCounter, sizeof(nCounter), 1.5);
+//    memset(&nCounter, 0, sizeof(nCounter));
+//}
 
 void RandAddSeedPerfmon()
 {
@@ -170,25 +173,7 @@ void RandAddSeedPerfmon()
 
 
 
-uint64 GetRand(uint64 nMax)
-{
-    if (nMax == 0)
-        return 0;
 
-    // The range of the random source must be a multiple of the modulus
-    // to give every possible output value an equal possibility
-    uint64 nRange = (UINT64_MAX / nMax) * nMax;
-    uint64 nRand = 0;
-    do
-        RAND_bytes((unsigned char*)&nRand, sizeof(nRand));
-    while (nRand >= nRange);
-    return (nRand % nMax);
-}
-
-int GetRandInt(int nMax)
-{
-    return GetRand(nMax);
-}
 
 
 
@@ -364,50 +349,50 @@ bool ParseMoney(const char* pszIn, int64& nRet)
     return true;
 }
 
-
-vector<unsigned char> ParseHex(const char* psz)
-{
-    static char phexdigit[256] =
-    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-      0,1,2,3,4,5,6,7,8,9,-1,-1,-1,-1,-1,-1,
-      -1,0xa,0xb,0xc,0xd,0xe,0xf,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-      -1,0xa,0xb,0xc,0xd,0xe,0xf,-1,-1,-1,-1,-1,-1,-1,-1,-1
-      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, };
-
-    // convert hex dump to vector
-    vector<unsigned char> vch;
-    loop
-    {
-        while (isspace(*psz))
-            psz++;
-        char c = phexdigit[(unsigned char)*psz++];
-        if (c == (char)-1)
-            break;
-        unsigned char n = (c << 4);
-        c = phexdigit[(unsigned char)*psz++];
-        if (c == (char)-1)
-            break;
-        n |= c;
-        vch.push_back(n);
-    }
-    return vch;
-}
-
-vector<unsigned char> ParseHex(const string& str)
-{
-    return ParseHex(str.c_str());
-}
+//
+//vector<unsigned char> ParseHex(const char* psz)
+//{
+//    static char phexdigit[256] =
+//    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+//      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+//      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+//      0,1,2,3,4,5,6,7,8,9,-1,-1,-1,-1,-1,-1,
+//      -1,0xa,0xb,0xc,0xd,0xe,0xf,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+//      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+//      -1,0xa,0xb,0xc,0xd,0xe,0xf,-1,-1,-1,-1,-1,-1,-1,-1,-1
+//      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+//      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+//      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+//      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+//      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+//      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+//      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+//      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+//      -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, };
+//
+//    // convert hex dump to vector
+//    vector<unsigned char> vch;
+//    loop
+//    {
+//        while (isspace(*psz))
+//            psz++;
+//        char c = phexdigit[(unsigned char)*psz++];
+//        if (c == (char)-1)
+//            break;
+//        unsigned char n = (c << 4);
+//        c = phexdigit[(unsigned char)*psz++];
+//        if (c == (char)-1)
+//            break;
+//        n |= c;
+//        vch.push_back(n);
+//    }
+//    return vch;
+//}
+//
+//vector<unsigned char> ParseHex(const string& str)
+//{
+//    return ParseHex(str.c_str());
+//}
 
 
 void AppParseParameters(int argc, char* argv[])
@@ -493,7 +478,7 @@ void PrintException(std::exception* pex, const char* pszThread)
     printf("\n\n************************\n%s\n", pszMessage);
     fprintf(stderr, "\n\n************************\n%s\n", pszMessage);
     strMiscWarning = pszMessage;
-
+    //HC:
     //throw;
 }
 

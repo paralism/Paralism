@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -55,17 +55,23 @@ extern bool BlockUUIDCb(string& payload, string& uuidpayload);
 extern bool GetVPath(T_LOCALBLOCKADDRESS& sAddr, T_LOCALBLOCKADDRESS& eAddr, vector<string>& vecVPath);
 extern bool GetNeighborNodes(list<string>& listNodes);
 
-extern void ThreadBlockPool(void* parg);
 extern void ThreadRSyncGetBlock(void* parg);
 extern void ThreadGetNeighbourChkBlockInfo(void* parg);
 
 extern void StartRPCServer();
 extern void StopRPCServer();
+extern void FreeGlobalMemeory();
 
 extern void StartMQHandler();
 extern void StopMQHandler();
 
+//HC: SegWit
+extern void SelectParams();
+extern void RandomInit();
+extern void ECC_Start();
+extern void ECC_Stop();
 
+static std::unique_ptr<ECCVerifyHandle> globalVerifyHandle;
 CWallet* pwalletMain = nullptr;
 bool fExit = true;
 
@@ -128,6 +134,7 @@ static std::shared_ptr<boost::interprocess::file_lock> g_pLock;
 
 void StopApplication()
 {
+    g_sys_interrupted = 1;
     Shutdown(nullptr);
 }
 
@@ -160,6 +167,11 @@ void ShutdownExcludeRPCServer()
     UnregisterWallet(pwalletMain);
     delete pwalletMain;
     pwalletMain = nullptr;
+
+    //HC: CRITICAL_BLOCK(cs_vNodes)
+    //{
+    vNodes.clear();
+    //}
     //CreateThread(ExitTimeout, NULL);
     Sleep(50);
 
@@ -190,7 +202,6 @@ void Shutdown(void* parg)
     if (fFirstThread) {
         INFO_FL("Stopping Hyperchain Ledger...\n");
         fShutdown = true;
-        StopMQHandler();
         StopRPCServer();
         nTransactionsUpdated++;
         DBFlush(false);
@@ -200,6 +211,14 @@ void Shutdown(void* parg)
         UnregisterWallet(pwalletMain);
         delete pwalletMain;
         //CreateThread(ExitTimeout, NULL);
+
+        //HC: It is very important to select a position to stop MQ
+        StopMQHandler();
+
+        FreeGlobalMemeory();
+        globalVerifyHandle.reset();
+        ECC_Stop();
+
         Sleep(50);
         fExit = true;
     }
@@ -212,7 +231,7 @@ void HandleSIGTERM(int)
 
 bool LoadCryptoToken()
 {
-
+    //HC: which coin will be used?
     CApplicationSettings appini;
     string defaultAppHash;
     appini.ReadDefaultApp(defaultAppHash);
@@ -232,7 +251,7 @@ bool LoadCryptoToken()
             tokenhash = defaultAppHash;
         }
         else {
-
+            //HC: use built-in token
             tokenhash = g_cryptoToken.GetHashPrefixOfGenesis();
         }
 
@@ -242,7 +261,7 @@ bool LoadCryptoToken()
         appini.WriteDefaultApp(tokenhash);
     }
 
-
+    //HC: load token
     bool isSysToken = true;
     if (g_cryptoToken.GetHashPrefixOfGenesis() != tokenhash) {
         isSysToken = false;
@@ -255,7 +274,7 @@ bool LoadCryptoToken()
 
     hashGenesisBlock = g_cryptoToken.GetHashGenesisBlock();
 
-
+    //HC: change data directory
     string strLedgerDir = CreateChildDir(g_cryptoToken.GetTokenConfigPath());
     strlcpy(pszSetDataDir, strLedgerDir.c_str(), sizeof(pszSetDataDir));
 
@@ -320,6 +339,20 @@ bool AppInit2(int argc, char* argv[])
     AppParseParameters(argc, argv);
     ReadConfigFile(mapArgs, mapMultiArgs); // Must be done after processing datadir
 
+    // Check for chain settings (Params() calls are only valid after this clause)
+    try {
+        SelectParams();
+    }
+    catch (const std::exception& e) {
+        fprintf(stderr, "Paracoin error: %s      \n", e.what());
+        return false;
+    }
+
+    RandomInit();
+    ECC_Start();
+    globalVerifyHandle.reset(new ECCVerifyHandle());
+
+
     fDebug = GetBoolArg("-debug");
     fAllowDNS = GetBoolArg("-dns");
 
@@ -359,7 +392,7 @@ bool AppInit2(int argc, char* argv[])
     if (mapArgs.count("-model") && mapArgs["-model"] == "informal")
         pro_ver = ProtocolVer::NET::INFORMAL_NET;
 
-
+    //HC: which token will be used?
     LoadCryptoToken();
 
     if (!fDebug && !pszSetDataDir[0])
@@ -411,7 +444,7 @@ bool AppInit2(int argc, char* argv[])
         strErrors += _("Error loading addr.dat      \n");
     TRACE_FL(" addresses   %15" PRI64d " ms\n", GetTimeMillis() - nStart);
 
-
+    //HC:
     INFO_FL("Loading blocks will to do global buddy consensus...\n");
     LoadBlockUnChained();
 
@@ -434,7 +467,7 @@ bool AppInit2(int argc, char* argv[])
     }
     int nLoadWalletRet = pwalletMain->LoadWallet(fFirstRun);
 
-
+    //HC: import key into wallet
     if (GetBoolArg("-importkey") && g_cryptoToken.IsSysToken()) {
         CKey key;
         if (ReadKeyFromFile(key)) {
@@ -443,14 +476,23 @@ bool AppInit2(int argc, char* argv[])
                 string str = coinaddress.ToString();
                 fprintf(stdout, "Ledger's genesis key already exist : %s\n", str.c_str());
             }
-            else if (pwalletMain->AddKey(key)) {
-                pwalletMain->SetDefaultKey(key.GetPubKey());
-                pwalletMain->SetAddressBookName(coinaddress, "");
-
-                fprintf(stdout, "Ledger's genesis key imported successfully\n");
-            }
             else {
-                fprintf(stderr, "Ledger's genesis key imported failed\n");
+
+                CPubKey publickey = CPubKey::NewPubKey(key.GetPubKey(), true);
+
+                std::vector<unsigned char> vch_short;
+                vch_short.insert(vch_short.end(), publickey.begin(), publickey.end());
+
+                if (pwalletMain->AddKey(vch_short, key)) {
+                    pwalletMain->SetDefaultKey(vch_short, DEFAULT_ADDRESS_TYPE);
+                    CTxDestination dest = GetDestinationForKey(publickey, DEFAULT_ADDRESS_TYPE);
+                    pwalletMain->SetAddressBookName(dest, "");
+
+                    fprintf(stdout, "Ledger's genesis key imported successfully\n");
+                }
+                else {
+                    fprintf(stderr, "Ledger's genesis key imported failed\n");
+                }
             }
         }
         else {
@@ -458,7 +500,7 @@ bool AppInit2(int argc, char* argv[])
         }
     }
 
-
+    //HC: import genesis transactions.
     if (GetBoolArg("-scangenesis") || pindexBest == pindexGenesisBlock) {
         pwalletMain->ScanForWalletTransactions(pindexBest, true);
     }
@@ -479,7 +521,7 @@ bool AppInit2(int argc, char* argv[])
     if (GetBoolArg("-rescan"))
         pindexRescan = pindexGenesisBlock;
     else {
-        CWalletDB walletdb("wallet.dat");
+        CWalletDB_Wrapper walletdb("wallet.dat");
         CBlockLocator locator;
         if (walletdb.ReadBestBlock(locator))
             pindexRescan = locator.GetBlockIndex();
@@ -496,7 +538,7 @@ bool AppInit2(int argc, char* argv[])
 
     //// debug print
     TRACE_FL("mapBlockIndex.size() = %d\n", mapBlockIndex.size());
-
+    //HC:
     //TRACE_FL("nBestHeight = %d\n", nBestHeight);
     TRACE_FL("setKeyPool.size() = %d\n", pwalletMain->setKeyPool.size());
     TRACE_FL("mapWallet.size() = %d\n", pwalletMain->mapWallet.size());
@@ -510,7 +552,7 @@ bool AppInit2(int argc, char* argv[])
     // Add wallet transactions that aren't already in a block to mapTransactions
     pwalletMain->ReacceptWalletTransactions();
 
-
+    //HC: Set public key index
     g_cryptoToken.SearchPublicKeyIdx();
     g_PBFT.Init();
 
@@ -568,7 +610,7 @@ bool AppInit2(int argc, char* argv[])
                 AddAddress(addr);
         }
     }
-
+    //HC: remove dns seed
     //if (GetBoolArg("-nodnsseed"))
     //    printf("DNS seeding disabled\n");
     //else
@@ -598,7 +640,7 @@ bool AppInit2(int argc, char* argv[])
 
     RandAddSeedPerfmon();
 
-
+    //HC: Register ledger callbacks,for example when a new block become onchained,one of callbacks is called.
     ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::getInstance();
     if (consensuseng) {
         CONSENSUSNOTIFY ledgerGenesisCallback =
@@ -645,7 +687,6 @@ bool AppInit2(int argc, char* argv[])
         StartRPCServer();
     }
 
-    CreateThread(ThreadBlockPool, NULL);
     CreateThread(ThreadRSyncGetBlock, NULL);
     CreateThread(ThreadGetNeighbourChkBlockInfo, NULL);
 

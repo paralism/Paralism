@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -52,10 +52,10 @@ CBlock CreateGenesisBlock(uint32_t nTime, const char* pszTimestamp, uint64 nNonc
 class CryptoToken
 {
 public:
-    CryptoToken(bool isParaCoin = true)
+    CryptoToken(bool isParacoin = true)
     {
         SetDefaultParas();
-        if (!isParaCoin) {
+        if (!isParacoin) {
             clear();
         }
     }
@@ -124,7 +124,7 @@ public:
     bool IsTokenSame(uint32_t hid, uint16_t chainnum, uint16_t localid) {
         return GetHID() == hid && GetChainNum() == chainnum && GetLocalID() == localid;
     }
-
+    //HC: if shorthash is empty, will scan the directory and find one
     bool ReadTokenFile(const string& name, string& shorthash, string& errormsg);
 
     static bool ReadIssCfg(const string& cfgfile, map<string, string>& mapGenenisBlkParams, vector<string>& vpublickey, string& errormsg);
@@ -189,8 +189,11 @@ public:
         CRITICAL_BLOCK(cs_main)
             CRITICAL_BLOCK(pwalletMain->cs_wallet)
         {
-            CBitcoinAddress coinaddress = CBitcoinAddress(_vpublickeygenblk[_npkidx]);
-            if (!pwalletMain->GetKey(coinaddress, key)) {
+            CPubKey publickey = CPubKey::NewPubKey(_vpublickeygenblk[_npkidx], true);
+            CTxDestination address = GetDestinationForKey(publickey, DEFAULT_ADDRESS_TYPE);
+
+            string error;
+            if (!pwalletMain->GetKeyFromDestination(address, key, error).IsValid()) {
                 return false;
             }
         }
@@ -202,7 +205,9 @@ public:
     template<typename T1, typename T2>
     bool Verify(int pkidx, const vector<unsigned char>& vchSig, const T1 pbegin, const T2 pend)
     {
-        if (pkidx < 0 || pkidx >= (int)(_vpublickeygenblk.size())) {
+        if (pkidx < 0 ||
+            pkidx >= (int)(_vpublickeygenblk.size()) ||
+            vchSig.size() == 0 ) {
             return false;
         }
 
@@ -228,9 +233,9 @@ private:
 private:
 
     std::map<std::string, std::string> _mapSettings;
-    GBPUBKEYS _vpublickeygenblk;
+    GBPUBKEYS _vpublickeygenblk;  //HC: public key, their owners can generate block
 
-    int _npkidx = -1;
+    int _npkidx = -1;                    //HC: public key index which belong to me in _vpublickeygenblk
 
     CKey _key;
 };

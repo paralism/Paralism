@@ -22,4 +22,5 @@ target_link_libraries(${PROJECT_NAME} quickjspp)
 
 
 target_link_libraries(${PROJECT_NAME} Boost::system Boost::program_options Boost::serialization Boost::filesystem Boost::thread)
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR})
 

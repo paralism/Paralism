@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -29,7 +29,7 @@ DEALINGS IN THE SOFTWARE.
 using namespace std;
 using std::chrono::system_clock;
 
-
+//HC: 节点维护线程池
 class NodeUPKeepThreadPool
 {
 public:
@@ -39,11 +39,14 @@ public:
     void start();
     void stop();
     void AddToPingList(const CUInt128 nodeid);
-    void AddToPingList(vector<CUInt128>& vecNewNode);//HC��KͰ�ﱻ���ߵĽڵ����Ping�б�
-    void RemoveNodeFromPingList(const CUInt128 &nodeid);
+    void AddToPingList(vector<CUInt128>& vecNewNode);//HC：K桶里被挤走的节点进入Ping列表
+    void RemoveNodeFromPingList(const CUInt128& nodeid);
 
     void NodePing();
     void NodeFind();
+
+	//HC: 外网节点定期广播邻居节点信息
+    void BroadcastNeighbor();
 
 private:
 
@@ -57,9 +60,11 @@ private:
     void DoPing();
     void EmitPingSignal(int nDelaySecond);
 
+    void UpdateBroadcastMap();
+
     std::list<CUInt128> m_lstPullNode;
 
-
+    //HC: 一个集合用于ping，一个集合添加节点，到ping的时候切换
     bool                m_pingSecSet;
     std::set<CUInt128> m_setPingNode1;
     std::set<CUInt128> m_setPingNode2;

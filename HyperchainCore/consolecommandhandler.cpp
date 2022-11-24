@@ -1,4 +1,4 @@
-/*Copyright 2016-2021 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -46,6 +46,11 @@ DEALINGS IN THE SOFTWARE.
 #include <boost/program_options/detail/config_file.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
+#include <UpdateInfo.h>
+
+#ifdef LINUX
+#include <unistd.h>
+#endif // LINUX
 
 
 int g_argc = 0;
@@ -59,7 +64,7 @@ using namespace std;
 namespace fs = boost::filesystem;
 namespace pod = boost::program_options::detail;
 
-
+std::string g_strSysStartTm = time2string(time(nullptr));
 
 string FileNameFromFullPath(const string &fullpath)
 {
@@ -224,11 +229,11 @@ int SocketClientStreamBuf::FlushBuffer()
                 { static_cast<void*>(*m_client), 0, ZMQ_POLLIN, 0 } };
             zmq::poll(items, 1, 100);
 
-
+            //HC: If we got a reply, process it
             if (items[0].revents & ZMQ_POLLIN) {
                 zmsg* recv_msg = new zmsg(*m_client);
 
-
+                //HC: Don't try to handle errors, just assert noisily
                 assert(recv_msg->parts() >= 1);
 
                 std::string header = recv_msg->pop_front();
@@ -244,7 +249,7 @@ int SocketClientStreamBuf::FlushBuffer()
                     return 0;
                 }
 
-
+                //HC: Reconnect, and resend message
                 if (retries > max_retries && reconn < max_reconn) {
                     connect_to();
                     reconn++;
@@ -309,7 +314,7 @@ void ConsoleCommNetServer::msg_handler()
                 request_process(sender, &recvmsg);
             }
             else {
-
+                //HC: *********************invalid message**********************
                 recvmsg.dump();
             }
         }
@@ -337,7 +342,7 @@ void ConsoleCommNetServer::request_process(std::string &sender, zmsg* msg)
 
 
 ConsoleCommandHandler::ConsoleCommandHandler(std::streambuf* in_smbuf, std::streambuf* out_smbuf) :
-    _isRunning(true), _istream(in_smbuf), _ostream(out_smbuf)
+    _bUpdate(false), _isRunning(true), _istream(in_smbuf), _ostream(out_smbuf)
 {
     cmdstruct cmd("help", std::bind(&ConsoleCommandHandler::showUsages, this));
 
@@ -359,12 +364,16 @@ ConsoleCommandHandler::ConsoleCommandHandler(std::streambuf* in_smbuf, std::stre
     _commands.emplace_back(cmdstruct("dh", std::bind(&ConsoleCommandHandler::downloadBlockHeader, this, std::placeholders::_1)));
     _commands.emplace_back(cmdstruct("search", std::bind(&ConsoleCommandHandler::searchLocalHyperBlock, this, std::placeholders::_1)));
     _commands.emplace_back(cmdstruct("se", std::bind(&ConsoleCommandHandler::searchLocalHyperBlock, this, std::placeholders::_1)));
-    _commands.emplace_back(cmdstruct("i", std::bind(&ConsoleCommandHandler::showInnerDataStruct, this)));
+    _commands.emplace_back(cmdstruct("i", std::bind(&ConsoleCommandHandler::showInnerDataStruct, this, std::placeholders::_1)));
     _commands.emplace_back(cmdstruct("rs", std::bind(&ConsoleCommandHandler::resolveAppData, this, std::placeholders::_1)));
     _commands.emplace_back(cmdstruct("token", std::bind(&ConsoleCommandHandler::handleToken, this, std::placeholders::_1, std::placeholders::_2)));
     _commands.emplace_back(cmdstruct("t", std::bind(&ConsoleCommandHandler::handleToken, this, std::placeholders::_1, std::placeholders::_2)));
     _commands.emplace_back(cmdstruct("coin", std::bind(&ConsoleCommandHandler::handleCoin, this, std::placeholders::_1, std::placeholders::_2)));
     _commands.emplace_back(cmdstruct("c", std::bind(&ConsoleCommandHandler::handleCoin, this, std::placeholders::_1, std::placeholders::_2)));
+
+    _commands.emplace_back(cmdstruct("eth", std::bind(&ConsoleCommandHandler::handleEth, this, std::placeholders::_1, std::placeholders::_2)));
+    _commands.emplace_back(cmdstruct("e", std::bind(&ConsoleCommandHandler::handleEth, this, std::placeholders::_1, std::placeholders::_2)));
+
     _commands.emplace_back(cmdstruct("debug", std::bind(&ConsoleCommandHandler::debug, this, std::placeholders::_1)));
 
     _commands.emplace_back(cmdstruct("ll", std::bind(&ConsoleCommandHandler::setLoggerLevel, this, std::placeholders::_1)));
@@ -376,15 +385,16 @@ ConsoleCommandHandler::ConsoleCommandHandler(std::streambuf* in_smbuf, std::stre
 
     _commands.emplace_back(cmdstruct("simulate", std::bind(&ConsoleCommandHandler::simulateHyperBlkUpdated, this, std::placeholders::_1)));
 
-
+    //HC: Query the on-chain state of a committed block
     _commands.emplace_back(cmdstruct("query", std::bind(&ConsoleCommandHandler::queryOnchainState, this, std::placeholders::_1)));
     _commands.emplace_back(cmdstruct("qr", std::bind(&ConsoleCommandHandler::queryOnchainState, this, std::placeholders::_1)));
-
+    //HC: javascript VM
     _commands.emplace_back(cmdstruct("vm", std::bind(&ConsoleCommandHandler::handleVM, this, std::placeholders::_1)));
 
     _commands.emplace_back(cmdstruct("start", std::bind(&ConsoleCommandHandler::startApplication, this, std::placeholders::_1)));
     _commands.emplace_back(cmdstruct("stop", std::bind(&ConsoleCommandHandler::stopApplication, this, std::placeholders::_1)));
     _commands.emplace_back(cmdstruct("app", std::bind(&ConsoleCommandHandler::statusApplication, this, std::placeholders::_1)));
+    _commands.emplace_back(cmdstruct("update", std::bind(&ConsoleCommandHandler::UpdateProgram, this)));
     _commands.emplace_back(cmdstruct("exit", std::bind(&ConsoleCommandHandler::exit, this)));
     _commands.emplace_back(cmdstruct("quit", std::bind(&ConsoleCommandHandler::exit, this)));
     _commands.emplace_back(cmdstruct("q", std::bind(&ConsoleCommandHandler::exit, this)));
@@ -444,7 +454,7 @@ void ConsoleCommandHandler::insertRemoteServer(string& ip, int port)
     string server = StringFormat("%s %d", ip, port);
     for (auto& elm : _mapSettings) {
         if (elm.second == server) {
-
+            //HC: already in map
             return;
         }
     }
@@ -455,9 +465,9 @@ void ConsoleCommandHandler::insertRemoteServer(string& ip, int port)
 
 void ConsoleCommandHandler::showUsages()
 {
-    _ostream << "Copyright 2016-2021 hyperchain.net (Hyperchain) v" << VERSION_STRING << endl;
+    _ostream << "Copyright 2016-2022 hyperchain.net (Hyperchain (R)) v" << VERSION_STRING << endl;
     _ostream << "These are common commands used in various situations:" << endl;
-    _ostream << "The <> means that the command has an required argument, and [] means an optional argument" << endl << endl;
+    _ostream << "The '<>' means that the command has a required argument, and '[]' means an optional argument" << endl << endl;
 
     _ostream << "   help(?):                        show all available commands" << endl;
     _ostream << "   /h:                             show history of commands" << endl;
@@ -471,15 +481,16 @@ void ConsoleCommandHandler::showUsages()
     _ostream << "   down(d):                        download specified hyper blocks from HyperChain-Space to local" << endl;
     _ostream << "                                       d <nodeid> <hid> [blockcount] " << endl;
     _ostream << "   search(se):                     search detail information for a number of specified hyper blocks,show child chains with 'v'" << endl;
-    _ostream << "                                       se [hid] [v]" << endl;
-    _ostream << "   submit(sm):                     submit data to the chain: submit <data>" << endl;
+    _ostream << "                                       se [hid] [v], se [from hid1] [to hid2] [v], se -1 v" << endl;
+    _ostream << "   submit(sm):                     submit data onto the chain: submit <data>" << endl;
     _ostream << "   query(qr):                      query status of the submitted data on the chain: query <requestid>" << endl;
-    _ostream << "   inner(i):                       show inner information" << endl;
+    _ostream << "   inner(i):                       show inner information: i [b/n/c]" << endl;
     _ostream << "   debug:                          debug the specified application: debug application [file/con/both/off] [err/warn/info/debug/trace] [nobt/bt/bt:id] " << endl;
     _ostream << "   resolve(rs):                    resolve the specified data into a kind of application" << endl;
     _ostream << "                                       rs [ledger/paracoin] [hid chainid localid] or rs [ledger/paracoin] height" << endl;
     _ostream << "   token(t):                       control or show tokens" << endl;
     _ostream << "   coin(c):                        control or show coins" << endl;
+    _ostream << "   eth(e):                         control or show ethereum" << endl;
     _ostream << "   start:                          load and start the specified application: start <ledger/paracoin> [options]" << endl;
     _ostream << "                                       start paracoin -debug -gen" << endl;
 
@@ -487,24 +498,84 @@ void ConsoleCommandHandler::showUsages()
     _ostream << "   app:                            list the loaded applications and their status" << endl;
     _ostream << "   loggerlevel(ll):                set logger level(trace=0,debug=1,info=2,warn=3,err=4,critical=5,off=6)" << endl;
     _ostream << "   consensusloggerlevel(llcss):    set consensus logger level(trace=0,debug=1,info=2,warn=3,err=4,critical=5,off=6)" << endl;
-    _ostream << "   vm:                             run a javascript script or add a javascript script block to chain" << endl;
+    _ostream << "   vm:                             run a javascript script or submit a block with javascript script onto the chain" << endl;
+    _ostream << "   update:                         check the program whether it is the latest and update" << endl;
     _ostream << "   exit(quit/q):                   exit the program" << endl << endl;
 
 
     _ostream << "Press ctrl-L to clear screen, ctrl-R to reverse history search, ctrl-S to forward history search" << endl << endl;
 }
 
+bool ConsoleCommandHandler::UpdateProgram()
+{
+    //Check if needs to update
+    UpdateInfo updateinfo;
+
+    string localmd5;
+    bool bCheckUpdate = false;
+
+
+    if (updateinfo.GetUpdateInfo()) {
+        if (updateinfo.CheckUpdate())
+            bCheckUpdate = true;
+    }
+    else
+        cout << "Get version information error!check your network and try again!" << endl;
+
+    if(bCheckUpdate){
+        cout << "Program has new version and needs to update! " << endl;
+
+        cout << "The new fuctions include:" << endl;
+        for(auto& strmsg: updateinfo.updatemsg)
+            cout << strmsg << endl;
+
+        cout << "Update may cause data lost." << endl;
+        cout << "Please backup your data in directory: " << mapHCArgs["-datadir"] << " before update." << endl;
+        cout << "Do you want to update now(y/n, default:n)?";
+
+        char c_action;
+        cin >> std::noskipws >> c_action;
+
+        if (c_action == 'y' || c_action == 'Y') {
+            if (updateinfo.PreUpdate())
+            {
+                _bUpdate = true;
+                _isRunning = false;
+                return true;
+            }
+            else
+                cout << "update files error! update at another time!" << endl;
+        }
+
+        if (c_action != '\n') {
+            cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        }
+    }
+    else
+        cout << "Program is already the latest version!" << endl;
+
+    return false;
+
+ }
 
 void ConsoleCommandHandler::exit()
 {
-    cout << "Are you sure you want to exit(y/n)?";
-    string sInput;
-    cin >> sInput;
-    //boost::trim(sInput);
-    if (sInput == "y" || sInput == "Y") {
-        _isRunning = false;
+    cout << "Are you sure you want to exit(y/n, default:y)?";
+
+    char c_action;
+    cin >> std::noskipws >> c_action;
+
+    //if (cin.rdbuf()->in_avail() > 0) {
+    //HC: on Linux, have no any effect for calling cin.rdbuf()->in_avail
+    //if (cin.rdbuf()->sgetc() != streambuf::traits_type::eof()) {
+    if (c_action != '\n') {
+        cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     }
-    cin.ignore((numeric_limits<std::streamsize>::max)(), '\n');
+
+    if (c_action == '\n' || c_action == 'y' || c_action == 'Y') {
+        _isRunning = false;
+        UpdateProgram();
+    }
 }
 
 void ConsoleCommandHandler::handleCommand(const string &command, string& savingcommand)
@@ -608,7 +679,7 @@ void ConsoleCommandHandler::run_as_client()
         //}
         _ostream << command;
 
-
+        //HC: force output
         _ostream.rdbuf()->pubsync();
     }
 }
@@ -625,7 +696,7 @@ void ConsoleCommandHandler::run(role r)
     while (_isRunning) {
 
 #ifndef WIN32
-
+        //HC: As daemon, stdin has redirected to /dev/null in main() function
         if (r == role::DAEMON) {
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
@@ -670,7 +741,7 @@ void ConsoleCommandHandler::run(role r)
 void ConsoleCommandHandler::stop()
 {
     _isRunning = false;
-
+    //HC: make getline return
     _istream.rdbuf()->sputn("xstop\n", 6);
 }
 
@@ -790,6 +861,9 @@ void ConsoleCommandHandler::downloadHyperBlock(const list<string> &commlist)
     std::advance(iterCurrPos, 1);
     string strnodeid = *iterCurrPos;
 
+    //Test strnode id
+    CUInt128 test(strnodeid);
+
     std::advance(iterCurrPos, 1);
     uint64 nblockid = std::stoll(*iterCurrPos);
 
@@ -817,6 +891,9 @@ void ConsoleCommandHandler::downloadBlockHeader(const list<string> &commlist)
     auto iterCurrPos = commlist.begin();
     std::advance(iterCurrPos, 1);
     string strnodeid = *iterCurrPos;
+
+    //Test strnode id
+    CUInt128 test(strnodeid);
 
     std::advance(iterCurrPos, 1);
     uint64 nblockid = std::stoll(*iterCurrPos);
@@ -854,6 +931,16 @@ void ConsoleCommandHandler::showHyperBlock(uint64 hid, bool isShowDetails)
         _ostream << "Child Chains count:    " << h.GetChildChainsCount() << endl;
         _ostream << "Child blocks count:    " << h.GetChildBlockCount() << endl;
 
+        int nChainID = 1;
+        for (auto& chain : h.GetChildChains()) {
+            _ostream << StringFormat("\tChild Chain %d:\t", nChainID++);
+            for (auto& l : chain) {
+                _ostream << l.GetAppType().tohexstring();
+                break;
+            }
+            _ostream << "\t" << chain.size() << endl;
+        }
+
         _ostream << endl << endl;
 
         if (isShowDetails) {
@@ -882,34 +969,51 @@ void ConsoleCommandHandler::showHyperBlock(uint64 hid, bool isShowDetails)
 
 void ConsoleCommandHandler::searchLocalHyperBlock(const list<string> &commlist)
 {
-    uint64 nblocknum = 0;
-    uint64 nblocknumEnd = 0;
-    size_t s = commlist.size();
+    int64 nblocknum = 0;
+    int64 nblocknumEnd = 0;
+
+    list<string> commlistcopy = commlist;
+
+    bool isShowDetails = false;
+    for (auto bg = commlistcopy.begin(); bg != commlistcopy.end(); ++bg) {
+        if (*bg == "v") {
+            isShowDetails = true;
+            commlistcopy.erase(bg);
+            break;
+        }
+    }
+
+    CHyperChainSpace* sp = Singleton<CHyperChainSpace, string>::getInstance();
+    int64 nCurrHeight = sp->GetMaxBlockID();
+
+    size_t s = commlistcopy.size();
     if (s <= 1) {
-        CHyperChainSpace* sp = Singleton<CHyperChainSpace, string>::getInstance();
-        nblocknum = sp->GetMaxBlockID();
+        nblocknum = nCurrHeight;
         nblocknumEnd = nblocknum;
     }
     else {
-        auto iterCurrPos = commlist.begin();
+        auto iterCurrPos = commlistcopy.begin();
         std::advance(iterCurrPos, 1);
         nblocknum = std::stol(*iterCurrPos);
         nblocknumEnd = nblocknum;
 
         std::advance(iterCurrPos, 1);
-        if (iterCurrPos != commlist.end()) {
+        if (iterCurrPos != commlistcopy.end()) {
             if (*iterCurrPos != "v") {
                 nblocknumEnd = std::stol(*iterCurrPos);
             }
         }
-    }
 
-    bool isShowDetails = false;
-    for (auto p : commlist) {
-        if (p == "v") {
-            isShowDetails = true;
+        //HC: support <0 value
+        if (nblocknum < 0) {
+            nblocknum = nCurrHeight + nblocknum;
+        }
+
+        if (nblocknumEnd < 0) {
+            nblocknumEnd = nCurrHeight + nblocknumEnd;
         }
     }
+
 
     for (; nblocknum <= nblocknumEnd; nblocknum++) {
         showHyperBlock(nblocknum, isShowDetails);
@@ -981,7 +1085,7 @@ void ConsoleCommandHandler::resolveAppData(const list<string> &paralist)
     }
 
     if (paralist.size() == 3) {
-
+        //HC: query address by height
         int32 height = std::stoi(*(++para));
         f->appResolveHeight(height, info);
         _ostream << StringFormat("%s\n", info.c_str());
@@ -993,7 +1097,7 @@ void ConsoleCommandHandler::resolveAppData(const list<string> &paralist)
         return;
     }
 
-
+    //HC: Resolve payload into application block
     int64 hID = std::stol(*(++para));
     int16 chainID = std::stoi(*(++para));
     int16 localID = std::stoi(*(++para));
@@ -1013,11 +1117,63 @@ void ConsoleCommandHandler::resolveAppData(const list<string> &paralist)
     _ostream << StringFormat("%s\n", info.c_str());
 }
 
-void ConsoleCommandHandler::showInnerDataStruct()
+void ConsoleCommandHandler::showConsensusInfo()
 {
-    CHyperChainSpace *sp = Singleton<CHyperChainSpace, string>::getInstance();
-    NodeManager *nodemgr = Singleton<NodeManager>::getInstance();
+    ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::getInstance();
+    T_P2PMANAGERSTATUS* pConsensusStatus = consensuseng->GetConsunsusState();
 
+    uint32 l, g, nxt;
+    pConsensusStatus->GetConsensusTime(l, g, nxt);
+    _ostream << StringFormat("Consensus duration parameters(seconds): %u %u %u\n", l, g - l, nxt - g);
+    _ostream << "Block numbers waiting to consensus: " << pConsensusStatus->GetListOnChainReqCount() << endl;
+    _ostream << endl;
+
+    size_t reqblknum, rspblknum, reqchainnum, rspchainnum;
+    size_t localchainBlocks, globalbuddychainnum;
+    LIST_T_LOCALCONSENSUS localbuddychaininfos;
+
+    consensuseng->GetDetailsOfCurrentConsensus(reqblknum, rspblknum,
+        reqchainnum, rspchainnum, localchainBlocks, &localbuddychaininfos, globalbuddychainnum);
+
+    switch (pConsensusStatus->GetCurrentConsensusPhase()) {
+    case CONSENSUS_PHASE::PREPARE_LOCALBUDDY_PHASE:
+        _ostream << "Phase: Prepare to enter LOCALBUDDY_PHASE, "
+            << "Consensus condition : " << consensuseng->IsAbleToConsensus() << endl;
+        break;
+    case CONSENSUS_PHASE::LOCALBUDDY_PHASE:
+        _ostream << "Phase: LOCALBUDDY_PHASE" << endl;
+        _ostream << "Request block number(listRecvLocalBuddyReq): " << reqblknum << endl;
+        _ostream << "Respond block number(listRecvLocalBuddyRsp): " << rspblknum << endl;
+        _ostream << "Standby block chain number(listCurBuddyReq): " << reqchainnum << endl;
+        _ostream << "Standby block chain number(listCurBuddyRsp): " << rspchainnum << endl;
+        break;
+    case CONSENSUS_PHASE::GLOBALBUDDY_PHASE:
+        _ostream << "Phase: GLOBALBUDDY_PHASE" << endl;
+        break;
+    case CONSENSUS_PHASE::PERSISTENCE_CHAINDATA_PHASE:
+        _ostream << "Phase: PERSISTENCE_CHAINDATA_PHASE" << endl;
+    }
+
+    int i = 0;
+    _ostream << "listLocalBuddyChainInfo Number: " << localbuddychaininfos.size() << endl;
+    for (auto& b : localbuddychaininfos) {
+        auto& block = b.GetLocalBlock();
+        _ostream << "Application Type:  " << block.GetAppType().tohexstring() << endl;
+        _ostream << "LocalBlock Payload Preview: " << ++i << "," << block.GetPayLoadPreview() << endl;
+
+        if (block.GetAppType().isSmartContract()) {
+            _ostream << "LocalBlock Script Preview: " << block.GetScriptPreview() << endl;
+        }
+    }
+    _ostream << "listGlobalBuddyChainInfo Number: " << globalbuddychainnum << endl;
+}
+
+void ConsoleCommandHandler::showInnerBasicInfo()
+{
+    CHyperChainSpace* sp = Singleton<CHyperChainSpace, string>::getInstance();
+    NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
+
+    _ostream << "Starting time: " << g_strSysStartTm << endl;
     _ostream << "My NodeID: " << nodemgr->getMyNodeId<string>() << endl;
     _ostream << "My Max HyperBlock ID: " << sp->GetMaxBlockID() << endl;
     _ostream << "Latest HyperBlock is ready: " << sp->IsLatestHyperBlockReady() << endl;
@@ -1052,60 +1208,45 @@ void ConsoleCommandHandler::showInnerDataStruct()
 #else
     _ostream << "PID: " << getpid() << endl << endl;
 #endif
-    showMQBroker();
+}
 
-    _ostream << nodemgr->GetMQCostStatistics() << endl;
+void ConsoleCommandHandler::showInnerDataStruct(const list<string>& paralist)
+{
+    auto para = paralist.begin();
 
-    showUdpDetails();
-    _ostream << endl;
-
-    ConsensusEngine *consensuseng = Singleton<ConsensusEngine>::getInstance();
-    T_P2PMANAGERSTATUS *pConsensusStatus = consensuseng->GetConsunsusState();
-
-    uint32 l, g, nxt;
-    pConsensusStatus->GetConsensusTime(l,g,nxt);
-    _ostream << StringFormat("Consensus duration parameters(seconds): %u %u %u\n", l, g-l, nxt-g);
-    _ostream << "Block numbers waiting to consensus: " << pConsensusStatus->GetListOnChainReqCount() << endl;
-    _ostream << endl;
-
-    size_t reqblknum, rspblknum, reqchainnum, rspchainnum;
-    size_t localchainBlocks, globalbuddychainnum;
-    LIST_T_LOCALCONSENSUS localbuddychaininfos;
-
-    consensuseng->GetDetailsOfCurrentConsensus(reqblknum, rspblknum,
-        reqchainnum, rspchainnum, localchainBlocks, &localbuddychaininfos, globalbuddychainnum);
-
-    switch (pConsensusStatus->GetCurrentConsensusPhase()) {
-    case CONSENSUS_PHASE::PREPARE_LOCALBUDDY_PHASE:
-        _ostream << "Phase: Prepare to enter LOCALBUDDY_PHASE, "
-            << "Consensus condition : " << consensuseng->IsAbleToConsensus() << endl;
-        break;
-    case CONSENSUS_PHASE::LOCALBUDDY_PHASE:
-        _ostream << "Phase: LOCALBUDDY_PHASE" << endl;
-        _ostream << "Request block number(listRecvLocalBuddyReq): " << reqblknum << endl;
-        _ostream << "Respond block number(listRecvLocalBuddyRsp): " << rspblknum << endl;
-        _ostream << "Standby block chain number(listCurBuddyReq): " << reqchainnum << endl;
-        _ostream << "Standby block chain number(listCurBuddyRsp): " << rspchainnum << endl;
-        break;
-    case CONSENSUS_PHASE::GLOBALBUDDY_PHASE:
-        _ostream << "Phase: GLOBALBUDDY_PHASE" << endl;
-        break;
-    case CONSENSUS_PHASE::PERSISTENCE_CHAINDATA_PHASE:
-        _ostream << "Phase: PERSISTENCE_CHAINDATA_PHASE" << endl;
+    if (paralist.size() == 1) {
+        showInnerBasicInfo();
+        return;
     }
 
-    int i = 0;
-    _ostream << "listLocalBuddyChainInfo Number: " << localbuddychaininfos.size() << endl;
-    for (auto &b : localbuddychaininfos) {
-        auto &block = b.GetLocalBlock();
-        _ostream << "Application Type:  " << block.GetAppType().tohexstring() << endl;
-        _ostream << "LocalBlock Payload Preview: " << ++i << "," << block.GetPayLoadPreview() << endl;
-
-        if (block.GetAppType().isSmartContract()) {
-            _ostream << "LocalBlock Script Preview: " << block.GetScriptPreview() << endl;
+    string option1 = *(++para);
+    if (option1 == "b") {
+        showMQBroker();
+        NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
+        _ostream << nodemgr->GetMQCostStatistics() << endl;
+    }
+    else if (option1 == "c") {
+        showConsensusInfo();
+    }
+    else if (option1 == "n") {
+        showUdpDetails();
+    }
+    else if (option1 == "uuid") {
+        cout << "Are you sure you want to reset uuid of the node(y/n)?";
+        string sInput;
+        cin >> sInput;
+        if (sInput == "y" || sInput == "Y") {
+            NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
+            if (nodemgr->RemoveMyself()) {
+                _ostream << "Ok, please restart to take effect." << endl;
+            } else {
+                _ostream << "Failed to reset uuid" << endl;
+            }
         }
     }
-    _ostream << "listGlobalBuddyChainInfo Number: " << globalbuddychainnum << endl;
+    else {
+        _ostream << "Available options: b/c/n/uuid, which mean Broker/Consensus/Network/Reset uuid." << endl;
+    }
 }
 
 void ConsoleCommandHandler::setLoggerLevelHelp(std::shared_ptr<spdlog::logger> & logger,
@@ -1139,7 +1280,7 @@ void ConsoleCommandHandler::setLoggerLevelHelp(std::shared_ptr<spdlog::logger> &
         return false;
     });
 
-
+    //HC:(trace=0,debug=1,info=2,warn=3,err=4,critical=5,off=6)
     _ostream << StringFormat("%s log level is %s (trace,debug,info,warn,err,critical,off)\n",
         logger->name().c_str(), levelname.c_str());
 }
@@ -1307,7 +1448,7 @@ void ConsoleCommandHandler::switchRemoteServer(const list<string>& cmdlist)
         goto usage;
     }
 
-
+    //HC: a new remote server
     ipaddr = ccmd;
     port = std::atoi((++childcmd)->c_str());
 
@@ -1438,7 +1579,7 @@ void ConsoleCommandHandler::handleVM(const list<string>& vmcmdlist)
         }
 
         if (vm.execute(data.jsbytecode, result, excp)) {
-
+            //HC: Result of Smart Contract
             _ostream << StringFormat("%s\n", result.c_str());
         }
         else {
@@ -1504,6 +1645,11 @@ void ConsoleCommandHandler::handleToken(const list<string>& cmdlist, string& sav
 void ConsoleCommandHandler::handleCoin(const list<string>& cmdlist, string& savingcommand)
 {
     appConsoleCmd("paracoin", cmdlist, savingcommand);
+}
+
+void ConsoleCommandHandler::handleEth(const list<string>& cmdlist, string& savingcommand)
+{
+    appConsoleCmd("aleth", cmdlist, savingcommand);
 }
 
 void ConsoleCommandHandler::simulateHyperBlkUpdated(const list<string>& cmdlist)

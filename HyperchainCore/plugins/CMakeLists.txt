@@ -22,5 +22,8 @@
 
 
 
-add_subdirectory(ledge)
+add_subdirectory(eth)
+add_subdirectory(ledger)
 add_subdirectory(paracoin)
+add_subdirectory(common/secp256k1)
+
