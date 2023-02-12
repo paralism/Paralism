@@ -80,13 +80,13 @@ class CDataStream;
 class CAutoFile;
 static const unsigned int MAX_SIZE = 0x02000000;
 
-static const int VERSION_2020 = 40000;  //HC: The number belong to 2019~2020
-static const int VERSION_1 = 50000;     //HC: 2021年1月27日14:18:02
-static const int VERSION_V72 = 50001;   //HC: 2021年6月11日 from v0.7.2.611
-static const int VERSION_V74 = 50002;   //HC: 2021年7月16日 from v0.7.3.716
-static const int VERSION = 60000;       //HC: 2022年3月21日 from v0.7.5.328
+static const int VERSION_2020 = 40000;  //HCE: The number belong to 2019~2020
+static const int VERSION_1 = 50000;     //HCE: 2021-1-27 14:18:02
+static const int VERSION_V72 = 50001;   //HCE: 2021-6-11 from v0.7.2.611
+static const int VERSION_V74 = 50002;   //HCE: 2021-7-16 from v0.7.3.716
+static const int VERSION = 60000;       //HCE: 2022-3-21 from v0.7.5.328
 
-static const int TXIDX_VERSION = 1000;     //HC: 2021年8月2日 from v0.7.3.802 for txindex
+static const int TXIDX_VERSION = 1000;     //HCE: 2021-8-2 from v0.7.3.802 for txindex
 
 static const char* pszSubVer = "hc";
 static const bool VERSION_IS_BETA = true;
@@ -111,7 +111,7 @@ enum
     SER_NETWORK         = (1 << 0),
     SER_DISK            = (1 << 1),
     SER_GETHASH         = (1 << 2),
-    SER_BUDDYCONSENSUS  = (1 << 3), //HC:
+    SER_BUDDYCONSENSUS  = (1 << 3), //HCE:
 
     // modifiers
     SER_SKIPSIG         = (1 << 16),

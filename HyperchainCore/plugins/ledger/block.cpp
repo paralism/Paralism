@@ -170,7 +170,7 @@ int CBlock::CheckHyperBlockConsistence(CNode* pfrom) const
             WARNING_FL("Hyper block %d: In my storage hash %s !!!== %s",
                 nPrevHID, hashCurr.ToPreViewString().c_str(),
                 hashPrevHyperBlock.ToPreViewString().c_str());
-            //HC:give me your hyper block, maybe better than mine
+            //HCE:give me your hyper block, maybe better than mine
             if (pfrom) {
                 RSyncRemotePullHyperBlock(nPrevHID, pfrom->nodeid);
             }

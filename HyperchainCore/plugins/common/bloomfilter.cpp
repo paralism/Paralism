@@ -219,7 +219,7 @@ bool BloomFilter::contain(const std::string& object) const
         }
     }
 
-    //HC: md5 hash
+    //HCE: md5 hash
     md5hash(object);
 
     const uint8_t* const obj_h = reinterpret_cast<const uint8_t* const>(_md5_hash_result);
@@ -250,7 +250,7 @@ void BloomFilter::hashtable_init()
     _hashfunctable.push_back(*PJWHash);
     _hashfunctable.push_back(*JSHash);
     _hashfunctable.push_back(*RSHash);
-    //HC: less hash function, less the memory usages
+    //HCE: less hash function, less the memory usages
     //_hashfunctable.push_back(*SDBMHash);
     //_hashfunctable.push_back(*APHash);
     //_hashfunctable.push_back(*DJBHash);

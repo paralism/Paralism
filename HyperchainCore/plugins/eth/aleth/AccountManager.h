@@ -17,8 +17,7 @@
 class AccountManager
 {
 public:
-    //HC:
-    bool contain(const dev::h160& acc);
+        bool contain(const dev::h160& acc);
 
 	/// uses @a argc, @a argv provided by the CLI and executes implemented options.
 	bool execute(int argc, char** argv);

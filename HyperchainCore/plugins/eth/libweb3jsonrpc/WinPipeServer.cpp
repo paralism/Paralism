@@ -54,9 +54,7 @@ void WindowsPipeServer::Listen()
         {
             if (WaitForSingleObject(m_hstop, 0) == WAIT_OBJECT_0) {
                 printf("\tWindowsPipeServer has stopped\n");
-                //HC: 遗留问题 当外部客户端连接到Pipe不关闭时，HC依然无法退出,阻塞在CloseConnection里，除非客户端退出
-                //HC: 用强制关闭线程方式依然不行
-                //for (auto &t : handlers) {
+                                                //for (auto &t : handlers) {
                     //DisconnectNamedPipe(t);
                     //CloseHandle(t);
                     //TerminateThread(t, -1);
@@ -75,7 +73,6 @@ void WindowsPipeServer::Listen()
     }
 }
 
-//HC: Connect to pipe server and stop it
 bool WindowsPipeServer::StopListening()
 {
     SetEvent(m_hstop);

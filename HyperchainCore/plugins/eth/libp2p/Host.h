@@ -266,6 +266,8 @@ public:
 
     std::shared_ptr<CapabilityHostFace> capabilityHost() const { return m_capabilityHost; }
 
+    std::shared_ptr<NodeTable> nodeTable() const { Guard l(x_nodeTable); return m_nodeTable; }
+
 protected:
     /*
      * Used by the host to run a capability's background work loop
@@ -380,7 +382,6 @@ private:
     ENR const m_restoredENR;
     std::shared_ptr<NodeTable> m_nodeTable;									///< Node table (uses kademlia-like discovery).
     mutable std::mutex x_nodeTable;
-    std::shared_ptr<NodeTable> nodeTable() const { Guard l(x_nodeTable); return m_nodeTable; }
 
     /// Shared storage of Peer objects. Peers are created or destroyed on demand by the Host. Active sessions maintain a shared_ptr to a Peer;
     std::unordered_map<NodeID, std::shared_ptr<Peer>> m_peers;

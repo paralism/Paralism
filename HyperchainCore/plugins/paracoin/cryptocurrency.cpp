@@ -67,7 +67,7 @@ CBlock CreateGenesisBlock(const string& name, const string& desc, const string& 
     txNew.nVersion = 1;
     txNew.vin.resize(GENESISBLOCK_VIN_COUNT);
     txNew.vout.resize(1);
-    //HC: 486604799 ==> 1d00ffff Which is Bitcoin's nBits
+    //HCE: 486604799 ==> 1d00ffff Which is Bitcoin's nBits
     //txNew.vin[0].scriptSig = CScript() << 486604799 << CBigNum(4)
     txNew.vin[0].scriptSig = CScript()
         << std::vector<unsigned char>((const unsigned char*)(&name[0]), (const unsigned char*)(&name[0]) + name.size());
@@ -111,7 +111,7 @@ CBlock CreateGenesisBlock(const string& name, const string& desc, const string& 
  */
 CBlock CreateGenesisBlock(uint32_t nTime, const string& name, const string& desc, const string& model, vector<unsigned char> logo, uint64 nNonce, const std::vector<unsigned char>& nSolution, uint32_t nBits, int32_t nVersion, const int64_t& genesisReward)
 {
-    //HC:ParseHex parameter: a valid random public key
+    //HCE: ParseHex parameter: a valid random public key
     const CScript genesisOutputScript = CScript() << ParseHex("04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f") << OP_CHECKSIG;
     return CreateGenesisBlock(name, desc, model, logo, genesisOutputScript, nTime, nNonce, nSolution, nBits, nVersion, genesisReward);
 }
@@ -136,7 +136,7 @@ bool DoMining(CBlock& block, progpow::search_result& r)
     int64 nStart = GetTime();
     r = progpow::search_light(epoch_ctx, block.nHeight, header_hash, target, start_nonce, nMaxTries,
         [&nStart]() {
-        //HC: Return true means stop mining.
+        //HCE: Return true means stop mining.
         if (fShutdown) {
             return true;
         }
@@ -293,7 +293,7 @@ bool CryptoCurrency::IsSysParacoin(const string& shorthash)
     return shorthash == GetHashPrefixOfSysGenesis();
 }
 
-//HC: if shorthash is empty,then find one
+//HCE: if shorthash is empty,then find one
 bool CryptoCurrency::ReadCoinFile(const string& name, string& shorthash, string& errormsg)
 {
     namespace fs = boost::filesystem;
@@ -332,7 +332,7 @@ bool CryptoCurrency::ReadCoinFile(const string& name, string& shorthash, string&
                     mapSettings[it->string_key] = it->value[0];
                 }
 
-                //HC: solve the older version bug
+                //HCE: solve the older version bug
                 if (mapSettings["maxcoinbaseblkheight"].empty()) {
                     mapSettings["maxcoinbaseblkheight"] = "0";
                 }
@@ -488,7 +488,7 @@ CBlock CryptoCurrency::GetGenesisBlock()
     return CreateBlockByConfig(mapSettings);
 }
 
-//HC: Use the following function to mine a new genesis block.
+//HCE: Use the following function to mine a new genesis block.
 CBlock CryptoCurrency::MineGenesisBlock()
 {
     string& logo = mapSettings["logo"];
@@ -512,7 +512,7 @@ CBlock CryptoCurrency::MineGenesisBlock()
     string strhash;
     string strMerkleRoothash;
     if (r.solution_found) {
-        //HC: get mix and hash string of genesis block.
+        //HCE: get mix and hash string of genesis block.
         vector<unsigned char> vecMix(sizeof(r.mix_hash.bytes));
         std::reverse_copy(std::begin(r.mix_hash.bytes), std::end(r.mix_hash.bytes), vecMix.begin());
 
@@ -575,7 +575,7 @@ bool CryptoCurrency::CheckGenesisBlock()
     string payload;
     if (!hyperchainspace->GetLocalBlockPayload(addr, payload)) {
 
-        //HC: paracoin: 22008, Hyperchain space don't support download 22008 without nodeid
+        //HCE: paracoin: 22008, Hyperchain space don't support download 22008 without nodeid
         if (mapSettings["hashgenesisblock"] ==
                         "0de3d1c7ff6c53ca2572cf26b72a2d9decc3d84ed800a03a4474daf34b055ba5") {
             int n = 0;
@@ -677,52 +677,52 @@ string CryptoCurrency::GetUUID()
     return hash.ToString();
 }
 
-//HC: What is Pan Gu, creator of the universe in Chinese mythology
-//HC: Genesis block address is [0 1 2]
+//HCE: What is Pan Gu, creator of the universe in Chinese mythology
+//HCE: Genesis block address is [0 1 2]
 std::map<std::string, std::string> CryptoCurrency::GetPanGuSettings()
 {
     std::map<std::string, std::string> mapPanguSettings;
     mapPanguSettings = { {"name", "paracoin"},
                              {"description",""},
-                             {"model","PARA"},                //PARA or Satoshi
+                             {"model","PARA"},                //HCE: PARA or Satoshi
                              {"logo",""},
-                             {"bits","0x20000fff"},           //HC: 0x prefix is must, if change the value, must change the code of RPC:getdifficulty
-                             {"genesisbits","0x21000fff"},    //HC: use only for genesis block
+                             {"bits","0x20000fff"},           //HCE: 0x prefix is must, if change the value, must change the code of RPC:getdifficulty
+                             {"genesisbits","0x21000fff"},    //HCE: use only for genesis block
                              {"version","1"},
                              {"reward","8"},
                              {"time","1568277586"},
-                             {"nonce","0xcb72d774d27c9d06"}, //HC: 0x prefix is must
+                             {"nonce","0xcb72d774d27c9d06"}, //HCE: 0x prefix is must
                              {"hashmix","0a51a7b9b8b96dcccf603559d4d7b172ebd8e5c0cc38a41facac1169e6507379"},
                              {"hashgenesisblock","01aed9dfab9efda53f10f7db02e7282a0d09bb73f73be7bc3ed7d22db011f1f8"},
                              {"hashmerkleroot","929eaf2c7db95f8283a8df8d1a2bacf7c579ddfc8f5ee1f70d19ef3de0a57d93"},
                              {"hid","0"},
                              {"chainnum","1"},
                              {"localid","2"},
-                             {"maxcoinbaseblkheight","0"},    //HC: maximum block height allowing many Coinbase transaction in a block
+                             {"maxcoinbaseblkheight","0"},    //HCE: maximum block height allowing many Coinbase transaction in a block
     };
     return mapPanguSettings;
 }
 
 void CryptoCurrency::SetDefaultParas()
 {
-    //HC: sandbox
+    //HCE: sandbox
     mapSettings = { {"name", "paracoin"},
                      {"description","www.hyperchain.net"},
-                     {"model","PARA"},                //PARA or Satoshi
+                     {"model","PARA"},                //HCE: PARA or Satoshi
                      {"logo",""},
-                     {"bits","0x20000fff"},           //HC: 0x prefix is must, if change the value, must change the code of RPC:getdifficulty
-                     {"genesisbits","0x2100ffff"},    //HC: use only for genesis block
+                     {"bits","0x20000fff"},           //HCE: 0x prefix is must, if change the value, must change the code of RPC:getdifficulty
+                     {"genesisbits","0x2100ffff"},    //HCE: use only for genesis block
                      {"version","1"},
                      {"reward","8"},
                      {"time","1578279640"},
-                     {"nonce","0xa175cd70afbbdaea"}, //HC: 0x prefix is must
+                     {"nonce","0xa175cd70afbbdaea"}, //HCE: 0x prefix is must
                      {"hashmix","513b63d5af528aad54334e981432284e015e3d78d90b65f4df3a5a3321e11d01"},
                      {"hashgenesisblock","ac9e9488aa3f4f4744ba7ec88c32c74c3bbee6664814ffd56d46d9c65efa224e"},
                      {"hashmerkleroot","0034968dfbbcd0c04f0e2f83d4ddcd0d113d4bc62726eecc34f007ad9f970ed7"},
                      {"hid","3"},
                      {"chainnum","1"},
                      {"localid","2"},
-                     {"maxcoinbaseblkheight","6"},    //HC: maximum block height allowing many Coinbase transaction in a block
+                     {"maxcoinbaseblkheight","6"},    //HCE: maximum block height allowing many Coinbase transaction in a block
     };
 }
 
@@ -739,27 +739,27 @@ void CryptoCurrency::SelectNetWorkParas()
         if (model == "informal" || model == "formal") {
             mapSettings = { {"name", "paracoin"},
                                      {"description","www.hyperchain.net"},
-                                     {"model","PARA"},                //PARA or Satoshi
+                                     {"model","PARA"},                //HCE: PARA or Satoshi
                                      {"logo",""},
-                                     {"bits","0x20000fff"},           //HC: 0x prefix is must, if change the value, must change the code of RPC:getdifficulty
-                                     {"genesisbits","0x2100ffff"},    //HC: use only for genesis block
+                                     {"bits","0x20000fff"},           //HCE: 0x prefix is must, if change the value, must change the code of RPC:getdifficulty
+                                     {"genesisbits","0x2100ffff"},    //HCE: use only for genesis block
                                      {"version","1"},
                                      {"reward","8"},
                                      {"time","1613700469"},
-                                     {"nonce","0x46f7c8ff575faa30"}, //HC: 0x prefix is must
+                                     {"nonce","0x46f7c8ff575faa30"}, //HCE: 0x prefix is must
                                      {"hashmix","781f183dbd409fd395d916cb1e94e7a1338d13bf202546c85975ccf454e1ce82"},
                                      {"hashgenesisblock","a33a70884e516eee7fb41d8ffa38d5ddee3cd2ac121cd46a853cd29bb13c4e53"},
                                      {"hashmerkleroot","0034968dfbbcd0c04f0e2f83d4ddcd0d113d4bc62726eecc34f007ad9f970ed7"},
                                      {"hid","203238"},
                                      {"chainnum","1"},
                                      {"localid","1"},
-                                     {"maxcoinbaseblkheight","176"},    //HC: maximum block height allowing many Coinbase transaction in a block
+                                     {"maxcoinbaseblkheight","176"},    //HCE: maximum block height allowing many Coinbase transaction in a block
             };
             return;
         }
     }
 
-    //HC: sandbox
+    //HCE: sandbox
     SetDefaultParas();
 }
 

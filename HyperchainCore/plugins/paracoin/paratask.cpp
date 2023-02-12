@@ -60,7 +60,7 @@ int OperatorApplication(std::shared_ptr<OPAPP> parg)
 
     ShutdownExcludeRPCServer();
 
-    //HC: prepare the coin starting parameters
+    //HCE: prepare the coin starting parameters
     std::deque<string> appli;
 
     appli.push_front("hc");
@@ -172,7 +172,7 @@ bool PickupMessages(CDataStream& vSendStream, uint32_t nLimitSize, string &tskms
         //        outputlog(strprintf("Block message:  height is %d", 0));
         //}
 
-        //HC: Message size
+        //HCE: Message size
         unsigned int nMessageSize = hdr.nMessageSize;
         if (nMessageSize > MAX_SIZE) {
             ERROR_FL("PickupMessages(%u bytes) : nMessageSize > MAX_SIZE\n", nMessageSize);
@@ -180,13 +180,13 @@ bool PickupMessages(CDataStream& vSendStream, uint32_t nLimitSize, string &tskms
         }
 
         if (nMessageSize > vSendStream.size() || (nSize > 0 && nSize + nMessageSize > nLimitSize)) {
-            //HC: Rewind and wait for rest of message or reach size limit if append next message
+            //HCE: Rewind and wait for rest of message or reach size limit if append next message
             ERROR_FL("Rewind and wait for rest of message or reach size limit if append next message ");
             vSendStream.insert(vSendStream.begin(), vHeaderSave.begin(), vHeaderSave.end());
             break;
         }
 
-        //HC: Copy message to its own buffer
+        //HCE: Copy message to its own buffer
         tskmsg.append(vHeaderSave.begin(), vHeaderSave.end());
         tskmsg.append(vSendStream.begin(), vSendStream.begin() + nMessageSize);
         vSendStream.ignore(nMessageSize);
@@ -207,16 +207,16 @@ void sendToNode(CNode* pnode)
             int nBytes = vSend.size();
             if (nBytes > 0) {
 
-                //HC: copy data will be sent.
-                //HC: We cannot send out data directly before calling vSend.erase,
-                //HC: because calling ParaTask.exec() will possibly switch the message,
-                //HC: struct of vSend will be damaged, and cause unpredictable behavior.
+                //HCE: copy data will be sent.
+                //HCE: We cannot send out data directly before calling vSend.erase,
+                //HCE: because calling ParaTask.exec() will possibly switch the message,
+                //HCE: struct of vSend will be damaged, and cause unpredictable behavior.
 
                 sndbuf = string(vSend.begin(), vSend.begin() + nBytes);
                 vSend.erase(vSend.begin(), vSend.begin() + nBytes);
                 pnode->nLastSend = GetTime();
 
-                //HC: put 4096 bytes messages at most
+                //HCE: put 4096 bytes messages at most
                 //if (PickupMessages(vSend, 4096, sndbuf)) {
                 //    pnode->nLastSend = GetTime();
                 //}
@@ -293,7 +293,7 @@ void ParaRecver::HandleData()
     bool iscanremove = false;
     TRY_CRITICAL_BLOCK(_cs_NRecv)
     {
-        //HC: if cannot get locker, try it next time
+        //HCE: if cannot get locker, try it next time
         TRY_CRITICAL_BLOCK(cs_vNodes)
         {
             iscanremove = true;
@@ -565,7 +565,7 @@ void StartMQHandler()
         std::bind(&handleParacoinTask, std::placeholders::_1, std::placeholders::_2);
 
     paramsghandler.registerTaskWorker(PARACOIN_T_SERVICE, fwrk);
-    paramsghandler.start();
+    paramsghandler.start("ParaMsgHandler");
     paramqcenter.start();
     cout << "Para MQID:   " << paramsghandler.getID() << endl;
 

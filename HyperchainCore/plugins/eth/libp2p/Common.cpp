@@ -240,14 +240,30 @@ ostream& operator<<(ostream& _out, NodeIPEndpoint const& _ep)
     return _out;
 }
 
-vector<pair<Public, const char*>> defaultBootNodes()
+vector<pair<Public, const char*>> defaultBootNodes_Sandbox()
 {
     // TODO: Use full string enode representation, maybe via Node, NodeSpec or other type.
     // clang-format off
     return {
-        {Public("273d43d6edb07180b8be0baa753ccce60d26da02e21939db2637cf1a02bdab0daacede5daa66b336a0780515f558dfe508cc94b1abd9b14b2543ed966b3d8b1e"), "192.168.0.206:30600"}, // SG
+        {Public("f1927657505706cf8f184da9c1df59ac55349128a84a135fe259550cad73a2b35eb556df441d0867049c62137aac5c5229f36668d26a14cc939d0a1e3323d468"), "39.100.12.169:30600"},
+        {Public("65be0b543a611b2584f18a1d2fa74c2342e094246cd29f20286bb01eb54d0744578a638e179582ba0a11f4a69302dca5af7431d69b504501ec0d34f35d2016f5"), "39.100.22.110:30600"},
+        //HC: Test
+        //HC: {Public("273d43d6edb07180b8be0baa753ccce60d26da02e21939db2637cf1a02bdab0daacede5daa66b336a0780515f558dfe508cc94b1abd9b14b2543ed966b3d8b1e"), "192.168.0.206:30600"}, // SG
     };
+}
+vector<pair<Public, const char*>> defaultBootNodes_Informal()
+{
+    return {
+      {Public("38e488c00ab6c06f07eb2a71c6f6f354d080ec807e91a7ed78f712833a70b346c336b89bc4a159dd947fed761c7fe39606f7a207170e86c7868906724481d381"), "39.103.171.221:30600"},
+      {Public("1cfcd7d998a9e677e623818d7083e0e0cb7f414d64eeba5cc91bf44fe8c5fe4cc7a277370d0c1d637dfb8075ba8870740d88f6e4268b14a50313519cdaa819bb"), "8.142.12.52:30600"},
+    };
+}
 
+vector<pair<Public, const char*>> defaultBootNodes()
+{
+    // TODO: Use full string enode representation, maybe via Node, NodeSpec or other type.
+    // clang-format off
+    return {};
     return
     {
         // Mainnet:

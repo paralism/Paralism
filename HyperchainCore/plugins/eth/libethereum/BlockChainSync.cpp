@@ -257,7 +257,6 @@ void BlockChainSync::syncPeer(NodeID const& _peerID, bool _force)
     u256 const syncingDifficulty = std::max(m_syncingTotalDifficulty, td);
     u256 const peerTotalDifficulty = peer.totalDifficulty();
 
-    //HC: 难度比较
     if (_force || peerTotalDifficulty > syncingDifficulty)
     {
         if (peerTotalDifficulty > syncingDifficulty)
@@ -290,26 +289,24 @@ void BlockChainSync::syncPeer(NodeID const& _peerID, bool _force)
 
 void BlockChainSync::continueSync()
 {
+    //cout << "continueSync: " << this_thread::get_id() << endl;
     host().capabilityHost().foreachPeer(m_host.name(), [this](NodeID const& _peerID) {
         syncPeer(_peerID, false);
         return true;
     });
 }
 
-//HC: 下载块体
 void BlockChainSync::requestBlocks(NodeID const& _peerID)
 {
     clearPeerDownload(_peerID);
     if (host().bq().knownFull())
     {
-        //HC: 下载的区块会暂时存放到一级缓冲区里，合并后再写入二级缓冲区BlockQueue，当BlockQueue满了,暂停同步
         LOG(m_loggerDetail) << "Waiting for block queue before downloading blocks from " << _peerID
                             << ". Block queue status: " << host().bq().status();
         pauseSync();
         return;
     }
     // check to see if we need to download any block bodies first
-    //HC: 确定需要下载哪些区块的区块体
     auto header = m_headers.begin();
     h256s neededBodies;
     vector<unsigned> neededNumbers;
@@ -343,7 +340,6 @@ void BlockChainSync::requestBlocks(NodeID const& _peerID)
         if (!m_haveCommonHeader)
         {
             // download backwards until common block is found 1 header at a time
-            //HC: 链回退，start为新的同步起点块号并设置
             start = m_lastImportedBlock;
             if (!m_headers.empty())
                 start = std::min(start, m_headers.begin()->first - 1);
@@ -351,25 +347,20 @@ void BlockChainSync::requestBlocks(NodeID const& _peerID)
             m_lastImportedBlockHash = host().chain().numberHash(start);
 
             if (start <= m_chainStartBlock + 1)
-                //HC: 退到链的起始块，那么退无可退了就只能前进，将m_haveCommonHeader设为true
                 m_haveCommonHeader = true; //reached chain start
         }
         if (m_haveCommonHeader)
         {
-            //HC: 准备需要下载哪些区块头
             start = m_lastImportedBlock + 1;
             auto next = m_headers.begin();
             unsigned count = 0;
 
-            //HC: 如果start小于m_headers里的最低块那就最好，
-            //HC: 否则将start设为第一个连续区块区域之后，并且next设为第二个连续区块区域的开始
             if (!m_headers.empty() && start >= m_headers.begin()->first)
             {
                 start = m_headers.begin()->first + m_headers.begin()->second.size();
                 ++next;
             }
 
-            //HC: count是请求区块的数量
             while (count == 0 && next != m_headers.end())
             {
                 count = std::min(c_maxRequestHeaders, next->first - start);
@@ -394,7 +385,6 @@ void BlockChainSync::requestBlocks(NodeID const& _peerID)
                 }
                 else if (start >= next->first)
                 {
-                    //HC: 如果start超过了第二个连续区块区域，则将start设为第二个连续区块区域的末尾，next设置为第三个连续区块区域的开始,继续loop
                     start = next->first + next->second.size();
                     ++next;
                 }
@@ -470,7 +460,6 @@ void BlockChainSync::onPeerBlockHeaders(NodeID const& _peerID, RLP const& _r)
     LOG(m_logger) << "BlocksHeaders (" << dec << itemCount << " entries) "
                   << (itemCount ? "" : ": NoMoreHeaders") << " from " << _peerID;
 
-    //HC: DAO硬分叉检测
     if (m_daoChallengedPeers.find(_peerID) != m_daoChallengedPeers.end())
     {
         if (verifyDaoChallengeResponse(_r))
@@ -482,7 +471,6 @@ void BlockChainSync::onPeerBlockHeaders(NodeID const& _peerID, RLP const& _r)
         return;
     }
 
-    //HC: 清除该peer的m_downloadingHeaders，m_downloadingBodies
     clearPeerDownload(_peerID);
     if (m_state != SyncState::Blocks && m_state != SyncState::Waiting)
     {
@@ -500,7 +488,6 @@ void BlockChainSync::onPeerBlockHeaders(NodeID const& _peerID, RLP const& _r)
         m_host.capabilityHost().updateRating(_peerID, -1);
     }
 
-    //HC: 遍历接收的区块头
     for (unsigned i = 0; i < itemCount; i++)
     {
         BlockHeader info(_r[i].data(), HeaderData);
@@ -527,17 +514,12 @@ void BlockChainSync::onPeerBlockHeaders(NodeID const& _peerID, RLP const& _r)
 
         auto status = host().bq().blockStatus(info.hash());
 
-        //HC: 这个块头在BlockQueue中导入过或者正在导入或者直接就在本地区块链中，那么就认为该区块头是可信的，
-        //HC: 赋m_haveCommonHeader为true，表示不需要再继续回退了
         if (status == QueueStatus::Importing || status == QueueStatus::Ready || host().chain().isKnown(info.hash()))
         {
             m_haveCommonHeader = true;
             m_lastImportedBlock = (unsigned)info.number();
             m_lastImportedBlockHash = info.hash();
 
-            //HC: 检测m_headers里还在排队的区块里有没有不是一条心的
-            //HC: 假如m_headers中块号最小的那个块恰好是这个区块的下一个块(块号+1)，
-            //HC: 并且那个块的父块又不是这个区块，那就说明m_headers里下载的区块有问题了，这个时候的处理是清空缓冲区，重新开始同步
             if (!m_headers.empty() && m_headers.begin()->first == m_lastImportedBlock + 1 &&
                 m_headers.begin()->second[0].parent != m_lastImportedBlockHash)
             {
@@ -590,13 +572,11 @@ void BlockChainSync::onPeerBlockHeaders(NodeID const& _peerID, RLP const& _r)
                 }
             }
 
-            //HC: 检查通过之后，就可以将下载区块头加入m_headers中了
             mergeInto(m_headers, blockNumber, std::move(hdr));
             if (headerId.transactionsRoot == EmptyTrie && headerId.uncles == EmptyListSHA3)
             {
                 //empty body, just mark as downloaded
-                //HC: 有一种特殊的区块，就是区块本身并不包含交易，区块体是空的，那么可以直接将一个空的区块体添加到m_bodies中，而不需要再去下载该区块体了
-                RLPStream r(2);
+                                RLPStream r(2);
                 r.appendRaw(RLPEmptyList);
                 r.appendRaw(RLPEmptyList);
                 bytes body;
@@ -607,13 +587,10 @@ void BlockChainSync::onPeerBlockHeaders(NodeID const& _peerID, RLP const& _r)
                 m_headerIdToNumber[headerId] = blockNumber;
         }
     }
-    //HC: 判断是否有合适的区块头和区块体需要合并写入二级缓冲区BlockQueue
     collectBlocks();
-    //HC: 继续调用syncPeer()向其他peer请求区块头或者区块体
     continueSync();
 }
 
-//HC: 看块头的extraData里记录的是不是dao-hard-fork( Hex : 0x64616f2d686172642d666f726b) ，如果是则说明是ETH，可以继续同步，否则是ETC，禁用该peer。
 bool BlockChainSync::verifyDaoChallengeResponse(RLP const& _r)
 {
     if (_r.itemCount() != 1)
@@ -651,8 +628,6 @@ void BlockChainSync::onPeerBlockBodies(NodeID const& _peerID, RLP const& _r)
         RLP body(_r[i]);
 
         auto txList = body[0];
-        //HC: 从区块体数据中重新计算transactionRoot和uncles值，
-        //HC: 和m_headers中对应块头里记录的值做比较，如果一样则mergeInto到m_bodies里
         h256 transactionRoot = trieRootOver(txList.itemCount(), [&](unsigned i){ return rlp(i); }, [&](unsigned i){ return txList[i].data().toBytes(); });
         h256 uncles = sha3(body[1].data());
         HeaderId id { transactionRoot, uncles };
@@ -676,14 +651,11 @@ void BlockChainSync::onPeerBlockBodies(NodeID const& _peerID, RLP const& _r)
     continueSync();
 }
 
-//HC: 合并区块头和区块体，并导入第二级缓存BlockQueue中（host().bq()）
 void BlockChainSync::collectBlocks()
 {
     if (!m_haveCommonHeader || m_headers.empty() || m_bodies.empty())
         return;
 
-    //HC: headers是m_headers中第一个连续区域，bodies是m_bodies中第一个连续区域。
-    //HC: 那么这里的两个条件是headers中最低区块号必须和bodies中最低区块号相同，并且这个区块号就是所需要同步的下一个区块。
     // merge headers and bodies
     auto& headers = *m_headers.begin();
     auto& bodies = *m_bodies.begin();
@@ -704,7 +676,10 @@ void BlockChainSync::collectBlocks()
         blockStream.appendRaw(body[1].data());
         bytes block;
         blockStream.swapOut(block);
-        switch (host().bq().import(&block))
+
+
+        ImportResult iresult = host().bq().import(&block);
+        switch (iresult)
         {
         case ImportResult::Success:
             success++;
@@ -736,7 +711,8 @@ void BlockChainSync::collectBlocks()
             {
                 logImported(success, future, got, unknown);
                 LOG(m_logger)
-                    << "Already known or future time & unknown parent or unknown parent, block #"
+                    << "ImportResult: " << (int)iresult
+                    << " Already known or future time & unknown parent or unknown parent, block #"
                     << headers.first + i << ". Resetting sync.";
                 resetSync();
                 m_haveCommonHeader = false; // fork detected, search for common header again
@@ -756,7 +732,6 @@ void BlockChainSync::collectBlocks()
         return;
     }
 
-	//HC: 导入成功的区块从headers和bodies中删除，并重设m_headers和m_bodies中的最低连续区域。
     auto newHeaders = std::move(headers.second);
     newHeaders.erase(newHeaders.begin(), newHeaders.begin() + i);
     unsigned newHeaderHead = headers.first + i;
@@ -802,7 +777,6 @@ void BlockChainSync::onPeerNewBlock(NodeID const& _peerID, RLP const& _r)
     unsigned blockNumber = static_cast<unsigned>(info.number());
     if (blockNumber > (m_lastImportedBlock + 1))
     {
-		//HC: 新收到的区块比我目前最新的节点更新，那么说明该节点有更新的数据，那么就调用syncPeer从该节点进行同步
         LOG(m_loggerDetail) << "Received unknown new block (" << blockNumber << ") from "
                             << _peerID;
         // Update the hash of highest known block of the peer.
@@ -811,7 +785,7 @@ void BlockChainSync::onPeerNewBlock(NodeID const& _peerID, RLP const& _r)
         syncPeer(_peerID, true);
         return;
     }
-	//HC: 导入区块体
+
     switch (host().bq().import(_r[0].data()))
     {
     case ImportResult::Success:
@@ -877,9 +851,8 @@ void BlockChainSync::onPeerNewBlock(NodeID const& _peerID, RLP const& _r)
     }
 }
 
-SyncStatus BlockChainSync::status() const
+SyncStatus BlockChainSync::statusNoLock() const
 {
-    RecursiveGuard l(x_sync);
     SyncStatus res;
     res.state = m_state;
     res.protocolVersion = 62;
@@ -887,6 +860,12 @@ SyncStatus BlockChainSync::status() const
     res.currentBlockNumber = host().chain().number();
     res.highestBlockNumber = m_highestBlock;
     return res;
+}
+
+SyncStatus BlockChainSync::status() const
+{
+    RecursiveGuard l(x_sync);
+    return statusNoLock();
 }
 
 void BlockChainSync::resetSync()
@@ -1003,4 +982,16 @@ bool BlockChainSync::invariants() const
     if (m_bodySyncPeers.empty() != m_downloadingBodies.empty() && m_downloadingBodies.size() <= m_headerIdToNumber.size())
         BOOST_THROW_EXCEPTION(FailedInvariant() << errinfo_comment("Body download map mismatch"));
     return true;
+}
+
+//HC: 
+void BlockChainSync::SyncfromPeers()
+{
+    host().capabilityHost().postWork([this]() {
+        //cout << "Enter SyncfromPeers.............**********" << this_thread::get_id() << endl;
+        RecursiveGuard l(x_sync);
+        m_state = SyncState::Blocks;
+        continueSync();
+        //cout << "Exit SyncfromPeers.............**********" << endl;
+        });
 }

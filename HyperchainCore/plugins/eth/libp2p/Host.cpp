@@ -2,6 +2,7 @@
 // Copyright 2014-2019 Aleth Authors.
 // Licensed under the GNU General Public License, Version 3.
 
+
 #include "Host.h"
 #include "Capability.h"
 #include "CapabilityHost.h"
@@ -15,6 +16,9 @@
 #include <libdevcore/Exceptions.h>
 #include <libdevcore/FileSystem.h>
 #include <boost/algorithm/string.hpp>
+
+#include "utility/threadname.h"
+
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -265,6 +269,9 @@ void Host::doneWorking()
     // finally, clear out peers (in case they're lingering)
     RecursiveGuard l(x_sessions);
     m_sessions.clear();
+    //cout << "***************** m_sessions.clear(), threadid:" << this_thread::get_id()
+    //    << " m_sessions size:" << m_sessions.size()
+    //    << endl;
 }
 
 // Starts a new peer session after a successful handshake - agree on mutually-supported capablities,
@@ -748,7 +755,7 @@ void Host::connect(shared_ptr<Peer> const& _p)
         if (ec)
         {
             cnetdetails << "Connection refused to node " << _p->id << "@" << ep << " ("
-                        << ec.message() << ")";
+                        << ec.value() << ":" << ec.message() << ")";
             // Manually set error (session not present)
             _p->m_lastDisconnect = TCPError;
         }
@@ -786,6 +793,13 @@ size_t Host::peerCount() const
 {
     unsigned retCount = 0;
     RecursiveGuard l(x_sessions);
+
+    //HC: 不知道为何s==0，也能执行进入下面的for循环，引发crash， 因此加了检查条件 
+    //HCE: I don't know why s==0 can also be executed into the following for loop, causing a crash, so a check condition is added
+    size_t s = m_sessions.size();
+    if (s == 0)
+        return 0;
+
     for (auto& i: m_sessions)
         if (shared_ptr<SessionFace> j = i.second.lock())
             if (j->isConnected())
@@ -843,7 +857,6 @@ void Host::run(boost::system::error_code const& _ec)
         }
     }
 
-    //HC: 主动发起连接
     for (auto p: toConnect)
         if (p->peerType == PeerType::Required && reqConn++ < m_idealPeerCount)
             connect(p);
@@ -875,6 +888,7 @@ void Host::run(boost::system::error_code const& _ec)
 // initialization (e.g. start capability threads, start TCP listener, and kick off timers)
 void Host::startedWorking()
 {
+    hc::SetThreadName(-1, "aleth-Host");
     if (haveCapabilities())
     {
         startCapabilities();
@@ -946,8 +960,10 @@ void Host::keepAlivePeers()
                 p->ping();
                 ++it;
             }
-            else
+            else {
                 it = m_sessions.erase(it);
+                //cout << "m_sessions.erase(), threadid:" << this_thread::get_id() << endl;
+            }
         }
     }
 
@@ -1181,6 +1197,13 @@ void Host::forEachPeer(
 {
     RecursiveGuard l(x_sessions);
     vector<shared_ptr<SessionFace>> sessions;
+
+    //HC: 不知道为何s==0，也能执行进入下面的for循环，引发crash， 因此加了检查条件 
+    //HCE: I don't know why s==0 can also be executed into the following for loop, causing a crash, so a check condition is added
+    size_t s = m_sessions.size();
+    if (s == 0)
+        return;
+
     for (auto const& i : m_sessions)
     {
         auto const s = i.second.lock();

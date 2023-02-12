@@ -35,14 +35,14 @@ using namespace std;
 #include "net.h"
 
 #define LEDGER_T_SERVICE "LEDGER_task"
-//HC: Ledger task type
+//HCE: Ledger task type
 enum class LEDGER_TASKTYPE : unsigned char
 {
     BASETYPE = 0,
     LEDGER,
     LEDGER_PING_NODE,
     LEDGER_PING_NODE_RSP,
-    REINIT,   //HC: no use
+    REINIT,   //HCE: no use
 };
 
 void pingNode(const CAddress &addrConnect);
@@ -66,7 +66,7 @@ public:
     ILedgerTask() {}
     ILedgerTask(TASKBUF && recvbuf) : ITask(std::forward<TASKBUF>(recvbuf))
     {
-        //HC: skip child type
+        //HCE: skip child type
         _payload++;
         _payloadlen--;
     }

@@ -48,8 +48,8 @@ DEALINGS IN THE SOFTWARE.
 #include "udt/udt.h"
 #include "SyncQueue.h"
 
-#define MAX_UDTBUF_SIZE 10240000		//HC: 10M
-#define MAX_LIST_COUNT	50000			//HC: Maximum list length
+#define MAX_UDTBUF_SIZE 10240000		//HCE: 10M
+#define MAX_LIST_COUNT	50000			//HCE: Maximum list length
 
 #ifdef FD_SETSIZE
 #undef FD_SETSIZE // prevent redefinition compiler warning
@@ -111,7 +111,7 @@ typedef struct _tUDTData{
     int nretryconn = 0;     //retry times
     deque<std::tuple<int64_t, string>> datas;
 
-    //HC: using for state monitor
+    //HCE: using for state monitor
     int64_t tmlastsent = 0;
     int  nsent = 0;
     map<UDTSOCKET, udtrecv> sockrecv;
@@ -133,7 +133,7 @@ typedef struct _tUDTData{
 
         int nInterval = nBaseInterval;
         if (nretryconn > nLow) {
-            //HC: every nLow retry times, double increase reconnection interval
+            //HCE: every nLow retry times, double increase reconnection interval
             nInterval = (1 + nretryconn / nLow) * nBaseInterval;
         }
         return time(nullptr) > tmlastconn + nInterval;
@@ -183,6 +183,7 @@ public:
         return false;
     }
 
+    //HCE: Get socket state infomation
     string getUdtStatics();
 
     size_t getUdtSendQueueSize();
@@ -195,17 +196,33 @@ public:
     void Listen();
     void Listen_fb();
 
+    //HCE: Process received data to handler which dispatches them to high layers
     void ProcessDataRecv();
+
+    //HCE: Loop send data and make sure UDT doesn't enter state of waiting infinitely
     void SendData(int eid, int udtsck);
+
+    //HCE: Create listen socket
     int  CreateListenSocket();
+
     void CloseAllConnectedSocket();
+
+    //HCE: Loop receive data
     void RecvData(int eid, UDTSOCKET socket_fd);
+
+    //HCE: Add eid into m_listenFd and connect
     void FillFdSets(int eid);
+
     void FillRecvSocketList(UDT::UDSET &readfds, int &activeNum);
     bool AcceptConnectionSocket(int eid, UDTSOCKET listenFd);
+
+    //HCE: Bind my address with socket_fd  
     int BindSocket(UDTSOCKET &socket_fd);
+
+    //HCE: Create connect socket with server node
     UDTSOCKET CreateConnectionSocket(const T_UDTNODE &serverNode);
 
+    //HCE: Remove node from m_sendDatas
     void removeSendNode(T_UDTNODE& node);
 
 

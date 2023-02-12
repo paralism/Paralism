@@ -159,8 +159,8 @@ private:
         //HC: Press tab to complete input
         static const char* words_builtin[] = {
             "RED", "GREEN", "YELLOW", "BLUE", "MAGENTA", "CYAN", "WHITE",
-            "add", "addmodule",
-            "both", "call",
+            "add", "addmodule", "aleth",
+            "both", "bucket", "call",
             "debug", "trace", "critical", "ginfo", "sfee",
             "exit", "help", "sendfrom", "sendtoaddr", "test",
             "ledger", "paracoin", "start", "stop", "simulate",

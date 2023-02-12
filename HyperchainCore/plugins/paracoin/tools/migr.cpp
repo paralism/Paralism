@@ -25,7 +25,7 @@ DEALINGS IN THE SOFTWARE.
 #include "../dllmain.h"
 #include "../../node/defer.h"
 
-//HC: two ways for display the progress: percent and already handled
+//HCE: two ways for display the progress: percent and already handled
 class CommadLineProgressX
 {
 public:
@@ -94,7 +94,7 @@ private:
     int _ncount;
 };
 
-//HC: the following class is a implement of old version for CDiskBlockIndex
+//HCE: the following class is a implement of old version for CDiskBlockIndex
 class CDiskBlockIndex2020 : public CBlockIndex
 {
 public:
@@ -171,11 +171,12 @@ public:
 
 };
 
-//HC: v0.7.2 2021年7月14日前版本
+//HC: v0.7.2 2021-7-14 前版本
+//HCE: v0.7.2 version before 2021-7-14
 class BLOCKTRIPLEADDRESSV72
 {
 public:
-    uint32 hid = 0;            //HC: hyper block id
+    uint32 hid = 0;            //HCE: hyper block id
     uint16 chainnum = 0;
     uint16 id = 0;
 
@@ -253,7 +254,7 @@ public:
                 memset(data_buf, 0, dlen);
 
                 int nAdd = 0;
-                //HC: Notice, duplicate block index will be read which is last one for last time
+                //HCE: Notice, duplicate block index will be read which is last one for last time
                 if ((ret = dbcp->get(&key, &data, flags)) != 0)
                     ThrowException(ret, "DBC->get");
 
@@ -392,7 +393,7 @@ public:
             string strType;
             ssKey >> strType;
             if (strType == "blockindex") {
-                //HC: 50000 is a key, which it is not read hhash
+                //HCE: 50000 is a key, which it is not read hhash
                 uint256 blkhash;
                 ssKey >> blkhash;
 
@@ -418,7 +419,7 @@ public:
     }
 
 
-    //HC: after format conversion, check every block index if data format is right
+    //HCE: after format conversion, check every block index if data format is right
     bool CheckBlockIndex()
     {
         // Get database cursor
@@ -483,7 +484,7 @@ public:
         return true;
     }
 
-    //HC: c++ style version
+    //HCE: c++ style version
     bool bulkUpdate_cpp()
     {
         Dbt key, data;
@@ -495,7 +496,7 @@ public:
 
         char* key_buf, * data_buf;
 
-        //HC: why size need to + 8 and +4, see DB_MULTIPLE_WRITE_NEXT
+        //HCE: why size need to + 8 and +4, see DB_MULTIPLE_WRITE_NEXT
         const int suffix = 8;
         int KEY_T_SIZE = 0;
         for (auto& ssKey : m_keybuf) {
@@ -530,7 +531,7 @@ public:
          * Dbt. With DB_MULTIPLE_KEY, all key/data pairs are constructed in the
          * key Dbt. We use DB_MULTIPLE mode when there are duplicate records.
          */
-         //HC: Here use DB_MULTIPLE mode to handle any case
+         //HCE: Here use DB_MULTIPLE mode to handle any case
         flag = DB_MULTIPLE;
         ptrk = new DbMultipleDataBuilder(key);
         ptrd = new DbMultipleDataBuilder(data);
@@ -569,7 +570,7 @@ public:
         return true;
     }
 
-    //HC: c style version
+    //HCE: c style version
     bool bulkUpdate_c()
     {
         if (!pdb)
@@ -584,7 +585,7 @@ public:
         memset(&key, 0, sizeof(DBT));
         memset(&data, 0, sizeof(DBT));
 
-        //HC: why size need to + 8 and +4, see DB_MULTIPLE_WRITE_NEXT
+        //HCE: why size need to + 8 and +4, see DB_MULTIPLE_WRITE_NEXT
         const int suffix = 8;
         int KEY_SIZE = m_keybuf[0].size();
         int KEY_T_SIZE = (KEY_SIZE + suffix) * m_keybuf.size() + 4;
@@ -886,7 +887,7 @@ void convertFormat()
     cout << "Start to update chain work for every block index ";
     cout << "and bulk save result to blkindex.dat...\n";
 
-    //HC: We have to save into origin file for a lot of transactions saved in the blkindex.dat.
+    //HCE: We have to save into origin file for a lot of transactions saved in the blkindex.dat.
     //CMgrTxDB_Tool txdbResult("cr+","blkindex-result.dat");
 
     const int nConstStep = 1000;
@@ -941,7 +942,7 @@ void convertFormat()
     txdb.BulkCommit();
 
     if (IsBestIdxerr) {
-        //HC: reset a best index
+        //HCE: reset a best index
         cout << "Current best index hash: " << hashBestChain.ToString()
             << " Height: " << nBestHeight << endl;
 
@@ -993,7 +994,7 @@ void convertBlockIndexFormat()
     cout << "Start to update Para block indexes ";
     cout << "and bulk save result to blkindex.dat...\n";
 
-    //HC: We have to save into origin file for a lot of transactions saved in the blkindex.dat.
+    //HCE: We have to save into origin file for a lot of transactions saved in the blkindex.dat.
     const int nConstStep = 1000;
     int nCount = 0;
     int nStep = nConstStep;
@@ -1045,7 +1046,7 @@ void convertBlockTriAddrFormat(T& tridb)
     cout << "Start to update Para block address ";
     cout << "and bulk save result...\n";
 
-    //HC: We have to save into origin file for a lot of transactions saved in the blkindex.dat.
+    //HCE: We have to save into origin file for a lot of transactions saved in the blkindex.dat.
     const int nConstStep = 1000;
     int nCount = 0;
     int nStep = nConstStep;
@@ -1191,6 +1192,6 @@ int main(int argc, char* argv[])
 
     }
 
-    DBFlush(true); //HC: remove archive log
+    DBFlush(true); //HCE: remove archive log
     return 0;
 }

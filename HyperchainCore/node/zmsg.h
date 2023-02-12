@@ -65,7 +65,12 @@ public:
 
    void set_part(size_t part_nbr, char *data);
 
+   //HCE: Receive message from socket
+   //HCE: @para socket zmq socket
    bool recv(zmq::socket_t & socket);
+
+   //HCE: Send message from socket
+   //HCE: @para socket zmq socket
    int send(zmq::socket_t & socket);
 
    size_t parts();

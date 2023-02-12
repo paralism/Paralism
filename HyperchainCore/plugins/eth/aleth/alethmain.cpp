@@ -3,6 +3,7 @@
 // Licensed under the GNU General Public License, Version 3.
 
 
+
 #include <thread>
 #include <fstream>
 #include <iostream>
@@ -46,9 +47,9 @@
 #include "cryptoethcurrency.h"
 
 
-
-
 #include <aleth/buildinfo.h>
+
+#include "utility/threadname.h"
 
 using namespace std;
 using namespace dev;
@@ -57,11 +58,10 @@ using namespace dev::eth;
 namespace po = boost::program_options;
 namespace fs = boost::filesystem;
 
-
+extern std::map<std::string, std::string> mapArgs;
 extern void initializeCallbackFunctions();
 extern void uninitializeCallbackFunctions();
 
-//HC: global variables
 dev::WebThreeDirect *g_ptrWeb3 = nullptr;
 unique_ptr<ModularServer<>> g_jsonrpcIpcServer;
 
@@ -69,7 +69,6 @@ LoggingOptions loggingOptions;
 std::string logChannels =
 "block blockhdr bq chain client debug discov error ethcap exec host impolite info net "
 "overlaydb p2pcap peer rlpx rpc snap statedb sync timer tq trace vmtrace warn warpcap watch "
-//HC:
 "hc"
 ;
 
@@ -143,6 +142,8 @@ public:
 
 int plugin_main(int argc, char** argv)
 {
+    hc::SetThreadName(-1, "aleth-main");
+
     ExitHandler exitHandler;
 
     setDefaultOrCLocale();
@@ -507,8 +508,7 @@ int plugin_main(int argc, char** argv)
     if (vm.count("unsafe-transactions"))
         alwaysConfirm = false;
 
-    //HC: already set
-    //if (vm.count("data-dir"))
+        //if (vm.count("data-dir"))
     //    setDataDir(vm["data-dir"].as<string>());
 
     if (vm.count("ipcpath"))
@@ -518,14 +518,12 @@ int plugin_main(int argc, char** argv)
         try
         {
             configPath = vm["config"].as<string>();
-            //HC: 读取配置文件中创世块参数
-            configJSON = contentsString(configPath.string());
+                        configJSON = contentsString(configPath.string());
 
             if (configJSON.empty())
             {
                 cerr << "Config file not found or empty (" << configPath.string() << ")\n";
-                //HC: create a new configuration file.
-
+                
                 return AlethErrors::ConfigFileEmptyOrNotFound;
             }
         }
@@ -548,8 +546,7 @@ int plugin_main(int argc, char** argv)
         }
     }
 
-    //HC: chainParams 通过CryptoEthCurrency类来创建
-    //if (vm.count("mainnet"))
+        //if (vm.count("mainnet"))
     //{
     //    chainParams = ChainParams(genesisInfo(eth::Network::MainNetwork), genesisStateRoot(eth::Network::MainNetwork));
     //    chainConfigIsSet = true;
@@ -740,8 +737,7 @@ int plugin_main(int argc, char** argv)
 
     setupLogging(loggingOptions);
 
-    //HC:
-    //if (!chainConfigIsSet)
+        //if (!chainConfigIsSet)
     //    // default to mainnet if not already set with any of `--mainnet`, `--ropsten`, `--genesis`, `--config`
     //    chainParams = ChainParams(genesisInfo(eth::Network::MainNetwork), genesisStateRoot(eth::Network::MainNetwork));
 
@@ -806,7 +802,6 @@ int plugin_main(int argc, char** argv)
     netPrefs.allowLocalDiscovery = allowLocalDiscovery;
     netPrefs.pin = vm.count("pin") != 0;
 
-    //HC: 读取自己的NodeID和网络邻居信息
     auto nodesState = contents(getDataDir() / fs::path(c_networkConfigFileName));
 
     if (testingMode)
@@ -1068,15 +1063,28 @@ int plugin_main(int argc, char** argv)
 
     if (web3.isNetworkStarted())
     {
-        for (auto const& p: preferredNodes)
+        for (auto const& p : preferredNodes)
             if (p.second.second)
                 web3.requirePeer(p.first, p.second.first);
             else
                 web3.addNode(p.first, p.second.first);
 
-        if (bootstrap)
-            for (auto const& i : defaultBootNodes())
+        if (bootstrap) {
+            //HCE: Add nodes for different network
+            std::vector<std::pair<Public, const char*>> nodes = defaultBootNodes_Sandbox();
+            if (mapArgs.count("-model")) {
+                string model = mapArgs["-model"];
+                if (model == "informal") {
+                    //HCE: informal network
+                    nodes = defaultBootNodes_Informal();
+                } else if (model == "formal") {
+                    //HCE: formal network
+                    nodes = defaultBootNodes();
+                }
+            }
+            for (auto const& i : nodes)
                 web3.addNode(i.first, i.second);
+        }
         if (!remoteHost.empty())
             web3.addNode(p2p::NodeID(), remoteHost + ":" + toString(remotePort));
     }

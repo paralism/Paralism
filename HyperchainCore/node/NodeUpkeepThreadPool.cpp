@@ -46,6 +46,7 @@ void NodeUPKeepThreadPool::stop()
 }
 
 //HC: 把_nodemap节点(32个)先放入到pull列表里
+//HCE: Put the nodes in _nodemap into pulllist first
 void NodeUPKeepThreadPool::InitPullList()
 {
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
@@ -82,17 +83,19 @@ void NodeUPKeepThreadPool::PreparePullList()
 }
 
 //HC: 每5min取k桶16个节点获取10个邻居
+//HCE: Pick 16 nodes in KBuckets and get 10 neighbor nodes every 5 min
 void NodeUPKeepThreadPool::NodeFind()
 {
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
 
     //HC: K桶选出一批节点用于拉取
+    //HCE: Pull some nodes in KBucket
     if (m_lstPullNode.empty())
         PreparePullList();
     g_console_logger->debug("Pickup {} nodes to refresh K Buckets", m_lstPullNode.size());
 
     for (CUInt128& node : m_lstPullNode) {
-        //nodemgr->EnableNodeActive(node, false);
+        //HCE: nodemgr->EnableNodeActive(node, false);
 
         SearchNeighbourTask tsk(node);
         tsk.exec();
@@ -116,6 +119,7 @@ void NodeUPKeepThreadPool::PreparePingSet()
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
 
     //HC: 产生随机ID, 获取距离最近的ID集合作为刷新节点
+    //HCE: Generate random ID, ping the near node id set
     string str = HCNode::generateNodeId();
     vector<HCNode> vecNodes;
     nodemgr->PickNeighbourNodesEx(CUInt128(str), 30, vecNodes);
@@ -128,12 +132,12 @@ void NodeUPKeepThreadPool::PreparePingSet()
     for (auto& node : vecNodes) {
         if (pUdtPool) {
             if (!nodemgr->IsNodeInKBuckets(node.getNodeId<CUInt128>())) {
-                //HC: If not in KBuckets, need ping for check GENHHASH
+                //HCE: If not in KBuckets, need ping for check GENHHASH
                 addNodeSet.insert(node.getNodeId<CUInt128>());
             }
 
             node.getUDPAP(peerIP, peerPort);
-            //HC: In case network layer tell me peer is connected, skip ping action.
+            //HCE: In case network layer tell me peer is connected, skip ping action.
             if (!pUdtPool->peerConnected(peerIP, peerPort)) {
                 addNodeSet.insert(node.getNodeId<CUInt128>());
             }
@@ -145,12 +149,15 @@ void NodeUPKeepThreadPool::PreparePingSet()
 
 void NodeUPKeepThreadPool::DoPing()
 {
-    //HC:对超时没有更新的节点，删除并移出Activenode
+    //HC: 对超时没有更新的节点，删除并移出Activenode
+    //HCE: Remove the nodes that do not update in time out of active node list
     if (m_pingstate == pingstate::ping1)
         UpdateBroadcastMap();
 
     //HC:准备广播节点
     //HC:如果内网IP已经连接，不用加入广播；如果外网IP已连接，只加入外网IP；如果尚未连接，内外网IP都加入广播
+    //HCE: Prepare broadcast node list
+    //HCE: If lan ip is connected, don't add it into broadcast list;if pub ip is connected, add it into broadcast list; if it isn't connected, lan and pub ip add into broadcast list both.
     vector<HCNodeSH> vectNodeSH;
 
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
@@ -161,6 +168,7 @@ void NodeUPKeepThreadPool::DoPing()
         struct stNodeAPS& nodeAPS = itr1->second;
         if (nodeid != meNode) {
             //HC:是否已经连接
+            //HCE: If it is connected
             if (nodemgr->IsNodeInKBuckets(nodeid)) {
                 string strNodeAPS = nodemgr->getNode(nodeid)->serializeAP();
                 if (strNodeAPS.compare(nodeAPS.strLanAPS) != 0) {
@@ -187,9 +195,11 @@ void NodeUPKeepThreadPool::DoPing()
     }
 
     //HC:将pingset加入到广播节点
+    //HCE: Add pingset into broadcast list
     std::set<CUInt128>& pingNodeSet = getPingNodeSet();
     for (auto& nodeID : pingNodeSet) {
         //HC:已加入节点不再加入
+        //HCE: Node aready in broadcast list
         if (nodemgr->mapBroadcastNodeAPS.count(nodeID) == 0) {
             HCNodeSH nodeSH = nodemgr->getNode(nodeID);
             if (nodeSH) {
@@ -230,16 +240,15 @@ void NodeUPKeepThreadPool::NodePing()
         }
         case pingstate::check: {
             //HC: 删除ping失败的节点
+            //HCE: Delete the node id if it is failed to ping it 
             NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
             std::set<CUInt128>& pingNodeSet = getPingNodeSet();
             for (auto& node : pingNodeSet) {
-                //g_console_logger->error("Node pingpong failed:{}", nodemgr->getNode(node)->serializeAP());
-                //nodemgr->GetKBuckets()->RemoveNode(node);
                 nodemgr->EnableNodeActive(node, false);
             }
             pingNodeSet.clear();
 
-            //HC: after 30 seconds, ping again
+            //HCE: after 30 seconds, ping again
             m_pingstate = pingstate::prepare;
             EmitPingSignal(30);
             break;
@@ -281,6 +290,7 @@ void NodeUPKeepThreadPool::RemoveNodeFromPingList(const CUInt128 &nodeid)
 }
 
 //HC:定期广播邻居节点信息
+//HCE: Broadcast neighbor nodes regularly
 void NodeUPKeepThreadPool::BroadcastNeighbor() {
     //HC:广播邻居节点信息
     BroadcastNeighborTask task;
@@ -288,6 +298,7 @@ void NodeUPKeepThreadPool::BroadcastNeighbor() {
 }
     
 //HC:对超时没有更新的节点，删除并移出Activenode
+//HCE: Remove the nodes that do not update in time out of active node list
 void NodeUPKeepThreadPool::UpdateBroadcastMap() {
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
     CUInt128 meNode = nodemgr->getMyNodeId<CUInt128>();
@@ -296,6 +307,7 @@ void NodeUPKeepThreadPool::UpdateBroadcastMap() {
     size_t now = time(nullptr);
     for (; itr != nodemgr->mapBroadcastNodeAPS.end(); ) {
         //HC:自己节点不检查
+        //HCE: Dont check itself
         if (itr->first == meNode) {
             itr++;
             continue;
@@ -306,6 +318,7 @@ void NodeUPKeepThreadPool::UpdateBroadcastMap() {
             g_console_logger->error("Never connected over {} seconds,remove from active node bucket:{}", timespan, itr->second.strPubAPS);
 
             nodemgr->GetKBuckets()->RemoveNode(itr->first);     //HC:从Activenode移除
+                                                                //HCE: Remove from active node list
             nodemgr->mapBroadcastNodeAPS.erase(itr++);
         }
         else

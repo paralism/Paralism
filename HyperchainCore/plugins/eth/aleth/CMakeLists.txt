@@ -1,3 +1,6 @@
+FILE(GLOB common_SRC "../../common/utilc.cpp")
+FILE(GLOB common_HEAD "../../common/utilc.h")
+
 set(
     sources
     AccountManager.cpp AccountManager.h
@@ -10,7 +13,7 @@ set(
 )
 
 #add_executable(aleth ${sources})
-add_library(aleth SHARED ${sources})
+add_library(aleth SHARED ${sources} ${common_SRC})
 set_target_properties(aleth PROPERTIES DEBUG_POSTFIX "")
 
 target_link_libraries(
@@ -23,13 +26,13 @@ target_link_libraries(aleth PRIVATE cppzmq libzmq cppzmq-static libzmq-static)
 target_link_libraries(aleth PRIVATE Boost::iostreams Boost::fiber)
 
 target_include_directories(aleth PRIVATE ../utils
-		${CMAKE_SOURCE_DIR}
-                ${PROJECT_SOURCE_DIR}/../common
-		${CMAKE_SOURCE_DIR}/thirdparty ${ETHASH_ROOT}/include)
+    ${CMAKE_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/../common
+    ${CMAKE_SOURCE_DIR}/thirdparty ${ETHASH_ROOT}/include)
 
 
 if(MINIUPNPC)
     target_compile_definitions(aleth PRIVATE ETH_MINIUPNPC)
 endif()
 
-install(TARGETS aleth DESTINATION bin)
+install(TARGETS aleth DESTINATION bin COMPONENT ${CORECOMPONET})

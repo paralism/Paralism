@@ -57,6 +57,8 @@ CTransaction::CTransaction(const CMutableTransaction& tx) :
     vin(tx.vin), vout(tx.vout), nVersion(tx.nVersion), nLockTime(tx.nLockTime), hash{ ComputeHash() }, m_witness_hash{ ComputeWitnessHash() }
 {}
 
+
+
 bool CBlock::AddToMemoryPool(const uint256 &nBlockHash)
 {
     return mapBlocks.insert(nBlockHash, *this);
@@ -84,6 +86,21 @@ bool CBlock::ReadFromMemoryPool(uint256 nBlockHash)
     }
     return false;
 }
+
+std::optional<CDiskTxPos> CBlock::GetDiskTxPos(int nTx)
+{
+    unsigned int nTxPos = ::GetSerializeSize(CBlock(), SER_BUDDYCONSENSUS) - 2 + GetSizeOfCompactSize(vtx.size());
+
+    int i = 0;
+    BOOST_FOREACH(CTransaction & tx, vtx) {
+        if (nTx == i) {
+            return std::make_optional<CDiskTxPos>(nTxPos, nHeight, this->GetHash());
+        }
+        nTxPos += ::GetSerializeSize(tx, SER_DISK);
+    }
+    return std::nullopt;
+}
+
 
 CBlockIndexSP CBlockIndex::pprev() const
 {
@@ -123,7 +140,7 @@ int64 CBlockIndex::GetMedianTime() const
 
 bool CBlockIndex::IsInMainChain() const
 {
-    //HC: The following way is too slow
+    //HCE: The following way is too slow
     //if (this == pindexBest.get())
     //    return true;
     //else {
@@ -135,7 +152,7 @@ bool CBlockIndex::IsInMainChain() const
 
     //return (pnext() || this == pindexBest.get());
 
-    //HC: if not in main chain, hashNext == 0 is true
+    //HCE: if not in main chain, hashNext == 0 is true
     return (hashNext > 0 || this == pindexBest.get());
 }
 
@@ -157,7 +174,7 @@ bool CBlockCacheLocator::contain(const uint256& hashBlock)
 {
     if (!_filterReady) {
         if (_filterCacheReadReady) {
-            //HC: merge the block filter
+            //HCE: merge the block filter
             _filterBlock = _filterBlock | blk_bf_future.get();
             _filterReady = true;
             cout << "Paracoin: read block cache completely\n";
@@ -174,7 +191,7 @@ bool CBlockCacheLocator::contain(const uint256& hashBlock)
         }
     }
 
-    //HC: Is it in storage?
+    //HCE: Is it in storage?
     CBlockDB_Wrapper blockdb;
     CBlock blk;
     if (blockdb.ReadBlock(hashBlock, blk)) {
@@ -220,7 +237,7 @@ void CBlockCacheLocator::clear()
     _mapTmJoined.clear();
 }
 
-//HC: how to clean the bit flag?
+//HCE: how to clean the bit flag?
 bool CBlockCacheLocator::erase(const uint256& hashBlock)
 {
     return true;
@@ -325,7 +342,7 @@ bool CBlockLocatorEx::GetRange(int nBlkHeight, uint256& hashbegin, uint256& hash
     if (idx + 1 < vHave.size()) {
         hashbegin = vHave[idx];
 
-        int nLeft = nH % nHeightSpan; //HC: 余数
+        int nLeft = nH % nHeightSpan;
         if (nLeft == 0)
             hashEnd = hashbegin;
         else
@@ -455,6 +472,7 @@ int CBlockLocatorEx::GetChkPoint(uint256 &hashchkp)
     int nTail = vHaveTail.size();
     if (nTail > 1) {
         //HC: 取倒数第2个
+        //HCE: Take the 2nd from the bottom
         hashchkp = vHaveTail[nTail - 2];
         return (vHave.size() - 1) * nHeightSpan + (nTail - 1) * nHeightSpanTail;
     }
@@ -504,6 +522,7 @@ bool CBlockLocatorEx::IsIn(int nHeight, const uint256& hash) const
     }
 
     //HC: 余数必须为0
+    //HCE: The remainder must be 0
     if (nHeight % nHeightSpanTail != 0) {
         return false;
     }
@@ -514,6 +533,7 @@ bool CBlockLocatorEx::IsIn(int nHeight, const uint256& hash) const
             return hashvHaveLInner == hash;
         }
         //HC: 余数必须为0
+        //HCE: The remainder must be 0
         if (nHeight % nHeightSpan != 0) {
             return false;
         }
@@ -614,6 +634,7 @@ bool DeleteDBFile(const string &dbfile)
 
 //////////////////////////////////////////////////////////////////////////
 //HC: v0.7.2 2021年7月14日前版本更新
+//HCE: v0.7.2 Updated before July 14, 2021
 CBlockIndex To_CBlockIndex(const CBlockIndexV72& blkindex)
 {
     CBlockIndex newBlkIndex;
@@ -662,7 +683,7 @@ bool UpgradeBlockIndexFormatOfV72()
     cout << "Start to upgrade Para block indexes ";
     cout << "and bulk save result to blkindex.dat...\n";
 
-    //HC: We have to save into origin file for a lot of transactions saved in the blkindex.dat.
+    //HCE: We have to save into origin file for a lot of transactions saved in the blkindex.dat.
 
     CommadLineProgress progress;
     progress.Start();
@@ -690,7 +711,7 @@ bool UpgradeBlockIndexFormatOfV72()
     if (hyperchainspace->getHyperBlock(g_cryptoCurrency.GetHID(), hblock)) {
         genesisidx.triaddr.hhash = to_uint256(hblock.GetHashSelf());
     } else {
-        genesisidx.triaddr.hhash = uint256S("88845ff7acb1f21b6be55815d72b87cb850dccf999c279a0266d14e79a1f597c"); //HC: for informal network
+        genesisidx.triaddr.hhash = uint256S("88845ff7acb1f21b6be55815d72b87cb850dccf999c279a0266d14e79a1f597c"); //HCE: for informal network
         cout << StringFormat("Failed to read Hyperblock: %d, use a default value, only for informal network of Para\n", g_cryptoCurrency.GetHID());
     }
     txdb.BulkWriteBlockIndex(h, CDiskBlockIndex(&genesisidx));
@@ -706,7 +727,7 @@ bool UpgradeBlockIndexFormatOfV72()
     return true;
 }
 
-//HC: The following function is use to upgrade to V73
+//HCE: The following function is use to upgrade to V73
 bool DeleteOldIndexFilesOfV72()
 {
     namespace fs = boost::filesystem;
@@ -775,7 +796,9 @@ bool UpgradeTxIndexFormatofV72()
 
 
     size_t nTxNum = 0;
-    std::map<uint32_t, list<TxInfo>> mapTxInfoV72; //HC: 所有交易 按高度排序
+    std::map<uint32_t, list<TxInfo>> mapTxInfoV72;
+    //HC: 所有交易 按高度排序
+    //HCE: All transactions are sorted by height
     std::map<CDiskTxPosV72, uint256> mapDiskTxV72;
     CTxDB_Wrapper txdb("r+");
     txdb.Load("tx", [&progress, &mapTxInfoV72, &mapDiskTxV72, &nTxNum](CDataStream& ssKey, CDataStream& ssValue) ->bool {
@@ -813,13 +836,14 @@ bool UpgradeTxIndexFormatofV72()
         return ERROR_FL("%s : TxnBegin failed", __FUNCTION__);
 
     //HC: 按Block高度从小到大来遍历每一笔交易,这样可以比较容易判断不合法的交易花费
+    //HCE: Traverse each transaction from smallest to largest by block height, which makes it easier to judge the cost of illegitimate transactions
     auto txlistiter = mapTxInfoV72.begin();
     for (; txlistiter != mapTxInfoV72.end(); ++txlistiter) {
 
         auto txiter = txlistiter->second.begin();
         for (; txiter != txlistiter->second.end(); ) {
             if (mapTxes.count(txiter->hashtx)) {
-                //HC:
+                //HCE:
                 BlkInfo& blkinfo = mapTxes[txiter->hashtx];
                 CDiskTxPos disktx(txiter->idxtxv72.pos.nTxPos, blkinfo.nHeightBlk, blkinfo.hashBlk);
 
@@ -847,6 +871,7 @@ bool UpgradeTxIndexFormatofV72()
             }
             else {
                 //HC: 不合法交易
+                //HCE: invalid transaction
                 if (!txdb.EraseTxIndex(txiter->hashtx)) {
                     txdb.TxnAbort();
                     cerr << StringFormat("cannot EraseTxIndex: %s\n", txiter->hashtx.ToString());

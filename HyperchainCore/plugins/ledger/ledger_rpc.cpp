@@ -347,7 +347,7 @@ Value getnewaddress(const Array& params, bool fHelp)
 }
 
 
-//HC:
+//HCE:
 CTxDestination GetAccountAddress(string strAccount, bool bForceNew = false)
 {
     CWalletDB_Wrapper walletdb(pwalletMain->strWalletFile);
@@ -432,13 +432,13 @@ Value setaccount(const Array& params, bool fHelp)
     string strAccount;
     if (params.size() > 1)
         strAccount = AccountFromValue(params[1]);
-    //HC: '*' reserves as a global account which represents all accounts.
+    //HCE: '*' reserves as a global account which represents all accounts.
     if (strAccount == "*") {
         throw JSONRPCError(-5, "Invalid account name");
     }
 
     // Detect when changing the account of an address that is the 'unused current key' of another account:
-    //HC: do nothing
+    //HCE: do nothing
     //if (pwalletMain->mapAddressBook.count(address))
     //{
     //    string strOldAccount = pwalletMain->mapAddressBook[address];
@@ -1144,7 +1144,7 @@ void ListTransactionsDetails(const CWalletTx& wtx, const string& strAccount, int
             opcodetype opcode;
             vector<unsigned char> vchPushValue;
 
-            //HC: To coinbase, cannot get address because only contains signature in scriptSig
+            //HCE: To coinbase, cannot get address because only contains signature in scriptSig
             if (txin.scriptSig.GetOp(pc, opcode, vchPushValue)) {
                 if (txin.scriptSig.GetOp(pc, opcode, vchPushValue)) {
                     //public key
@@ -1172,7 +1172,7 @@ void ListTransactionsDetails(const CWalletTx& wtx, const string& strAccount, int
     entryvin.push_back(Pair("vin", detailsvin));
     ret.push_back(entryvin);
 
-    //HC: vout
+    //HCE: vout
     int64_t n = 0;
     Array detailsvout;
     for (auto& txout: wtx.vout) {
@@ -1210,7 +1210,7 @@ void ListTransactionsDetails(const CWalletTx& wtx, const string& strAccount, int
         detailssummary.push_back(entry);
     }
 
-    //HC: It seems that Sent and received has errors, so skip
+    //HCE: It seems that Sent and received has errors, so skip
     return;
 
     // Sent
@@ -1355,7 +1355,7 @@ typedef struct tagBalance
     }
 
     void Add(bool fmature, int64 value) {
-        //HC: to token, throw mature
+        //HCE: to token, throw mature
         *this += value;
         return;
 
@@ -1390,7 +1390,7 @@ Value listaccounts(const Array& params, bool fHelp)
     map<string, Balances> mapAccountBalances;
     mapAccountBalances["*"] = Balances();
     BOOST_FOREACH(const PAIRTYPE(CTxDestination, string)& entry, pwalletMain->mapAddressBook) {
-        //HC: for SegWit, here cannot know if the address belongs to me or not
+        //HCE: for SegWit, here cannot know if the address belongs to me or not
         //if (pwalletMain->HaveKey(entry.first)) // This address belongs to me
             mapAccountBalances[entry.second] = Balances();
     }
@@ -1405,8 +1405,8 @@ Value listaccounts(const Array& params, bool fHelp)
         int64 nFee;
         list<CWalletTx::DestReceived> listReceived;
         wtx.GetAmountsForBalance(listReceived, nFee, nMinDepth);
-        //HC: '*' means all accounts
-        //HC: for computing balances, because statistics out value of tx, so skip nFee
+        //HCE: '*' means all accounts
+        //HCE: for computing balances, because statistics out value of tx, so skip nFee
         //mapAccountBalances["*"] -= nFee;
 
         for (const auto& r : listReceived) {
@@ -1804,8 +1804,8 @@ Value addamounttoaddress(const Array& params, bool fHelp)
             "Add the address the given value.");
 
     CBitcoinAddress address(params[1].get_str());
-    //HC: if (!address.IsValid() || !pwalletMain->mapAddressBook.count(address))
-    //HC: allow to add amount to any address.
+    //HCE: if (!address.IsValid() || !pwalletMain->mapAddressBook.count(address))
+    //HCE: allow to add amount to any address.
     if (!address.IsValid())
         throw JSONRPCError(-5, "Invalid address");
     // Amount
@@ -2232,7 +2232,7 @@ private:
 
 void ThreadRPCServer(void* parg)
 {
-    //HC:
+    //HCE:
     //IMPLEMENT_RANDOMIZE_STACK(ThreadRPCServer(parg));
     fRPCServerRunning = true;
     try
@@ -2325,10 +2325,10 @@ void ThreadRPCServer2(void* parg)
         throw runtime_error("-rpcssl=1, but ledger compiled without full openssl libraries.");
 #endif
 
-    //HC: Add a job to start accepting connections.
+    //HCE: Add a job to start accepting connections.
     StartAccept(acceptor);
 
-    //HC: Process event loop.
+    //HCE: Process event loop.
     io_service.run();
 }
 
@@ -2492,7 +2492,7 @@ void HandleReadHttpHeader(boost::shared_ptr<asio::ip::tcp::socket> socket,
         //    return;
         //}
 
-        //HC: don't HTTPAuthorized
+        //HCE: don't HTTPAuthorized
         // Check authorization
         //if (mapHeaders.count("authorization") == 0)
         //{
@@ -2517,7 +2517,7 @@ void HandleAccept(const system::error_code& error,
     boost::shared_ptr< asio::ip::tcp::socket > socket,
     asio::ip::tcp::acceptor& acceptor)
 {
-    //HC: If there was an error, then do not add any more jobs to the service.
+    //HCE: If there was an error, then do not add any more jobs to the service.
     if (error) {
         printf("Error accepting connection: %s", error.message().c_str());
         return;
@@ -2580,14 +2580,14 @@ void HandleAccept(const system::error_code& error,
 
     } while (false);
 
-    //HC: Done using socket, ready for another connection
+    //HCE: Done using socket, ready for another connection
     StartAccept(acceptor);
 
 }
 
 void StartRPCServer()
 {
-    //HC: only one, else the second time bind will be failure
+    //HCE: only one, else the second time bind will be failure
     int n = 1;//std::thread::hardware_concurrency();
     for (int i = 0; i < n; i++) {
         std::shared_ptr<boost::asio::io_service> io(new boost::asio::io_service());
@@ -2820,7 +2820,7 @@ Value issuetoken(const Array& params, bool fHelp)
     newtoken.SetGenBlkPubKeys(std::move(gbkeys));
 
     CBlock genesis = newtoken.MineGenesisBlock(keyPair);
-    //HC: WriteKeyToFile(keyPair);
+    //HCE: WriteKeyToFile(keyPair);
 
     string hash = newtoken.GetHashPrefixOfGenesis();
     string errmsg;
@@ -2838,7 +2838,7 @@ Value issuetoken(const Array& params, bool fHelp)
     }
 
     string requestid;
-    //HC: before call consensus layer function, unlock critical to avoid dead lock
+    //HCE: before call consensus layer function, unlock critical to avoid dead lock
     UNCRITICAL_BLOCK(pwalletMain->cs_wallet)
     {
         UNCRITICAL_BLOCK(cs_main)
@@ -2988,7 +2988,7 @@ Value queryfundblock(const Array& params, bool fHelp)
     uint16 chainnum;
     uint16 localid;
 
-    //HC: query database
+    //HCE: query database
     T_LOCALBLOCKADDRESS addr;
     bool isfound = Singleton<DBmgr>::instance()->getOnChainStateFromRequestID(params[0].get_str(), addr);
     if (!isfound) {

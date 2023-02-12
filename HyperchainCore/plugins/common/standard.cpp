@@ -115,7 +115,7 @@ TxoutType Solver(const CScript& scriptPubKey, std::vector<std::vector<unsigned c
     // Shortcut for pay-to-script-hash, which are more constrained than the other types:
     // it is always OP_HASH160 20 [20 byte hash] OP_EQUAL
 
-    //HC: here comment the following code
+    //HCE: here comment the following code
     //if (scriptPubKey.IsPayToScriptHash())
     //{
     //    std::vector<unsigned char> hashBytes(scriptPubKey.begin()+2, scriptPubKey.begin()+22);

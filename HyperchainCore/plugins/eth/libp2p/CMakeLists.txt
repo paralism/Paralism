@@ -2,7 +2,7 @@ file(GLOB sources "*.cpp" "*.h")
 
 add_library(p2p ${sources})
 target_link_libraries(p2p PUBLIC devcrypto devcore)
-target_include_directories(p2p SYSTEM PRIVATE ${CRYPTOPP_INCLUDE_DIR} ${ETHASH_ROOT}/include)
+target_include_directories(p2p SYSTEM PRIVATE ${CMAKE_SOURCE_DIR} ${CRYPTOPP_INCLUDE_DIR} ${ETHASH_ROOT}/include)
 
 if(MINIUPNPC)
     target_link_libraries(p2p PRIVATE "${MINIUPNPC_LIBRARY}")

@@ -41,7 +41,7 @@ public:
         m_assumed_blockchain_size = 350;
         m_assumed_chain_state_size = 6;
 
-        //HC:
+        //HCE:
         //genesis = CreateGenesisBlock(1231006505, 2083236893, 0x1d00ffff, 1, 50 * COIN);
         //consensus.hashGenesisBlock = genesis.GetHash();
         //assert(consensus.hashGenesisBlock == uint256S("0x000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"));
@@ -62,7 +62,7 @@ public:
         vSeeds.emplace_back("dnsseed.emzy.de"); // Stephan Oeste
         vSeeds.emplace_back("seed.bitcoin.wiz.biz"); // Jason Maurice
 
-        //HC:Paracoin's main net takes the following prefixes (come from Bitcoin test net)
+        //HCE: Paracoin's main net takes the following prefixes (come from Bitcoin test net)
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,111);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,196);
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,239);
@@ -70,7 +70,7 @@ public:
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
         bech32_hrp = "tb";
 
-        //HC: The following prefixes belong to Bitcoin main net
+        //HCE: The following prefixes belong to Bitcoin main net
         //base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,0);
         //base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,5);
         //base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,128);
@@ -120,7 +120,7 @@ public:
     CTestNetParams() {
         strNetworkID = CBaseChainParams::TESTNET;
 
-        //HC: down-compatibility, in the future, we will change back
+        //HCE: down-compatibility, in the future, we will change back
         //pchMessageStart[0] = 0x0b;
         //pchMessageStart[1] = 0x11;
         //pchMessageStart[2] = 0x09;
@@ -145,7 +145,7 @@ public:
         vSeeds.emplace_back("seed.testnet.bitcoin.sprovoost.nl");
         vSeeds.emplace_back("testnet-seed.bluematt.me"); // Just a static list of stable node(s), only supports x9
 
-        //HC: Bitcoin test net
+        //HCE: Bitcoin test net
         //base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,111);
         //base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,196);
         //base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,239);
@@ -153,7 +153,7 @@ public:
         //base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
         //bech32_hrp = "tb";
 
-        //HC: use legacy prefix(Bitcoin's main net), otherwise cannot decode legacy address format
+        //HCE: use legacy prefix(Bitcoin's main net), otherwise cannot decode legacy address format
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1, 0);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1, 5);
         base58Prefixes[SECRET_KEY] = std::vector<unsigned char>(1, 128);
@@ -222,7 +222,7 @@ class CRegTestParams : public CChainParams {
 public:
     explicit CRegTestParams() {
         strNetworkID =  CBaseChainParams::REGTEST;
-        //HC: down-compatibility, in the future, we will change back
+        //HCE: down-compatibility, in the future, we will change back
         //pchMessageStart[0] = 0xfa;
         //pchMessageStart[1] = 0xbf;
         //pchMessageStart[2] = 0xb5;

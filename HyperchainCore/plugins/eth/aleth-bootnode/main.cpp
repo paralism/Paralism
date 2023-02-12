@@ -24,8 +24,60 @@ using namespace std;
 namespace
 {
 string const c_programName = "aleth-bootnode";
-string const c_networkConfigFileName = c_programName + "-network.rlp";
+string const c_networkConfigFileName_Formal = c_programName + "-formal-network.rlp";
+string const c_networkConfigFileName_Informal = c_programName + "-informal-network.rlp";
+string const c_networkConfigFileName_SandBox = c_programName + "-sandbox-network.rlp";
 }  // namespace
+
+//HC:
+class NetworkModel {
+public:
+    NetworkModel(po::variables_map vm) {
+        m_networkcfg = c_networkConfigFileName_SandBox;
+        m_name = "Sandbox";
+        m_nodes = defaultBootNodes_Sandbox();
+        m_netflag = NetFlags::sandbox;
+        if (vm.count("model")) {
+            string model = vm["model"].as<string>();
+            if (model == "informal") {
+                m_name = "Informal";
+                m_netflag = NetFlags::informal;
+                m_networkcfg = c_networkConfigFileName_Informal;
+                m_nodes = defaultBootNodes_Informal();
+            }
+            else if (model == "formal") {
+                m_name = "Formal";
+                m_netflag = NetFlags::formal;
+                m_networkcfg = c_networkConfigFileName_Formal;
+                m_nodes = defaultBootNodes();
+            }
+        }
+    }
+
+    string getName() {
+        return m_name;
+    }
+
+    string getCfg() {
+        return m_networkcfg;
+    }
+
+    std::vector<std::pair<Public, const char*>> getNodes() {
+        return m_nodes;
+    }
+
+private:
+    enum class NetFlags : char {
+        sandbox,
+        informal,
+        formal
+    };
+
+    string m_name;
+    string m_networkcfg;
+    NetFlags m_netflag;
+    std::vector<std::pair<Public, const char*>> m_nodes;
+};
 
 int main(int argc, char** argv)
 {
@@ -48,6 +100,8 @@ int main(int argc, char** argv)
     addNetworkingOption(
         "upnp", po::value<string>()->value_name("<on/off>"), "Use UPnP for NAT (default: on)");
 #endif
+    addNetworkingOption("model", po::value<string>()->value_name("<network>"),
+        "Provide service for which network: sandbox, informal, formal");
     addNetworkingOption("public-ip", po::value<string>()->value_name("<ip>"),
         "Force advertised public IP to the given IP (default: auto)");
     addNetworkingOption("listen-ip", po::value<string>()->value_name("<ip>(:<port>)"),
@@ -123,7 +177,9 @@ int main(int argc, char** argv)
     auto netPrefs = publicIP.empty() ? NetworkConfig(listenIP, listenPort, upnp) :
                                        NetworkConfig(publicIP, listenIP, listenPort, upnp);
     netPrefs.allowLocalDiscovery = allowLocalDiscovery;
-    auto netData = contents(getDataDir() / fs::path(c_networkConfigFileName));
+
+    NetworkModel networkmodel(vm);
+    auto netData = contents(getDataDir() / fs::path(networkmodel.getCfg()));
 
     Host h(c_programName, netPrefs, &netData);
     h.start();
@@ -132,9 +188,14 @@ int main(int argc, char** argv)
 
     cout << "Node ID: " << h.enode() << endl;
 
+    string runInNetwork = networkmodel.getName();
+    cout << "Providing boot service for network: " << runInNetwork << endl;
     if (!noBootstrap)
     {
-        for (auto const& bn : defaultBootNodes())
+        //HCE: Add nodes for different network
+        std::vector<std::pair<Public, const char*>> nodes = networkmodel.getNodes();
+        cout << "Add the default boot nodes for network" << endl;
+        for (auto const& bn : nodes)
         {
             bi::tcp::endpoint ep = Network::resolveHost(bn.second);
             h.addNode(
@@ -155,7 +216,7 @@ int main(int argc, char** argv)
 
     netData = h.saveNetwork();
     if (!netData.empty())
-        writeFile(getDataDir() / fs::path(c_networkConfigFileName), &netData);
+        writeFile(getDataDir() / fs::path(networkmodel.getCfg()), &netData);
 
     return AlethErrors::Success;
 }

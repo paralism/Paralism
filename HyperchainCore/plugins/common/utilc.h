@@ -142,7 +142,7 @@ void AOPInvokeCost(FuncAfter&& fAfter, Func&& f, Args&&... args)
 }
 
 
-//HC: two ways for display the progress: percent and already handled
+//HCE: two ways for display the progress: percent and already handled
 class CommadLineProgress
 {
 public:
@@ -176,3 +176,4 @@ private:
 };
 
 
+std::string strprintf(const char* fmt, ...);

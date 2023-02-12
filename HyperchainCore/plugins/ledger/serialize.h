@@ -104,7 +104,7 @@ enum
     SER_NETWORK         = (1 << 0),
     SER_DISK            = (1 << 1),
     SER_GETHASH         = (1 << 2),
-    SER_BUDDYCONSENSUS  = (1 << 3), //HC:
+    SER_BUDDYCONSENSUS  = (1 << 3), //HCE:
 
     // modifiers
     SER_SKIPSIG         = (1 << 16),

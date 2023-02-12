@@ -135,8 +135,7 @@ void setupLogging(LoggingOptions const& _options)
 
     sink->set_formatter(&formatter);
 
-    //HC: Remove sinks at first
-    boost::log::core::get()->remove_all_sinks();
+        boost::log::core::get()->remove_all_sinks();
     boost::log::core::get()->add_sink(sink);
 
     boost::log::core::get()->add_global_attribute(

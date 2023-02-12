@@ -11,11 +11,14 @@
 #include "BlockChain.h"
 #include "VerifiedBlock.h"
 #include "State.h"
+
+#include "utility/threadname.h"
+
 using namespace std;
 using namespace dev;
 using namespace dev::eth;
 
-constexpr size_t c_maxKnownCount = 100000;
+constexpr size_t c_maxKnownCount = 2000; // 100000;
 constexpr size_t c_maxKnownSize = 128 * 1024 * 1024;
 constexpr size_t c_maxUnknownCount = 100000;
 constexpr size_t c_maxUnknownSize = 512 * 1024 * 1024;  // Block size can be ~50kb
@@ -26,11 +29,11 @@ BlockQueue::BlockQueue()
 {
     // Allow some room for other activity
     unsigned verifierThreads = std::max(thread::hardware_concurrency(), 3U) - 2U;
-    //HC: 强制为1，避免verifierBody冲突
-    verifierThreads = 1;
     for (unsigned i = 0; i < verifierThreads; ++i)
         m_verifiers.emplace_back([=](){
-            setThreadName("verifier" + toString(i));
+            string name = "verifier" + toString(i);
+            setThreadName(name);
+            hc::SetThreadName(-1, name.c_str());
             this->verifierBody();
         });
 }
@@ -56,6 +59,15 @@ void BlockQueue::clear()
     WriteGuard l(m_lock);
     DEV_INVARIANT_CHECK;
     Guard l2(m_verification);
+
+    //if (m_verified.size() > 0 || m_unverified.size() > 0) {
+    //    cwarn << "BlockQueue clear(): "
+    //        << " verified:" << m_verified.size()
+    //        << " readySet:" << m_readySet.size()
+    //        << " unverified:" << m_unverified.size()
+    //        << " verifying:" << m_verifying.size();
+    //}
+
     m_readySet.clear();
     m_drainingSet.clear();
     m_verified.clear();
@@ -69,7 +81,6 @@ void BlockQueue::clear()
     m_drainingDifficulty = 0;
 }
 
-//HC: 线程过程，多个线程同时对进来的区块进行校验，通过校验后放入m_verified集合
 void BlockQueue::verifierBody()
 {
     while (!m_deleting)
@@ -128,24 +139,22 @@ void BlockQueue::verifierBody()
                 else
                     m_verified.enqueue(move(res));
 
-                cout << std::this_thread::get_id() << " " << currentTimeStr() << " BlockQueue will be ready, block height is " << res.verified.info.number()
-                    << " hash:" << res.verified.info.hash()
-                    << " prevHID:" << res.verified.info.prevHID()
-                    << " prevHHash:" << res.verified.info.prevHyperBlkHash()
-                    << endl;
+                //cout << std::this_thread::get_id() << " " << currentTimeStr() << " BlockQueue will be ready, block height is " << res.verified.info.number()
+                //    << " hash:" << res.verified.info.hash()
+                //    << " prevHID:" << res.verified.info.prevHID()
+                //    << " prevHHash:" << res.verified.info.prevHyperBlkHash()
+                //    << endl;
                 drainVerified_WITH_BOTH_LOCKS();
                 ready = true;
             }
             else
             {
-                //HC: 因为多个线程同时在验证不同的区块，可能队列头的区块已经发生变化，搜索队列，替换重试，如果失败，说明已经丢失了
-                //HC: 如果是单线程进行校验，不应该运行到这个分支
-                if (!m_verifying.replace(work.hash, move(res)))
+               if (!m_verifying.replace(work.hash, move(res)))
                     cwarn << "BlockQueue missing our job: was there a GM?";
-                cerr << std::this_thread::get_id() << " " << currentTimeStr() << " BlockQueue missing our job, ready is false, block height is "
-                    << res.verified.info.number() 
-                    << " hash:" << res.verified.info.hash()
-                    << endl;
+                //cerr << std::this_thread::get_id() << " " << currentTimeStr() << " BlockQueue missing our job, ready is false, block height is "
+                //    << res.verified.info.number() 
+                //    << " hash:" << res.verified.info.hash()
+                //    << endl;
             }
         }
         if (ready)
@@ -382,7 +391,7 @@ bool BlockQueue::doneDrain(h256s const& _bad)
             //cout << s.str();
 
             updateBad_WITH_LOCK(b);
-            cout << std::this_thread::get_id() << " " << "updateBad_WITH_LOCK: " << b << " ***************" << endl;
+            //cout << std::this_thread::get_id() << " " << "updateBad_WITH_LOCK: " << b << " ***************" << endl;
         }
     }
     return !m_readySet.empty();
@@ -604,3 +613,16 @@ std::ostream& dev::eth::operator<< (std::ostream& os, QueueStatus const& obj)
    os << static_cast<std::underlying_type<QueueStatus>::type>(obj);
    return os;
 }
+
+std::ostream& dev::eth::operator<<(std::ostream& _out, BlockQueueStatus const& obj)
+{
+    _out << "BlockQueue importing: " << obj.importing << endl;
+    _out << "verified: " << obj.verified << endl;
+    _out << "verifying: " << obj.verifying << endl;
+    _out << "unverified: " << obj.unverified << endl;
+    _out << "future: " << obj.future << endl;
+    _out << "unknown: " << obj.unknown << endl;
+    _out << "bad: " << obj.bad << endl;
+    return _out;
+}
+

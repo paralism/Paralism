@@ -62,7 +62,7 @@ int ParseTx(const string& dbpath, uint32_t genesisHID, uint16_t genesisChainNum,
     string mynodeid = "123456789012345678901234567890ab";
     CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::instance(mynodeid);
 
-    //HC: load block triple address index
+    //HCE: load block triple address index
     vector<T_PAYLOADADDR> vecPA;
     T_SHA256 thhash;
 
@@ -89,13 +89,13 @@ int ParseTx(const string& dbpath, uint32_t genesisHID, uint16_t genesisChainNum,
         vecPA.clear();
         if (hyperchainspace->GetLocalBlocksByHID(*iter, app, thhash, vecPA)) {
 
-            //HC: Check if the local block have already scanned.
+            //HCE: Check if the local block have already scanned.
             if (g_setLocalBlockScanned.count(thhash)) {
                 continue;
             }
             g_setLocalBlockScanned.insert(thhash);
 
-            //HC: scan the Para transactions in local block
+            //HCE: scan the Para transactions in local block
             auto pa = vecPA.rbegin();
             for (; pa != vecPA.rend(); ++pa) {
                 CBlock block;
@@ -129,17 +129,17 @@ int ParseTx(const string& dbpath, uint32_t genesisHID, uint16_t genesisChainNum,
 class CBlockIndexMigr
 {
 public:
-    const uint256* phashBlock;  //HC: ¿éhashÖ¸Õë£¬½ÚÔ¼¿Õ¼ä£¬more see CBlock::AddToBlockIndex
+    const uint256* phashBlock;
     CBlockIndexMigr* pprev;
     CBlockIndexMigr* pnext;
-    //unsigned int nFile;     //HC: unused (To bitcoin:´æ´¢±¾Çø¿éµÄÊý¾ÝµÄÎÄ¼þ£¬±ÈÈçµÚ100¸öÇø¿é£¬ÆäÇø¿éÎÄ¼þ´æ´¢ÔÚblk100.dataÖÐ)
-    //unsigned int nBlockPos; //HC: unused
+    //unsigned int nFile;     
+    //unsigned int nBlockPos; //HCE: unused
 
     // block header
     int nHeight;
-    CBigNum bnChainWork;    //HC: ´Ó´´Ê¼Çø¿éµ½±¾Çø¿éµÄÀÛ»ý¹¤×÷Á¿
+    CBigNum bnChainWork;    
 
-    T_LOCALBLOCKADDRESS addr; //HC: ×Ó¿éÂß¼­µØÖ·
+    T_LOCALBLOCKADDRESS addr; 
 
     int nVersion;
     uint256 hashMerkleRoot;
@@ -153,7 +153,7 @@ public:
     uint32 nPrevHID;
     uint256 hashPrevHyperBlock;
 
-    uint256 hashExternData = 0;                 //HC: =hash256(nOwerNode)
+    uint256 hashExternData = 0;                 //HCE: =hash256(nOwerNode)
     CUInt128 ownerNodeID = CUInt128(true);
 
     CBlockIndexMigr()
@@ -197,10 +197,12 @@ public:
         hashPrevHyperBlock = block.hashPrevHyperBlock;
     }
 
+    //HC: è¯¥åŒºå—çš„é«˜åº¦ï¼Œä»Žåˆ›ä¸–åŒºå—0å¼€å§‹ç®—èµ·
+    //HCE: The height of the block is calculated from genesis block 0
     inline int64 Height() const
     {
         return nHeight;
-    };                             //HC: ¸ÃÇø¿éµÄ¸ß¶È£¬´Ó´´ÊÀÇø¿é0¿ªÊ¼ËãÆð
+    };                             
 
     CBlock GetBlockHeader() const
     {
@@ -435,7 +437,7 @@ public:
         CBlockIndexMigr *pindexNew = InsertBlockIndexMigr(diskindex.GetBlockHash(), diskindex.nHeight);
         pindexNew->pprev = InsertBlockIndexMigr(diskindex.hashPrev, diskindex.nHeight - 1);
         pindexNew->pnext = InsertBlockIndexMigr(diskindex.hashNext, diskindex.nHeight + 1);
-        //HC: add block address
+        //HCE: add block address
         pindexNew->addr = diskindex.addr;
         pindexNew->nVersion = diskindex.nVersion;
         pindexNew->hashMerkleRoot = diskindex.hashMerkleRoot;
@@ -457,7 +459,7 @@ void ToBlkIdx(CBlockIndexMigr* migr, CBlockIndex &blkidx)
 {
     blkidx.hashPrev = migr->pprev->GetBlockHash();
     blkidx.hashNext = migr->pnext->GetBlockHash();
-    //HC: add block address
+    //HCE: add block address
     CBlockIndexMigr& diskindex = *migr;
     blkidx.addr = diskindex.addr;
     blkidx.nVersion = diskindex.nVersion;

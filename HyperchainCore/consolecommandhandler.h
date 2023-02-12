@@ -38,7 +38,6 @@ using namespace std;
 #include "newLog.h"
 
 
-
 string GetHyperChainDataDir();
 string CreateChildDir(const string& childdir);
 
@@ -114,10 +113,14 @@ public:
     };
     role _r = role::SERVER;
 
+    //HCE: Run console 
+    //HCE: @para r Run as role r
     void run(role r);
+
+    //HCE: Run console as role::CLIENT
     void run_as_client();
 
-    //HC: if value of savingcommand is not null, save savingcommand into command history, else save command.
+    //HCE: if value of savingcommand is not null, save savingcommand into command history, else save command.
     void handleCommand(const string &command, string &savingcommand);
     void stop();
 
@@ -145,57 +148,121 @@ private:
 
 private:
 
+    //HCE: Load settings from HC config file
     void loadSettings();
+
+    //HCE: Write settings to HC config file from _mapSettings
     void writeSettings();
+
+    //HCE: Insert a remote server using ip and port
+    //HCE: @para ip Server ip
+    //HCE: @para port Server port
     void insertRemoteServer(string& ip, int port);
     string GetConfigFile();
 
     void exit();
+
+    //HCE: Show HC common commands and their arguments
     void showUsages();
+
+    //HCE: Show my neighbor nodes
     void showNeighborNode();
+
+    //HCE: Show MQ Thread infomation
     void showMQBroker();
+
+    //HCE: Show hyper chain space infomation
     void showHyperChainSpace();
+
+    //HCE: Show more infomation according to input block
     void showHyperChainSpaceMore(const list<string> &commlist);
+
+    //HCE: Show local data
     void showLocalData();
 
+    //HCE: Show UDP details
     void showUdpDetails();
+
+    //HCE: Show consensus infomation
     void showConsensusInfo();
+
+    //HCE: Show some basic infomation of this node
     void showInnerBasicInfo();
+
+    //HCE: Show hyper block infomation by hid
+    //HCE: @para hid Hyper block id 
+    //HCE: @isShowDetails Show details or not
     void showHyperBlock(uint64 hid, bool isShowDetails);
 
+    //HCE: Download hyper block according to input node id and block id
     void downloadHyperBlock(const list<string> &commlist);
+
+    //HCE: Download block header according to input node id and block id
     void downloadBlockHeader(const list<string> &commlist);
+
+    //HCE: Show specified local hyper block details 
     void searchLocalHyperBlock(const list<string> &commlist);
+
+    //HCE: Show inner infomation
     void showInnerDataStruct(const list<string>& paralist);
+
+    //HCE: Resolve app data
     void resolveAppData(const list<string> &paralist);
+
     void debug(const list<string> &paralist);
 
     void setLoggerLevel(const list<string> &level);
     void setLoggerLevelHelp(std::shared_ptr<spdlog::logger> & logger, const list<string> &level);
     void setConsensusLoggerLevel(const list<string> &level);
+
+    //HCE: Start specified applications
+    //HCE: @para appli Application list
     void startApplication(const list<string> &appli);
+
+    //HCE: Stop specified applications
+    //HCE: @para appli Application list
     void stopApplication(const list<string> &appli);
+
+    //HCE: Show applications are running or not
+     //HCE: @para appli Application list
     void statusApplication(const list<string> &appli);
 
+    //HCE: Enable or disable consensus simulate test
     void enableTest(const list<string> &onoff);
 
+    //HCE: Submit on chain data
     void submitData(const list<string>& cmdlist);
+
+    //HCE: Query on chain state for specified requestid
     void queryOnchainState(const list<string>& cmdlist);
 
     void switchRemoteServer(const list<string>& cmdlist);
 
+    //HCE: Extract script from file
     string extractScriptDataFromFile(const string& filename);
-    void showVMUsage();
-    void handleVM(const list<string> &vmcmdlist);
 
+    //HCE: Show VM module commands
+    void showVMUsage();
+
+    //HCE: Handle VM module commands
+    void handleVM(const list<string> &vmcmdlist);
+   
+    //HCE: Handle specified app module commands
     void appConsoleCmd(const string& appname, const list<string>& cmdlist, string& savingcommand);
+
+    //HCE: Handle ledger module commands
     void handleToken(const list<string>& cmdlist, string& savingcommand);
+
+    //HCE: Handle paracoin module commands
     void handleCoin(const list<string>& cmdlist, string& savingcommand);
+    
+    //HCE: Handle eth module commands
     void handleEth(const list<string>& cmdlist, string& savingcommand);
 
-    //HC: use to test paracoin and ledger
+    //HCE: use to test paracoin and ledger
     void simulateHyperBlkUpdated(const list<string>& cmdlist);
 
+    //HCE: Update HC program 
     bool UpdateProgram();
 
 };
@@ -203,7 +270,14 @@ private:
 class ProgramConfigFile
 {
 public:
+    //HCE: Get HC config file name from args "-conf"
+    //HCE: @para cfgfile HC config file name string
+    //HCE: @returns HC config file name string
     static string GetCfgFile(const string& cfgfile = "hc.cfg");
+
+    //HCE: Load config settings from HC config file
+    //HCE: @para cfgfile HC config file name string
+    //HCE: @returns void
     static void LoadSettings(const string& cfgfile = "hc.cfg");
 };
 

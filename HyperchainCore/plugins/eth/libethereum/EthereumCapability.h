@@ -106,6 +106,9 @@ public:
     /// Don't sync further - used only in test mode
     void completeSync();
 
+    //HC:
+    void SyncfromPeers();
+
     bool isSyncing() const;
 
     void noteNewTransactions() { m_newTransactions = true; }
@@ -117,6 +120,7 @@ public:
     BlockQueue& bq() { return m_bq; }
     BlockQueue const& bq() const { return m_bq; }
     SyncStatus status() const;
+    SyncStatus statusNoLock() const; //HC:
 
     static char const* stateName(SyncState _s) { return c_stateNames[static_cast<int>(_s)]; }
 

@@ -228,22 +228,19 @@ void RLPStream::noteAppended(size_t _itemCount)
         if (m_listStack.back().first < _itemCount)
             BOOST_THROW_EXCEPTION(RLPException() << errinfo_comment("itemCount too large") << RequirementError((bigint)m_listStack.back().first, (bigint)_itemCount));
         m_listStack.back().first -= _itemCount;
-        if (m_listStack.back().first)   //HC: 列表数据是否存放完毕，如果没有退出
-            break;
+        if (m_listStack.back().first)               break;
         else
         {
             auto p = m_listStack.back().second;
             m_listStack.pop_back();
-            size_t s = m_out.size() - p;		// list size //HC: s是存入的列表数据在m_out中实际占用空间的大小
+            size_t s = m_out.size() - p;		// list size             
             auto brs = bytesRequired(s);
-            unsigned encodeSize = s < c_rlpListImmLenCount ? 1 : (1 + brs);     //HC: 存入这个s所需空间的大小
-//			cdebug << "s: " << s << ", p: " << p << ", m_out.size(): " << m_out.size() << ", encodeSize: " << encodeSize << " (br: " << brs << ")";
+            unsigned encodeSize = s < c_rlpListImmLenCount ? 1 : (1 + brs);     
+            //cdebug << "s: " << s << ", p: " << p << ", m_out.size(): " << m_out.size() << ", encodeSize: " << encodeSize << " (br: " << brs << ")";
             auto os = m_out.size();
             m_out.resize(os + encodeSize);
-            memmove(m_out.data() + p + encodeSize, m_out.data() + p, os - p); //HC: 列表数据整体后移encodeSize个字节，腾出位置来
-
-            //HC: 在腾空的位置 存入列表字节长
-            if (s < c_rlpListImmLenCount)
+            memmove(m_out.data() + p + encodeSize, m_out.data() + p, os - p); 
+                        if (s < c_rlpListImmLenCount)
                 m_out[p] = (uint8_t)(c_rlpListStart + s);
             else if (c_rlpListIndLenZero + brs <= 0xff)
             {
@@ -303,15 +300,12 @@ RLPStream& RLPStream::append(bytesConstRef _s, bool _compact)
 RLPStream& RLPStream::append(bigint _i)
 {
     if (!_i)
-        m_out.push_back(c_rlpDataImmLenStart);  //HC: 0, 直接压入0x80
-    else if (_i < c_rlpDataImmLenStart)
-        m_out.push_back((uint8_t)_i);              //HC: 0 ~ 0x7f, 直接压入
-    else
+        m_out.push_back(c_rlpDataImmLenStart);      else if (_i < c_rlpDataImmLenStart)
+        m_out.push_back((uint8_t)_i);                  else
     {
         unsigned br = bytesRequired(_i);
         if (br < c_rlpDataImmLenCount)
-            m_out.push_back((uint8_t)(br + c_rlpDataImmLenStart)); //HC: 压入 0x80+数据字节数
-        else
+            m_out.push_back((uint8_t)(br + c_rlpDataImmLenStart));         else
         {
             auto brbr = bytesRequired(br);
             if (c_rlpDataIndLenZero + brbr > 0xff)
@@ -321,8 +315,7 @@ RLPStream& RLPStream::append(bigint _i)
         }
         pushInt(_i, br);
     }
-    noteAppended(); //HC: 处理列表用的
-    return *this;
+    noteAppended();     return *this;
 }
 
 void RLPStream::pushCount(size_t _count, uint8_t _base)

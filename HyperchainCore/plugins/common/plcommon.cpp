@@ -42,28 +42,11 @@ char log_prefix_i[] = "INFO";
 char log_prefix_e[] = "ERROR";
 char log_prefix_w[] = "WARNING";
 
-char log_prefix_bt[] = "Bt";        //HC: backtracking
-char log_prefix_btf[] = "BtfNode";  //HC: backtracking from node
+char log_prefix_bt[] = "Bt";        //HCE: backtracking
+char log_prefix_btf[] = "BtfNode";  //HCE: backtracking from node
 
 
 
-string strprintf(const char* fmt, ...)
-{
-    va_list args;
-
-    va_start(args, fmt);
-    int sz = std::vsnprintf(nullptr, 0, fmt, args);
-    va_end(args);
-
-    std::string buf(sz + 1, 0);
-
-    va_start(args, fmt);
-    std::vsnprintf(&buf[0], sz + 1, fmt, args);
-    va_end(args);
-
-    buf.pop_back();
-    return buf;
-}
 
 int64_t currentMillisecond()
 {
@@ -212,7 +195,7 @@ bool TurnOnOffDebugOutput(const string & onoff, string & ret)
         }
     }
 
-    //HC: show
+    //HCE: show
     if (fPrintToConsole && fPrintToDebugFile) {
         optiononoff = "both";
     }

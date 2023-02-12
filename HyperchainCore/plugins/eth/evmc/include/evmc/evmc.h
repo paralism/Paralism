@@ -414,8 +414,7 @@ struct evmc_result
      *  Also extends the size of the evmc_result to 64 bytes (full cache line).
      */
 
-    //HC:   4 + 8 = 12 when debug mode (compile options: /MDd)
-#ifdef _DEBUG
+    #ifdef _DEBUG
     uint8_t padding[12];
 #else
     uint8_t padding[4];

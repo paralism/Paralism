@@ -30,11 +30,10 @@ SOFTWARE.
 class BLOCKTRIPLEADDRESS
 {
 public:
-    uint32 hid = 0;            //HC: hyper block id
+    uint32 hid = 0;
     uint16 chainnum = 0;
     uint16 id = 0;
-    T_SHA256 hhash;             //HC: hyper block hash
-
+    T_SHA256 hhash;
 public:
     BLOCKTRIPLEADDRESS() {}
 

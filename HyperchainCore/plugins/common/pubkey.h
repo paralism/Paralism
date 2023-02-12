@@ -101,7 +101,7 @@ public:
         Set(pbegin, pend);
     }
 
-    //HC: ! Construct a compressed public key from a byte vector.
+    //HCE: ! Construct a compressed public key from a byte vector.
     static CPubKey NewPubKey(const std::vector<unsigned char>& _vch, bool fcompressed)
     {
         unsigned int len = CPubKey::GetLen(_vch[0]);

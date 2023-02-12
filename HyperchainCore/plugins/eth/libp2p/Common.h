@@ -277,7 +277,6 @@ inline std::ostream& operator<<(std::ostream& _strm, NodeID const& _id)
     return _strm;
 }
 
-//HC: 
 inline std::ostream& operator<<(std::ostream& _strm, PeerSessionInfo const& _peerSessionInfo)
 {
     _strm << _peerSessionInfo.id << "|" << _peerSessionInfo.clientVersion << "|"
@@ -303,6 +302,9 @@ std::ostream& operator<<(std::ostream& _out, NodeIPEndpoint const& _ep);
 
 /// Official Ethereum boot nodes
 std::vector<std::pair<Public, const char*>> defaultBootNodes();
+std::vector<std::pair<Public, const char*>> defaultBootNodes_Sandbox();
+std::vector<std::pair<Public, const char*>> defaultBootNodes_Informal();
+
 }
 }
 

@@ -16,6 +16,7 @@
 #include <memory>
 #include <thread>
 
+#include "utility/threadname.h"
 #include "node/Singleton.h"
 #include "HyperChain/HyperChainSpace.h"
 
@@ -130,8 +131,8 @@ void Client::init(p2p::Host& _extNet, fs::path const& _dbPath,
     m_bq.setOnBad([=](Exception& ex) { this->onBadBlock(ex); });
     bc().setOnBad([=](Exception& ex) { this->onBadBlock(ex); });
     bc().setOnBlockImport([=](BlockHeader const& _info) {
-        if (auto h = m_host.lock())
-            h->onBlockImported(_info);
+    if (auto h = m_host.lock())
+        h->onBlockImported(_info);
     });
 
     if (_forceAction == WithExisting::Rescue)
@@ -139,6 +140,7 @@ void Client::init(p2p::Host& _extNet, fs::path const& _dbPath,
 
     m_gp->update(bc());
 
+    m_myHost = &_extNet;
     // create Ethereum capability only if we're not downloading the snapshot
     if (_snapshotDownloadPath.empty())
     {
@@ -229,6 +231,16 @@ bool Client::isSyncing() const
     return false;
 }
 
+bool Client::isMajorSyncingNoLock() const
+{
+    if (auto h = m_host.lock())
+    {
+        SyncState state = h->statusNoLock().state;
+        return state != SyncState::Idle || h->bq().items().first > 10;
+    }
+    return false;
+}
+
 bool Client::isMajorSyncing() const
 {
     if (auto h = m_host.lock())
@@ -243,6 +255,10 @@ void Client::startedWorking()
 {
     // Synchronise the state according to the head of the block chain.
     // TODO: currently it contains keys for *all* blocks. Make it remove old ones.
+
+    //HC:
+    hc::SetThreadName(-1, "aleth-Client");
+
     LOG(m_loggerDetail) << "startedWorking()";
 
     DEV_WRITE_GUARDED(x_preSeal)
@@ -387,7 +403,6 @@ void Client::appendFromBlock(h256 const& _block, BlockPolarity _polarity, h256Ha
     }
 }
 
-//HC: 同步合规的块到主链
 void Client::syncBlockQueue()
 {
 //  cdebug << "syncBlockQueue()";
@@ -402,44 +417,37 @@ void Client::syncBlockQueue()
     std::shared_ptr<VerifiedBlocks> verifiedBlocks = std::make_shared<VerifiedBlocks>();
 
     //HC：将已经校验的块，放入块队列内部的待导入链集合：m_drainingSet
+    //HCE：Put the verified blocks into the chain collection to be imported inside the block queue: m_drainingSet
     m_bq.drain(*verifiedBlocks, m_syncAmount);
 
     // Propagate new blocks to peers before importing them into the chain.
     auto h = m_host.lock();
     assert(h);  // capability is owned by Host and should be available for the duration of the
                 // Client's lifetime
-    //HC: 广播
     h->propagateNewBlocks(verifiedBlocks);
 
-    //HC: 同步或者说导入已经验证的块到主链
+    Timer tt;
+
     std::tie(ir, badBlockHashes, count) = bc().sync(*verifiedBlocks, m_stateDB);
 
-    //HC: 多个线程分别会赋值m_syncBlockQueue：除了本线程，另外是BlockQueue::verifierBody线程过程
-    //HC: 所以有个矛盾的地方，如果verifierBody先执行置为True，而doneDrain后执行，置为false
-    //HC: 一旦m_syncBlockQueue为false，无法再次调用syncBlockQueue了
-    //HC: 就无法执行下面动作：onChainChanged -> resyncStateFromChain -> Client::restartMining（产生新块）
-    //HC: 进而出块停滞, 因此当为false时，才赋值，调整如下：
+    //HC:
+    double elapsedtt = tt.elapsed();
+    if(elapsedtt > 10)
+        LOG(m_logger) << "bc().sync elapsed:" << unsigned(elapsedtt * 1000) << "*****@@@********";
+
     bool rs = m_bq.doneDrain(badBlockHashes);
 
     if (!rs && m_syncBlockQueue) {
-        //HC: 注释说的情景发生了
         LOG(m_logger) << std::this_thread::get_id() << " " << currentTimeStr()
             << " badBlockHashes: " << badBlockHashes.size()
             << " Client::syncBlockQueue, occurred, m_syncBlockQueue already true ******************\n";
     }
 
-    //HC: m_syncBlockQueue 在下面二种情形的任意其一下需要为true，以便继续执行Client::syncBlockQueue，同步或者说导入已经验证的块到主链
-    //HC: 1. m_readySet集合不为空 2. m_verifying集合不为空, 因此这里不能盲目赋值，如果m_syncBlockQueue已经为true不能赋值为false
-    //HC: m_syncBlockQueue = rs;
     if (rs) {
         bool expected = false;
         m_syncBlockQueue.compare_exchange_strong(expected, rs);
-        size_t readyset;
-        auto s = m_bq.status(readyset);
-        LOG(m_logger) << "BlockQueue readySet:" << readyset << " verifying:" << s.verifying << "*******************\n";
     }
 
-    //HC: 如果working块是坏块，重置 
     if (badBlockHashes.size()) {
         for (h256 const& b : badBlockHashes) {
             if (b == m_working.info().hash()) {
@@ -454,14 +462,21 @@ void Client::syncBlockQueue()
 
     if (count)
     {
+        BlockHeader pindexBest = bc().info();
+
         LOG(m_logger) << count << " blocks imported in " << unsigned(elapsed * 1000) << " ms ("
-                      << (count / elapsed) << " blocks/s) in #" << bc().number();
+            << (count / elapsed) << " blocks/s) in #" << bc().number()
+            << " " << pindexBest.hash()
+            << " HID: " << pindexBest.prevHID()
+            << " HHash: " << pindexBest.prevHyperBlkHash();
     }
 
-    if (elapsed > c_targetDurationS * 1.1 && count > c_syncMinBlockCount)
-        m_syncAmount = max(c_syncMinBlockCount, count * 9 / 10);
-    else if (count == m_syncAmount && elapsed < c_targetDurationS * 0.9 && m_syncAmount < c_syncMaxBlockCount)
-        m_syncAmount = min(c_syncMaxBlockCount, m_syncAmount * 11 / 10 + 1);
+    //HCE: we don't change m_syncAmount
+    //if (elapsed > c_targetDurationS * 1.1 && count > c_syncMinBlockCount)
+    //    m_syncAmount = max(c_syncMinBlockCount, count * 9 / 10);
+    //else if (count == m_syncAmount && elapsed < c_targetDurationS * 0.9 && m_syncAmount < c_syncMaxBlockCount)
+    //    m_syncAmount = min(c_syncMaxBlockCount, m_syncAmount * 11 / 10 + 1);
+
     if (ir.liveBlocks.empty())
        return;
     onChainChanged(ir);
@@ -469,6 +484,13 @@ void Client::syncBlockQueue()
 
 void Client::syncTransactionQueue()
 {
+    //HCE: Wait for chain switch completely, otherwise maybe cannot pass the following assert when call m_working.sync
+    //HCE: assert(_bc.currentHash() == m_currentBlock.parentHash());
+    //HCE:
+    if (m_chainIsSwitching) {
+        return;
+    }
+
     resyncStateFromChain();
 
     Timer timer;
@@ -516,7 +538,7 @@ void Client::syncTransactionQueue()
 }
 
 void Client::onBlockQueueReady() {
-    LOG(m_logger) << std::this_thread::get_id() << " " << currentTimeStr() << " onBlockQueueReady: ******************* m_sysBlockQueue is true *********\n";
+    //LOG(m_logger) << std::this_thread::get_id() << " " << currentTimeStr() << " onBlockQueueReady: ******************* m_sysBlockQueue is true *********\n";
     m_syncBlockQueue = true;
     m_signalled.notify_all();
 }
@@ -562,14 +584,12 @@ void Client::resyncStateFromChain()
     restartMining();
 }
 
-//HC: 强制重置当前working block，交易重新放入队列m_tq，否则交易会丢失
 void Client::resetWorking() {
 
     //Block newPreMine(chainParams().accountStartNonce);
     //newPreMine = bc().genesisBlock(m_stateDB);
 
-    ////HC: 创建新块，块号+1，准备挖取
-    //newPreMine.sync(bc());
+    //    //newPreMine.sync(bc());
 
     //DEV_WRITE_GUARDED(x_preSeal) {
     //    newPreMine.setAuthor(m_preSeal.author());
@@ -593,7 +613,6 @@ void Client::resetWorking() {
             << endl;
 };
 
-//HC:
 void Client::restartMining(bool _isForce)
 {
     bool preChanged = false;
@@ -602,7 +621,6 @@ void Client::restartMining(bool _isForce)
         newPreMine = m_preSeal;
 
     // TODO: use m_postSeal to avoid re-evaluating our own blocks.
-    //HC: 创建新块，块号会+1，准备挖取
     preChanged = newPreMine.sync(bc());
     //LOG(m_logger) << "enter " << __FUNCTION__ << " for a new block " << newPreMine.info().number();
 
@@ -711,8 +729,7 @@ void Client::rejigSealing()
 
             LOG(m_loggerDetail) << "Rejigging seal engine...";
 
-            //HC: 检查是否需要重置client::m_working状态，如果一直不重置会导致挖矿停滞
-            //bool isSealed = false;
+                        //bool isSealed = false;
             //DEV_READ_GUARDED(x_working)
             //    isSealed = m_working.isSealed();
             //if (isSealed && !isMajorSyncing())
@@ -750,7 +767,6 @@ void Client::rejigSealing()
                     if (this->submitSealed(_header))
                         m_onBlockSealed(_header);
                     else {
-                        //HC:
                         auto head = BlockHeader(_header, HeaderData);
                         LOG(m_logger) << "Submitting block failed.....: "
                             << head.number() << " "
@@ -765,8 +781,11 @@ void Client::rejigSealing()
         else
             m_wouldButShouldnot = true;
     }
-    if (!m_wouldSeal)
+
+    //HCE: Mining, Require Peer Count > 0 
+    if (!m_wouldSeal || m_wouldSuspendSeal || (m_myHost && m_myHost->peerCount() == 0))
         sealEngine()->cancelGeneration();
+
 }
 
 void Client::noteChanged(h256Hash const& _filters)
@@ -803,16 +822,23 @@ void Client::noteChanged(h256Hash const& _filters)
 
 void Client::doWork(bool _doWait)
 {
+    static Timer tt;
+
     CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, std::string>::getInstance();
     if (hyperchainspace && !hyperchainspace->IsLatestHyperBlockReady()) {
-        LOG(m_loggerDetail) << "Hyper chain layer is unready, do nothing...";
+        if (tt.elapsed() > 15.0) {
+            //HC: 间隔15秒输出一次
+            //HCE: The output interval is 15 seconds 
+            LOG(m_loggerDetail) << "Hyper chain layer is unready, do nothing...";
+            tt.restart();
+        }
         this_thread::sleep_for(std::chrono::milliseconds(300));
         return;
     }
 
     bool t = true;
     if (m_syncBlockQueue.compare_exchange_strong(t, false)) {
-        LOG(m_logger) << std::this_thread::get_id() << " " << currentTimeStr() << " doWork: now m_syncBlockQueue is false.......*******************************************\n";
+        //LOG(m_logger) << std::this_thread::get_id() << " " << currentTimeStr() << " doWork: now m_syncBlockQueue is false.......*******************************************\n";
         syncBlockQueue();
     }
 
@@ -918,6 +944,17 @@ Transactions Client::pending() const
     return m_tq.topTransactions(m_tq.status().current);
 }
 
+//HC:
+SyncStatus Client::syncStatusNoLock() const
+{
+    auto h = m_host.lock();
+    if (!h)
+        return SyncStatus();
+    SyncStatus status = h->statusNoLock();
+    status.majorSyncing = isMajorSyncingNoLock();
+    return status;
+}
+
 SyncStatus Client::syncStatus() const
 {
     auto h = m_host.lock();
@@ -964,6 +1001,21 @@ bool Client::submitSealed(bytes const& _header)
     // OPTIMISE: very inefficient to not utilise the existing OverlayDB in m_postSeal that contains all trie changes.
     return m_bq.import(&newBlock, true) == ImportResult::Success;
 }
+
+
+void Client::rewindSyncNotReset(unsigned _n)
+{
+    m_chainIsSwitching = true;
+    executeInMainThread([=]() {
+        bc().rewind(_n);
+        onChainChanged(ImportRoute());
+
+        resetWorking();
+        m_chainIsSwitching = false;
+        });
+
+}
+
 
 void Client::rewind(unsigned _n)
 {
@@ -1089,4 +1141,10 @@ std::tuple<h256, h256, h256> Client::getWork()
         m_remoteWorking = true;
 
     return sealEngine()->getWork(m_sealingInfo);
+}
+
+void Client::SyncfromPeers()
+{
+    if (auto h = m_host.lock())
+        h->SyncfromPeers();
 }

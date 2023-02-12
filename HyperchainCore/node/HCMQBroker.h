@@ -39,9 +39,9 @@ static constexpr int maximum_process_ability = 20;
 
 struct worker
 {
-    std::string m_identity;   //HC: Address of worker
-    service * m_service;      //HC: Owning service, if known
-    int64_t m_expiry;         //HC: Expires at unless heartbeat
+    std::string m_identity;   //HCE: Address of worker
+    service * m_service;      //HCE: Owning service, if known
+    int64_t m_expiry;         //HCE: Expires at unless heartbeat
     int32_t m_process_ability = 0;
 
     worker(std::string identity, service * service = 0, int64_t expiry = 0)
@@ -51,7 +51,7 @@ struct worker
         m_expiry = expiry;
     }
 
-    //HC: mean now I can handle numbers of maximum messages
+    //HCE: mean now I can handle numbers of maximum messages
     inline void idle()
     {
         m_process_ability = maximum_process_ability;
@@ -62,7 +62,7 @@ struct worker
         return m_process_ability > 0;
     }
 
-    //HC: mean I can handle more messages
+    //HCE: mean I can handle more messages
     inline void become_stronger()
     {
         if (m_process_ability >= maximum_process_ability) {
@@ -87,12 +87,12 @@ struct service
     ~service()
     {}
 
-    std::string m_name;                 //HC: Service name
-    std::deque<std::tuple<zmsg,std::time_t>> m_requests;        //HC: List of client requests
-    std::set<worker*> m_waiting;        //HC: List of waiting workers
-    size_t m_workers = 0;               //HC: How many workers we have
-    size_t m_req_handled = 0;           //HC: How many request already handled by workers
-    size_t m_req_abandoned= 0;          //HC: How many request already abandoned by workers due to be expired
+    std::string m_name;                 //HCE: Service name
+    std::deque<std::tuple<zmsg,std::time_t>> m_requests;        //HCE: List of client requests
+    std::set<worker*> m_waiting;        //HCE: List of waiting workers
+    size_t m_workers = 0;               //HCE: How many workers we have
+    size_t m_req_handled = 0;           //HCE: How many request already handled by workers
+    size_t m_req_abandoned= 0;          //HCE: How many request already abandoned by workers due to be expired
 
     service(std::string name)
     {
@@ -104,9 +104,14 @@ class HCMQBroker
 {
 public:
 
+    //HCE: Constructor
     HCMQBroker();
+
+    //HCE: Destructor
     virtual ~HCMQBroker();
 
+    //HCE: Bind HCMQBroker with the address endpoint
+    //HCE: @para endpoint The address string
     void bind(std::string endpoint);
 
     zmq::context_t * context() { return m_context; }
@@ -118,19 +123,53 @@ public:
 
 private:
 
+    //HCE: Get the service pointer from the service name
+    //HCE: @para name Service name string
+    //HCE: @returns Pointer to the service
     service * service_require(std::string name);
 
+    //HCE: Dispatch the server to the worker
+    //HCE: @para srv Pointer to service
+    //HCE: @para msg Pointer to zmsg
     void service_dispatch(service *srv, zmsg *msg);
 
+    //HCE: Require the worker pointer from the identity string
+    //HCE: @para identity Worker identity string
+    //HCE: @returns Pointer to the worker
     worker * worker_require(std::string identity);
+
+    //HCE: Delete the worker
+    //HCE: @para wrk Pointer to the worker to delete
+    //HCE: @para disconnect Disconnect flag
     void worker_delete(worker *&wrk, int disconnect);
+
+    //HCE: Process the worker according to zmsg: MDPW_IDLE MDPW_READY MDPW_REPLY MDPW_HEARTBEAT MDPW_DISCONNECT
+    //HCE: @para sender The worker identity
+    //HCE: @para msg Pointer to zmsg
     void worker_process(std::string sender, zmsg *msg);
+
+    //HCE: Monitor the worker
+    //HCE: @para sender The worker identity
+    //HCE: @para msg Pointer to zmsg
     void monitor_process(std::string sender, zmsg *msg);
+
+    //HCE: Send message to the worker 
+    //HCE: @para worker Pointer to the worker
+    //HCE: @para command Command char buffer
+    //HCE: @para option Option char buffer
+    //HCE: @para msg Pointer to zmsg
     void worker_send(worker *worker, char *command, std::string option, zmsg *msg);
+
+    //HCE: Wait the worker
+    //HCE: @para worker Pointer to the worker
     void worker_waiting(worker *worker);
 
+    //HCE: Dispatch the service which comes from message to the worker
+    //HCE: @para sender The worker identity
+    //HCE: @para msg Pointer to zmsg
     void client_process(std::string sender, zmsg *msg);
 
+    //HCE: Handle the received message 
     void broker_handler();
 
 private:

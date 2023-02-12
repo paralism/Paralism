@@ -31,7 +31,7 @@ DEALINGS IN THE SOFTWARE.
 #include "NodeManager.h"
 #include "MsgDispatcher.h"
 
-//HC: TODO: how to delete to avoid memory leak?
+//HCE: TODO: how to delete to avoid memory leak?
 boost::thread_specific_ptr<zmq::socket_t> msgtransfer;
 
 MsgDispatcher::MsgDispatcher()
@@ -64,7 +64,7 @@ MsgDispatcher::MsgDispatcher()
 
     connect_to_broker();
 
-    m_msghandler.start();
+    m_msghandler.start("MsgDispatcher");
 }
 
 MsgDispatcher::~MsgDispatcher()
@@ -128,7 +128,7 @@ void MsgDispatcher::dispatch_real(const char *taskbuf, int len, const string& ip
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
     CUInt128 nodeid = ITask::getTaskNodeID(taskbuf);
 
-    //HC: Check GENHHASH first
+    //HCE: Check GENHHASH first
     nodemgr->updateNode(nodeid, ip, port);
     if (!nodemgr->IsNodeInKBuckets(nodeid)) {
 
@@ -146,8 +146,8 @@ void MsgDispatcher::dispatch_real(const char *taskbuf, int len, const string& ip
         return;
     }       
 
-    //HC:: Tell NodeManager to mark node actively
-    //HC: Update neighbor node
+    //HCE:: Tell NodeManager to mark node actively
+    //HCE: Update neighbor node
     string buff(taskbuf, ProtocolHeaderLen);
     ITask::setTaskType(&buff[0], TASKTYPE::ACTIVE_NODE);
     buff.append((char*)&port, sizeof(uint32_t));
@@ -169,7 +169,7 @@ void MsgDispatcher::dispatch_real(const char *taskbuf, int len, const string& ip
     case TASKTYPE::ON_CHAIN_WAIT:
     case TASKTYPE::COPY_BLOCK:
     case TASKTYPE::ON_CHAIN_REFUSE:
-        //HC:HASH CONSENSUS:
+        //HCE:HASH CONSENSUS:
     case TASKTYPE::ON_CHAIN_HASH:
     case TASKTYPE::ON_CHAIN_HASH_RSP:
     case TASKTYPE::ON_CHAIN_BLOCK:
@@ -212,10 +212,10 @@ void MsgDispatcher::dispatch_real(const char *taskbuf, int len, const string& ip
 
     default:
         if (!_mapAppTask.count(tt)) {
-            //HC: received unknown message type
+            //HCE: received unknown message type
             return;
         }
-        //HC: send messages to application
+        //HCE: send messages to application
         send(_mapAppTask[tt], &request);
     }
 }
@@ -271,9 +271,9 @@ zmsg* MsgDispatcher::send(std::string service, zmsg *request)
 {
     assert(request);
 
-    //HC: Prefix request with protocol frames
-    //HC: Frame 1: "MDPCxy" (six bytes, MDP/Client x.y)
-    //HC: Frame 2: Service name (printable string)
+    //HCE: Prefix request with protocol frames
+    //HCE: Frame 1: "MDPCxy" (six bytes, MDP/Client x.y)
+    //HCE: Frame 2: Service name (printable string)
     request->push_front((char*)service.c_str());
     request->push_front((char*)MDPC_CLIENT);
     request->push_front("");

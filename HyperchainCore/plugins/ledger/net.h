@@ -74,8 +74,8 @@ enum
 {
     MSG_TX = 1,
     MSG_BLOCK,
-    MSG_BLOCKEX,    //HC: reply type of "fgetblocks"
-    MSG_BLOCKEX_R,  //HC: reply type of "rgetblocks"
+    MSG_BLOCKEX,    //HCE: reply type of "fgetblocks"
+    MSG_BLOCKEX_R,  //HCE: reply type of "rgetblocks"
 };
 
 class CRequestTracker
@@ -137,7 +137,7 @@ public:
     int64 nLastRecv;
     int64 nLastSendEmpty;
     int64 nTimeConnected;
-    //HC: PushMessage(getchkblock) time
+    //HCE: PushMessage(getchkblock) time
     int64 nLastGetchkblk = 0;
     unsigned int nHeaderStart;
     unsigned int nMessageStart;
@@ -155,10 +155,18 @@ public:
     int nPKeyIdx = -1;            //public key index, if it is a node generating block, then nPKeyIdx >= 0
 
     //HC: 节点评分,和发送流量控制，避免网速不匹配导致请求过多而浪费网络带宽
+    //HCE: Node scoring and sending traffic control to avoid wasting network bandwidth due to excessive requests due to network speed mismatches
     int nScore = 0;
     int64 tmLastReqBlk = 0;
-    int nMinInterval = 5;      //HC：块请求最小间隔
-    int64 nReqBlkInterval = 5; //HC: 块请求间隔，nScore越小， nReqblk 越大
+
+    //HC: 块请求最小间隔
+    //HCE: Block request minimum interval
+    int nMinInterval = 5;
+
+    //HC: 块请求间隔，nScore越小， nReqblk 越大
+    //HCE: Block request interval, nScore is smaller, nReqblk is larger
+    int64 nReqBlkInterval = 5;
+
 
     void IncreReqBlkInterval();
     void DecreReqBlkInterval(int64 timeReqBlk);
@@ -199,10 +207,10 @@ public:
     // publish and subscription
     std::vector<char> vfSubscribe;
 
-    //HC:
+    //HCE:
     std::map<uint256, std::tuple<int64, uint256>> mapBlockSent;
 
-    //HC:
+    //HCE:
     uint256 hashCheckPointBlock = 0;
     uint32_t nHeightCheckPointBlock = 0;
 
@@ -301,7 +309,7 @@ public:
 
     void AddInventoryKnown(const CInv& inv)
     {
-        //HC: do nothing
+        //HCE: do nothing
         return;
         CRITICAL_BLOCK(cs_inventory)
             setInventoryKnown.insert(inv);
@@ -311,7 +319,7 @@ public:
     {
         CRITICAL_BLOCK(cs_inventory)
         {
-            //HC: Don't put into setInventoryKnown
+            //HCE: Don't put into setInventoryKnown
             //if (!setInventoryKnown.count(inv))
             vInventoryToSend.push_back(inv);
         }

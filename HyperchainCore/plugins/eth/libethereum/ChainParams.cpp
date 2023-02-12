@@ -186,8 +186,7 @@ void ChainParams::loadGenesis(string const& _json, h256 const& _stateRoot)
     timestamp = u256(fromBigEndian<u256>(fromHex(genesis[c_timestamp].get_str())));
     extraData = bytes(fromHex(genesis[c_extraData].get_str()));
 
-    //HC:
-    previousHID = genesis.count(c_previousHID) ?
+        previousHID = genesis.count(c_previousHID) ?
         genesis[c_previousHID].get_int() :
         0;
 
@@ -221,7 +220,6 @@ SealEngineFace* ChainParams::createSealEngine()
     return ret;
 }
 
-//HC: 从创世块提取链参数
 void ChainParams::populateFromGenesisWithoutCalc(bytes const& _genesisRLP)
 {
     BlockHeader bi(_genesisRLP, RLP(&_genesisRLP)[0].isList() ? BlockData : HeaderData);
@@ -323,12 +321,11 @@ bytes ChainParams::genesisBlock() const
             << gasUsed			// gasUsed
             << timestamp
             << extraData
-            //HC:
-            << previousHID
+                        << previousHID
             << previousHHash
         ;
     block.appendRaw(sealRLP, sealFields);
-    block.appendRaw(RLPEmptyList); //HC: 压入第2个List
+    block.appendRaw(RLPEmptyList);
     block.appendRaw(RLPEmptyList);
 
     return block.out();

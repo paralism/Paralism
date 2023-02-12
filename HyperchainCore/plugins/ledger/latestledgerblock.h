@@ -60,7 +60,7 @@ extern HyperBlockMsgs hyperblockMsgs;
 class CBlockIndexSimplified
 {
 public:
-    const uint256* phashBlock = nullptr;  //HC: 块hash指针
+    const uint256* phashBlock = nullptr;  
     CBlockIndexSimplified* pprev = nullptr;
     CBlockIndexSimplified* pnext = nullptr;
     uint32_t nHeight = -1;
@@ -216,7 +216,7 @@ public:
 
     static string GetMemoryInfo();
 
-    //HC: try switch to _indexLatest
+    //HCE: try switch to _indexLatest
     static void Switch();
     static bool IsOnChain();
     static bool IsLackingBlock(std::function<void(const BackTrackingProgress&)> notiprogress);
@@ -243,7 +243,7 @@ private:
     static void PullingPrevBlocks();
 
 private:
-    //HC: The latest block is contained by latest hyper block
+    //HCE: The latest block is contained by latest hyper block
     static CBlockIndexSimplified* _pindexLatest;
     static int  _nLatestLedgerHeight;
 
@@ -288,13 +288,13 @@ public:
                 return false;
             }
 
-            //HC: if Latest hyper block has changed, process them.
+            //HCE: if Latest hyper block has changed, process them.
             hyperblockMsgs.process();
 
             if (!LatestLedgerBlock::IsOnChain()) {
                 auto f = std::bind(&ChainReadyCondition::ProgressChanged, this, std::placeholders::_1);
                 if (!LatestLedgerBlock::IsLackingBlock(f)) {
-                    //HC: Try to switch chain
+                    //HCE: Try to switch chain
                     _eStatusCode = chainstatuscode::Switching;
                     LatestLedgerBlock::Switch();
                 }
@@ -462,7 +462,7 @@ public:
 
     void clear();
 
-    //HC: how to clean the bit flag?
+    //HCE: how to clean the bit flag?
     bool erase(const uint256& hashBlock);
 
     const CBlock& operator[](const uint256& hashBlock);
@@ -500,7 +500,7 @@ public:
 
     void clear();
 
-    //HC: how to clean the bit flag?
+    //HCE: how to clean the bit flag?
     bool erase(const uint256& hashBlock);
 
     const BLOCKTRIPLEADDRESS& operator[](const uint256& hashBlock);

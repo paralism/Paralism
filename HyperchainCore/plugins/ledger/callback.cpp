@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -98,7 +98,7 @@ bool IsGenesisBlock(const T_APPTYPE& t)
     return false;
 }
 
-//HC: Here should be change to pull application block in the future
+//HCE: Here should be change to pull application block in the future
 std::map<uint32_t, time_t> mapPullingHyperBlock;
 CCriticalSection cs_pullingHyperBlock;
 void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "")
@@ -111,7 +111,7 @@ void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "")
         }
         else {
             if (now - mapPullingHyperBlock[hid] < 60) {
-                //HC: already pulled
+                //HCE: already pulled
                 return;
             }
             else {
@@ -155,7 +155,7 @@ bool UpdateAppAddress(const CBlock& genesisblock, const T_LOCALBLOCKADDRESS& add
     string tokenhash = cryptoToken.GetHashPrefixOfGenesis();
     string errmsg;
     if (!cryptoTokenFromLocal.ReadTokenFile(cryptoToken.GetName(), tokenhash, errmsg)) {
-        //HC: no this token
+        //HCE: no this token
         return WARNING_FL("%s", errmsg.c_str());
     }
 
@@ -197,7 +197,7 @@ bool HandleGenesisBlockCb(vector<T_PAYLOADADDR>& vecPA)
     return true;
 }
 
-//HC: callback from HyperChain's consensus, put ledger transactions to HyperChain.
+//HCE: callback from HyperChain's consensus, put ledger transactions to HyperChain.
 bool PutTxsChainCb()
 {
     if (!g_chainReadyCond.IsReady())
@@ -205,11 +205,11 @@ bool PutTxsChainCb()
 
     std::lock_guard<std::mutex> lck(g_muxConsensusBlock);
     if (g_spConsensusBlock) {
-        //HC: already have consensus block is doing consensus
+        //HCE: already have consensus block is doing consensus
         return false;
     }
 
-    //HC: commit to buddy consensus
+    //HCE: commit to buddy consensus
     CReserveKey reservekey(pwalletMain);
     CBlock* pBlock = CreateNewBlock(reservekey);
     if (!pBlock) {
@@ -243,7 +243,7 @@ bool GetNeighborNodes(list<string>& listNodes)
     return true;
 }
 
-//HC: When a hyper block was received, chain layer calls this function to validate.
+//HCE: When a hyper block was received, chain layer calls this function to validate.
 bool CheckChainCb(vector<T_PAYLOADADDR>& vecPA)
 {
     return true;
@@ -307,7 +307,7 @@ bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, const uint256& hhash, bool isLat
         }
     }
 
-    //HC: check and switch pindexBest
+    //HCE: check and switch pindexBest
     auto& lastblock = vecBlock.back();
     uint32_t hid = lastblock.nPrevHID;
     uint256 hash = lastblock.GetHash();
@@ -319,7 +319,7 @@ bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, const uint256& hhash, bool isLat
 
     pindexLast = mapBlockIndex[hash];
 
-    //HC: check,if yes then switch pindexBest to pindexLast
+    //HCE: check,if yes then switch pindexBest to pindexLast
     bool bchainSwitch = true;
     if (pindexBest->nPrevHID > hid && !isLatest) {
         CBlockIndex *pfork = pindexBest;
@@ -343,7 +343,7 @@ bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, const uint256& hhash, bool isLat
 }
 
 extern HyperBlockMsgs hyperblockMsgs;
-//HC: Accept a validated Ledger chain in a hyper block or multiple hyper blocks
+//HCE: Accept a validated Ledger chain in a hyper block or multiple hyper blocks
 bool AcceptChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t& hidFork, uint32_t& hid, T_SHA256& thhash, bool isLatest)
 {
     CHAINCBDATA cbdata(mapPayload, hidFork, hid, thhash, isLatest);
@@ -359,7 +359,7 @@ bool ProcessChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t&
     //    cout << strprintf("Para ProcessChainCb spent million seconds : %ld\n", spentt.Elapse());
     //};
 
-    //HC: Called by consensus MQ service
+    //HCE: Called by consensus MQ service
     LatestHyperBlock::CompareAndUpdate(hid, thhash, isLatest);
     T_APPTYPE meApp(APPTYPE::ledger, g_cryptoToken.GetHID(),
                                      g_cryptoToken.GetChainNum(),
@@ -373,6 +373,7 @@ bool ProcessChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t&
 
     if (isLatest) {
         //HC: 链切换过程中，需要回退到分叉超块
+        //HCE: During the Para chain switching, you need to fall back to the fork Hyperchain
         CBlockIndex* pStart = pindexBest;
         while (pStart && pStart->nPrevHID >= hidFork) {
             pStart = pStart->pprev;
@@ -387,8 +388,8 @@ bool ProcessChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t&
             return true;
         }
 
-        //HC: Forward to block matched
-        //HC: Sometimes Ledger has already done mining on base of hid, so continue forwarding to latest para block
+        //HCE: Forward to block matched
+        //HCE: Sometimes Ledger has already done mining on base of hid, so continue forwarding to latest para block
         uint256 hhash(thhash.toHexString());
         CBlockIndex *pEnd = pStart;
         while (pEnd && pEnd->nPrevHID == hid && pEnd->hashPrevHyperBlock == hhash) {
@@ -446,7 +447,7 @@ bool ProcessChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t&
     //    }
     //}
 
-    //HC:try to commit new block to consensus
+    //HCE:try to commit new block to consensus
     //PutTxsChainCb();
 
     return true;
@@ -485,8 +486,8 @@ namespace boost {
     }
 }
 
-//HC: Here why use boost::any as key?
-//HC: If use class COutPoint directly, consensus layer need to include many ledger's header files.
+//HCE: Here why use boost::any as key?
+//HCE: If use class COutPoint directly, consensus layer need to include many ledger's header files.
 bool ValidateDataCb(T_PAYLOADADDR& payloadaddr,
     map<boost::any, T_LOCALBLOCKADDRESS>& mapOutPt,
     boost::any& hashPrevBlock)
@@ -509,7 +510,7 @@ bool ValidateDataCb(T_PAYLOADADDR& payloadaddr,
     if (!block.CheckTrans())
         return ERROR_FL("CheckTrans FAILED");
 
-    //HC: check the whether have conflicts with input transactions
+    //HCE: check the whether have conflicts with input transactions
     for (auto tx : block.vtx) {
         if (tx.IsCoinBase()) {
             continue;
@@ -541,7 +542,7 @@ bool UpdateDataCb(string& payload, string& newpaylod)
         //don't need update.
         return false;
     }
-    //HC: change hashPrevBlock in header
+    //HCE: change hashPrevBlock in header
     block.hashPrevBlock = pindexPrev->GetBlockHash();
     //block.nTime = max(pindexPrev->GetMedianTimePast() + 1, GetAdjustedTime());
 
@@ -562,7 +563,7 @@ bool IsProducingNode()
         return false;
     }
 
-    //HC: whether is PBFT consensus node
+    //HCE: whether is PBFT consensus node
     if(!g_cryptoToken.AmIConsensusNode()) {
         return false;
     }
@@ -579,12 +580,12 @@ bool IsProducingNode()
         hashMyNodeID = Hash(nodeid.begin(), nodeid.end());
     }
 
-    //HC: which node's distance is shorter?
+    //HCE: which node's distance is shorter?
 
     uint256 hhash;
     LatestHyperBlock::GetHID(&hhash);
 
-    //HC: time hash, every ten minutes change a time
+    //HCE: time hash, every ten minutes change a time
     std::time_t t = std::time(nullptr);
     char mbstr[64] = {0};
 
@@ -708,7 +709,7 @@ bool PBFT::Commit()
 }
 
 
-//HC: Callback from HyperChain's local consensus.
+//HCE: Callback from HyperChain's local consensus.
 bool PutBlockCb()
 {
     vector<CBlock> vblock;
@@ -717,7 +718,7 @@ bool PutBlockCb()
     bool isSwithBestToValid = false;
     CBlockIndex* pindexValidStarting = nullptr;
 
-    //HC: command line option -gen to enable
+    //HCE: command line option -gen to enable
     if (!fGenerateBitcoins)
         return false;
 
@@ -728,7 +729,7 @@ bool PutBlockCb()
     DEBUG_FL("Prepare to create blocks\n");
     FIBER_SWITCH_CRITICAL_BLOCK_T_MAIN(50)
     {
-        //HC: Process hyper block reached message firstly
+        //HCE: Process hyper block reached message firstly
         hyperblockMsgs.process();
 
         if (!LatestLedgerBlock::IsOnChain()) {
@@ -742,7 +743,7 @@ bool PutBlockCb()
         if (!IsProducingNode())
             return false;
 
-        //HC: before create new chain, switch pindexBest to latest block on hyper chain
+        //HCE: before create new chain, switch pindexBest to latest block on hyper chain
         CBlockIndex* pStart = LatestBlockIndexOnChained();
         SwitchChainTo(pStart);
 
@@ -753,11 +754,11 @@ bool PutBlockCb()
         pStart = LatestBlockIndexOnChained();
         pStart = pStart->pnext;
         if (!pStart) {
-            //HC: no any block need to commit
+            //HCE: no any block need to commit
             return false;
         }
 
-        //HC: Get blocks need to commit
+        //HCE: Get blocks need to commit
         CBlockIndex* pEnd = pStart;
         while (pEnd && pEnd->nPrevHID == nHID && pEnd->hashPrevHyperBlock == hhash) {
             if (!mapBlocks.contain(pEnd->GetBlockHash())) {
@@ -768,12 +769,12 @@ bool PutBlockCb()
         }
 
         if (vblock.size() < 2) {
-            //HC: The blocks starting from 'pStart' is stale
+            //HCE: The blocks starting from 'pStart' is stale
             isSwithBestToValid = true;
             pindexValidStarting = pStart->pprev;
         }
 
-        //HC: Switch chain to valid and return
+        //HCE: Switch chain to valid and return
         if (isSwithBestToValid) {
             for (; pindexValidStarting; pindexValidStarting = pindexValidStarting->pprev) {
                 if (SwitchChainTo(pindexValidStarting))
@@ -786,10 +787,10 @@ bool PutBlockCb()
     return false;
 }
 
-//HC: Callback from HyperChain's global consensus, put the Ledger chain to hyper chain's consensus layer.
+//HCE: Callback from HyperChain's global consensus, put the Ledger chain to hyper chain's consensus layer.
 bool PutChainCb()
 {
-    //HC: command line option -gen to enable
+    //HCE: command line option -gen to enable
     if (!fGenerateBitcoins)
         return false;
 
@@ -799,7 +800,7 @@ bool PutChainCb()
 
     FIBER_SWITCH_CRITICAL_BLOCK_T_MAIN(50)
     {
-        //HC: Process hyper block reached message firstly
+        //HCE: Process hyper block reached message firstly
         hyperblockMsgs.process();
         g_PBFT.Commit();
     }
@@ -807,13 +808,13 @@ bool PutChainCb()
     return true;
 }
 
-//HC: uuidpayload
+//HCE: uuidpayload
 bool BlockUUIDCb(string& payload, string& uuidpayload)
 {
-    //HC: don't contain CBlock's hashPrevBlock when calculating the UUID.
-    //HC: nVersion
+    //HCE: don't contain CBlock's hashPrevBlock when calculating the UUID.
+    //HCE: nVersion
     uuidpayload = payload.substr(0, sizeof(int));
-    //HC: ignore hashPrevBlock
+    //HCE: ignore hashPrevBlock
     uuidpayload += payload.substr(sizeof(int) + sizeof(uint256));
     return true;
 }
@@ -904,7 +905,7 @@ void ThreadGetNeighbourChkBlockInfo(void* parg)
                 }
             }
         }
-        //HC: Forward Faster ?
+        //HCE: Forward Faster ?
         SleepFn(60);
     }
 }
@@ -955,6 +956,8 @@ void AppRunningArg(int& app_argc, string& app_argv)
 
 extern MsgHandler ledgermsghandler;
 
+//HCE: Query the status of this module through the console 'rs' command
+//HCE: @param info Status of this module 
 void AppInfo(string& info)
 {
     if (CryptoToken::IsSysToken(g_cryptoToken.GetHashPrefixOfGenesis())) {
@@ -1128,7 +1131,8 @@ string showTokenUsage()
     return oss.str();
 }
 
-
+//HC: 处理Ledger模块的控制台命令
+//HCE: Handles console commands for the Ledger module
 bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand)
 {
     if (cmdlist.size() == 1) {
@@ -1155,7 +1159,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 for (auto& t : tokens) {
                     bool iscurrtoken = false;
                     if (currhash == t.GetHashGenesisBlock()) {
-                        //HC: current using token
+                        //HCE: current using token
                         iscurrtoken = true;
                     }
 
@@ -1253,7 +1257,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
 
                         if (cmd == cmdlist.end()) break;
                         char* end = nullptr;
-                        double amount = std::strtod(cmd->c_str(), &end); //HC: change to double type
+                        double amount = std::strtod(cmd->c_str(), &end); //HCE: change to double type
                         arr.push_back(amount);
                         break;
                     } while (true);
@@ -1275,7 +1279,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
 
                         if (cmd == cmdlist.end()) break;
                         char* end = nullptr;
-                        double amount = std::strtod(cmd->c_str(), &end); //HC: change to double type
+                        double amount = std::strtod(cmd->c_str(), &end); //HCE: change to double type
                         arr.push_back(amount);
                         break;
                     } while (true);
@@ -1326,7 +1330,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                     do {
                         if (cmd == cmdlist.end()) break;
                         char* end = nullptr;
-                        double amount = std::strtod(cmd->c_str(), &end); //HC: change to double type
+                        double amount = std::strtod(cmd->c_str(), &end); //HCE: change to double type
                         arr.push_back(amount);
                         break;
                     } while (true);
@@ -1345,7 +1349,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return MakeNewKeyPair();
             }},
 
-            //HC: ikp
+            //HCE: ikp
             { "ikp",[](const list<string>& l, bool fhelp) ->string {
 
                 return doAction([](const Array& params, bool fHelp) ->string {
@@ -1368,7 +1372,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                  }, l, fhelp);
             }},
 
-            //HC: ekp
+            //HCE: ekp
             { "ekp",[](const list<string>& l, bool fhelp) ->string {
                 likely_no_token
                 return doAction(expwalletkey, l, fhelp, false);
@@ -1379,26 +1383,26 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return doAction(setaccount, l, fhelp, false);
             } },
 
-             //HC: ikpf
+             //HCE: ikpf
             {"ikpf",[](const list<string>& l, bool fhelp) ->string {
                 likely_no_token
                 return doAction(impwalletkeysfromfile, l, fhelp);
             }},
 
-            //HC: ekpf
+            //HCE: ekpf
             { "ekpf",[](const list<string>& l, bool fhelp) ->string {
                 likely_no_token
                 return doAction(expwalletkeystofile, l, fhelp);
             }},
 
-            //HC: dkp
+            //HCE: dkp
             { "dkp",[](const list<string>& l, bool fhelp) ->string {
                 likely_no_token
                 string strRet = doAction(setdefaultkey, l, fhelp);
 
                 CRITICAL_BLOCK(pwalletMain->cs_wallet) {
                     if (g_cryptoToken.SearchPublicKeyIdx()) {
-                        //HC: notify neighbors to update version informations
+                        //HCE: notify neighbors to update version informations
                         UNCRITICAL_BLOCK(pwalletMain->cs_wallet);
                         CRITICAL_BLOCK(cs_vNodes) {
                             for (auto& n : vNodes) {
@@ -1410,13 +1414,13 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return strRet;
             } },
 
-            //HC: encw
+            //HCE: encw
             { "encw",[](const list<string>& l, bool fhelp) ->string {
                 likely_no_token
                 return doAction(encryptwallet, l, fhelp);
             }},
 
-            //HC: wpass
+            //HCE: wpass
             { "wpass",[&savingcommand](const list<string>& l, bool fhelp) ->string {
                 if (l.size() < 1) {
                     return doAction(walletpassphrase, l, true);
@@ -1442,7 +1446,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return doAction(walletpassphrase, l, fhelp, true, conv);
             }},
 
-            //HC: chwpass
+            //HCE: chwpass
             { "chwpass",[&savingcommand](const list<string>& l, bool fhelp) ->string {
                 if(l.size() != 0)
                     savingcommand = "t chwpass";
@@ -1481,7 +1485,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return strprintf("Failed to read block from address: %s %d", addrblock.tostring().c_str(), nTx);
             } },
 
-            //HC: by height
+            //HCE: by height
             { "readtxbyh",[](const list<string>& l, bool fhelp) ->string {
 
                 if (l.size() < 2) {

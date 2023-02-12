@@ -80,7 +80,7 @@ class CDB
 {
 protected:
     boost::shared_ptr<DbEnv> m_dbenv;
-    boost::shared_ptr<CCriticalSection> internal_cs_db;  //HC: avoid to release cs_db before CDB object was released
+    boost::shared_ptr<CCriticalSection> internal_cs_db;  //HCE: avoid to release cs_db before CDB object was released
     Db* pdb;
     std::string strFile;
     std::vector<DbTxn*> vTxn;
@@ -147,7 +147,7 @@ protected:
                 memset(data_buf, 0, dlen);
 
                 int nAdd = 0;
-                //HC: Notice, duplicate key data will be read which is last one for last time
+                //HCE: Notice, duplicate key data will be read which is last one for last time
                 if ((ret = dbcp->get(&key, &data, flags)) != 0)
                     ThrowException(ret, "DBC->get");
 
@@ -344,7 +344,7 @@ protected:
         return (ret == 0);
     }
 
-    //HC: can use txnid or not
+    //HCE: can use txnid or not
     Dbc* GetCursor(DbTxn* txnid = NULL)
     {
         if (!pdb)
@@ -395,7 +395,7 @@ protected:
         return 0;
     }
 
-    //HC: cursor must close firstly if txn bind with a cursor
+    //HCE: cursor must close firstly if txn bind with a cursor
     void ThrowException(Dbc** pcursor, int ret, const char* msg)
     {
         if (*pcursor) {
@@ -424,13 +424,13 @@ public:
             return NULL;
     }
 
-    //HC: flags: for isolation level, for example, DB_READ_COMMITTED
+    //HCE: flags: for isolation level, for example, DB_READ_COMMITTED
     bool TxnBegin(u_int32_t flags = DB_TXN_NOSYNC)
     {
         if (!pdb)
             return false;
         DbTxn* ptxn = NULL;
-        //HC: If the first argument is non-NULL, the new transaction will be a nested transaction
+        //HCE: If the first argument is non-NULL, the new transaction will be a nested transaction
         int ret = m_dbenv->txn_begin(GetTxn(), &ptxn, flags);
         if (!ptxn || ret != 0)
             return false;
@@ -597,7 +597,7 @@ public:
     boost::shared_ptr<CTxDB> GetPtr() { return _dbptr; }
 
 
-    //HC: v0.7.3.802 introduce
+    //HCE: v0.7.3.802 introduce
     bool ReadTxVersion(int& nVersion) { return _dbptr->ReadTxVersion(nVersion); }
     bool WriteTxVersion(int nVersion) { return _dbptr->WriteTxVersion(nVersion); }
 
@@ -609,15 +609,15 @@ private:
         _internal() {}
         ~_internal()
         {
-            //HC: close the db, make DBFlush work to delete archive log,
-            //HC: and at the same time recursively open is supported
-            //HC: unique() more faster than (use_count() == 1)
+            //HCE: close the db, make DBFlush work to delete archive log,
+            //HCE: and at the same time recursively open is supported
+            //HCE: unique() more faster than (use_count() == 1)
             if (tls_txdb_instance.unique()) {
                tls_txdb_instance.reset();
             }
         }
     };
-    //HC: Don't change the order of the following two members
+    //HCE: Don't change the order of the following two members
     _internal _i;
     boost::shared_ptr<CTxDB> _dbptr;
 };
@@ -698,15 +698,15 @@ private:
         _internal() {}
         ~_internal()
         {
-            //HC: close the db, make DBFlush work to delete archive log,
-            //HC: and at the same time recursively open is supported
-            //HC: unique() more faster than (use_count() == 1)
+            //HCE: close the db, make DBFlush work to delete archive log,
+            //HCE: and at the same time recursively open is supported
+            //HCE: unique() more faster than (use_count() == 1)
             if (tls_blkdb_instance.unique()) {
                 tls_blkdb_instance.reset();
             }
         }
     };
-    //HC: Don't change the order of the following two members
+    //HCE: Don't change the order of the following two members
     _internal _i;
     boost::shared_ptr<CBlockDB> _dbptr;
 };
@@ -932,9 +932,9 @@ public:
     }
 
 //////////////////////////////////////////////////////////////////////////
-    //HC: SegWit
-    //HC: value of utype: OutputType::LEGACY, OutputType::P2SH_SEGWIT, OutputType::BECH32
-    //HC: see outputtype.cpp
+    //HCE: SegWit
+    //HCE: value of utype: OutputType::LEGACY, OutputType::P2SH_SEGWIT, OutputType::BECH32
+    //HCE: see outputtype.cpp
     bool ReadDefaultKeyType(OutputType &utype)
     {
         unsigned char t;
@@ -1006,7 +1006,7 @@ private:
     int BulkLoadWalletUser(CWallet* pwallet);
     int BulkLoadWalletTx(CWallet* pwallet, vector<uint256>& vWalletUpgrade);
     int BulkLoadWalletAcentry(CWallet* pwallet);
-    int BulkLoadWalletCScript(CWallet* pwallet); //HC: SegWit
+    int BulkLoadWalletCScript(CWallet* pwallet); //HCE: SegWit
     int BulkLoadWalletKey(CWallet* pwallet);
     int BulkLoadWalletWKey(CWallet* pwallet);
     int BulkLoadWalletMKey(CWallet* pwallet);
@@ -1101,7 +1101,7 @@ public:
     }
 
     //////////////////////////////////////////////////////////////////////////
-    //HC: SegWit
+    //HCE: SegWit
     inline bool ReadDefaultKeyType(OutputType &utype)
     {
         return tls_walletdb_instance->ReadDefaultKeyType(utype);
@@ -1179,15 +1179,15 @@ private:
         _internal() {}
         ~_internal()
         {
-            //HC: close the db, make RPC interface(backupwallet) work,
-            //HC: and at the same time recursively open is supported
-            //HC: unique() more faster than (use_count() == 1)
+            //HCE: close the db, make RPC interface(backupwallet) work,
+            //HCE: and at the same time recursively open is supported
+            //HCE: unique() more faster than (use_count() == 1)
             if (tls_walletdb_instance.unique()) {
                 tls_walletdb_instance.reset();
             }
         }
     };
-    //HC: Don't change the order of the following two members
+    //HCE: Don't change the order of the following two members
     _internal _i;
     boost::shared_ptr<CWalletDB> _dbptr;
 

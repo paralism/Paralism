@@ -124,7 +124,7 @@ public:
     bool IsTokenSame(uint32_t hid, uint16_t chainnum, uint16_t localid) {
         return GetHID() == hid && GetChainNum() == chainnum && GetLocalID() == localid;
     }
-    //HC: if shorthash is empty, will scan the directory and find one
+    //HCE: if shorthash is empty, will scan the directory and find one
     bool ReadTokenFile(const string& name, string& shorthash, string& errormsg);
 
     static bool ReadIssCfg(const string& cfgfile, map<string, string>& mapGenenisBlkParams, vector<string>& vpublickey, string& errormsg);
@@ -233,9 +233,9 @@ private:
 private:
 
     std::map<std::string, std::string> _mapSettings;
-    GBPUBKEYS _vpublickeygenblk;  //HC: public key, their owners can generate block
+    GBPUBKEYS _vpublickeygenblk;  //HCE: public key, their owners can generate block
 
-    int _npkidx = -1;                    //HC: public key index which belong to me in _vpublickeygenblk
+    int _npkidx = -1;                    //HCE: public key index which belong to me in _vpublickeygenblk
 
     CKey _key;
 };

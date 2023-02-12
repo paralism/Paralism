@@ -177,23 +177,9 @@ public:
     /// Get the hash for a given block's number.
     h256 numberHash(unsigned _i) const { if (!_i) return genesisHash(); return queryExtras<BlockHash, uint64_t, ExtraBlockHash>(_i, m_blockHashes, x_blockHashes, NullBlockHash).value; }
 
-    //HC: Get previous block header
-    BlockHeader pprev(const BlockHeader &header) const {
-        if(header.number() == 0)
-            return BlockHeader();
-        return info(header.parentHash());
-    }
-
-    //HC: Get next block header
-    BlockHeader pnext(const BlockHeader &header) const {
-
-        h256 h = numberHash(header.number() + 1);
-        if(h == h256()) {
-            return BlockHeader();
-        }
-        return info(h);
-    }
-
+    BlockHeader pprev(const BlockHeader& header) const;
+    BlockHeader pnext(const BlockHeader& header) const;
+    
     LastBlockHashesFace const& lastBlockHashes() const { return *m_lastBlockHashes;  }
 
     int chainID() const { return m_params.chainID; }
@@ -233,8 +219,7 @@ public:
     std::vector<bytes> transactions(h256 const& _blockHash) const { bytes b = block(_blockHash); std::vector<bytes> ret; for (auto const& i: RLP(b)[1]) ret.push_back(i.data().toBytes()); return ret; }
     std::vector<bytes> transactions() const { return transactions(currentHash()); }
 
-    //HC:
-    std::vector<std::string> transactionsVS(h256 const& _blockHash) const {
+        std::vector<std::string> transactionsVS(h256 const& _blockHash) const {
         std::vector<std::string> ret;
         std::vector<bytes> txs = transactions(_blockHash);
         for (auto tx: txs) {

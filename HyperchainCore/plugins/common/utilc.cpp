@@ -24,13 +24,51 @@ DEALINGS IN THE SOFTWARE.
 // Distributed under the MIT/X11 software license, see the accompanying
 // file license.txt or http://www.opensource.org/licenses/mit-license.php.
 
-#include "headers.h"
+//#include "headers.h"
 #include "utilc.h"
+
+#include <cstdarg>
 
 #include <iostream>
 using namespace std;
 
-//HC: two ways for display the progress: percent and already handled
+
+string strprintf(const char* fmt, ...)
+{
+    va_list args;
+
+    va_start(args, fmt);
+    int sz = std::vsnprintf(nullptr, 0, fmt, args);
+    va_end(args);
+
+    std::string buf(sz + 1, 0);
+
+    va_start(args, fmt);
+    std::vsnprintf(&buf[0], sz + 1, fmt, args);
+    va_end(args);
+
+    buf.pop_back();
+    return buf;
+}
+
+
+CSpentTime::CSpentTime()
+{
+    _StartTimePoint = std::chrono::system_clock::now();
+}
+
+uint64_t CSpentTime::Elapse()
+{
+    auto tdiff = std::chrono::system_clock::now() - _StartTimePoint;
+    return std::chrono::duration_cast<std::chrono::milliseconds>(tdiff).count();
+}
+
+void CSpentTime::Reset()
+{
+    _StartTimePoint = std::chrono::system_clock::now();
+}
+
+//HCE: two ways for display the progress: percent and already handled
 void CommadLineProgress::Update(double newProgress)
 {
     currentProgress += newProgress;

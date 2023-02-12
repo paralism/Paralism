@@ -128,7 +128,7 @@ private:
     CUInt128 _nodeid;
     APList _aplist;
 
-    //Access point object factory
+    //HCE: Access point object factory
     objectFactory _apFactory;
     bool _isReg = false;
 };

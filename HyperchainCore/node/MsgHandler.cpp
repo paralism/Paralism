@@ -24,7 +24,7 @@ DEALINGS IN THE SOFTWARE.
 #include "MsgHandler.h"
 #include "defer.h"
 #include "algo.h"
-
+#include "utility/threadname.h"
 #include <boost/fiber/all.hpp>
 
 
@@ -91,9 +91,12 @@ void MsgHandler::registerTaskWorker(const char* servicename, std::function<void(
     registerWorker(servicename, func);
 }
 
-void MsgHandler::start()
+void MsgHandler::start(const char *threadname)
 {
     _eventloopthread.reset(new thread(&MsgHandler::dispatchMQEvent, this));
+
+    hc::SetThreadName(_eventloopthread.get(), threadname);
+    
     while (!_isstarted) {
         this_thread::sleep_for(chrono::milliseconds(200));
     }
@@ -161,8 +164,8 @@ string MsgHandler::details()
 
 void MsgHandler::dispatchMQEvent()
 {
-    //HC: make sure we use our priority_scheduler rather than default round_robin
-    //HC: scheduling algorithm uses to debug fiber.
+    //HCE: make sure we use our priority_scheduler rather than default round_robin
+    //HCE: scheduling algorithm uses to debug fiber.
     boost::fibers::use_scheduling_algorithm<priority_scheduler>();
     _my_scheduler_algo = new priority_scheduler();
     boost::fibers::context::active()->get_scheduler()->set_algo(_my_scheduler_algo);
@@ -203,7 +206,7 @@ void MsgHandler::dispatchMQEvent_fb()
                 continue;
             }
 
-            //HC: request broker give more messages to do
+            //HCE: request broker give more messages to do
             for (auto &w : _wrks) {
                 w->idle();
             }
@@ -217,11 +220,11 @@ void MsgHandler::dispatchMQEvent_fb()
                     size_t j = i - wrkcount;
                     zmsg recvmsg(*_socks[j]);
 
-                    //HC: Call callback function user defined to handle the event
+                    //HCE: Call callback function user defined to handle the event
                     co_create_start(this, _socks[j], std::move(recvmsg), _poll_funcs_s[j]);
                 }
                 else {
-                    //HC: Received message from broker
+                    //HCE: Received message from broker
                     zmsg recvmsg(*_wrks[i]->getsocket());
                     msg = &recvmsg;
 
@@ -235,7 +238,7 @@ void MsgHandler::dispatchMQEvent_fb()
 
                     std::string command = msg->pop_front();
                     if (command.compare(MDPW_REQUEST) == 0) {
-                        //HC: handle the event
+                        //HCE: handle the event
                         co_create_start(this, _wrks[i], std::move(recvmsg), _poll_funcs[i]);
                     }
                     else {
@@ -246,7 +249,7 @@ void MsgHandler::dispatchMQEvent_fb()
             }
         }
 
-        //HC: Handle any timers that have now expired
+        //HCE: Handle any timers that have now expired
         auto now = s_clock();
         for (auto &t : _poll_func_timers) {
             if (t.when < now && !_isstop) {
@@ -255,7 +258,7 @@ void MsgHandler::dispatchMQEvent_fb()
             }
         }
 
-        //HC: Handle a ticker
+        //HCE: Handle a ticker
         now = s_clock();
         auto a_ticket = _poll_func_tickets.begin();
         for (; a_ticket != _poll_func_tickets.end(); ) {
@@ -266,7 +269,7 @@ void MsgHandler::dispatchMQEvent_fb()
 
                 co_create_start(this, t.func);
 
-                //HC: other will be handled on next time
+                //HCE: other will be handled on next time
                 break;
             }
             ++a_ticket;
@@ -287,8 +290,8 @@ void MsgHandler::handleTask(void *wrk, zmsg *msg)
 
     std::shared_ptr<ITask> task = _taskFactory.CreateShared<ITask>(static_cast<uint32_t>(tt), std::move(taskbuf));
     if (!task) {
-        //HC: Received unregistered task data which cannot be handled, abandoned them
-        //HC: Just as if the data handled
+        //HCE: Received unregistered task data which cannot be handled, abandoned them
+        //HCE: Just as if the data handled
         return;
     }
 

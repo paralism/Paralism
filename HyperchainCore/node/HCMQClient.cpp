@@ -79,11 +79,11 @@ void* HCMQClient::cocall(const char *servicename, zmsg *request)
         }
         npolltimes = 0;
 
-        //HC: If we got a reply, process it
+        //HCE: If we got a reply, process it
         if (items[0].revents & ZMQ_POLLIN) {
             zmsg * recv_msg = new zmsg(*m_client);
 
-            //HC: Don't try to handle errors, just assert noisily
+            //HCE: Don't try to handle errors, just assert noisily
             assert(recv_msg->parts() >= 1);
 
             if (m_socktype != ZMQ_REQ)
@@ -97,7 +97,7 @@ void* HCMQClient::cocall(const char *servicename, zmsg *request)
         else {
             retries++;
 
-            //HC: Reconnect, and resend message
+            //HCE: Reconnect, and resend message
             if (retries > max_retries) {
                 connect_to_broker();
                 zmsg msg(*request);
@@ -106,7 +106,7 @@ void* HCMQClient::cocall(const char *servicename, zmsg *request)
 
                 total_retries++;
 
-                //HC: for debug
+                //HCE: for debug
                 //cout << time2string() << " " << this_thread::get_id() << "(" << servicename
                 //    << "): retry already " << total_retries << " times" << endl;
             }
@@ -148,15 +148,15 @@ zmsg* HCMQClient::send(std::string service, zmsg *request)
                 { static_cast<void*>(*m_client), 0, ZMQ_POLLIN, 0 } };
             zmq::poll(items, 1, 100);
 
-            //HC: If we got a reply, process it
+            //HCE: If we got a reply, process it
             if (items[0].revents & ZMQ_POLLIN) {
                 zmsg * recv_msg = new zmsg(*m_client);
 
-                //HC: Don't try to handle errors, just assert noisily
+                //HCE: Don't try to handle errors, just assert noisily
                 assert(recv_msg->parts() >= 1);
 
                 if (m_socktype != ZMQ_REQ)
-                    recv_msg->pop_front(); //HC: pop Frame 1: ""
+                    recv_msg->pop_front(); //HCE: pop Frame 1: ""
 
                 std::string header = recv_msg->pop_front();
                 assert(header.compare(m_mdptype) == 0);
@@ -166,7 +166,7 @@ zmsg* HCMQClient::send(std::string service, zmsg *request)
             else {
                 retries++;
 
-                //HC: Reconnect, and resend message
+                //HCE: Reconnect, and resend message
                 if (retries > max_retries) {
                     connect_to_broker();
                     zmsg msg(*request);

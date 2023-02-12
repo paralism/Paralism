@@ -50,6 +50,7 @@ void PingPongTask::execRespond()
 }
 
 //HC: 发送自己的node给对方
+//HCE: Send my node to requester
 void PingPongRspTask::exec()
 {
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();

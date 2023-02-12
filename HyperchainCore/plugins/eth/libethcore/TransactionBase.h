@@ -164,25 +164,19 @@ protected:
     void clearSignature() { m_vrs = SignatureStruct(); }
 
     Type m_type = NullTransaction;		///< Is this a contract-creation transaction or a message-call transaction?
-	//HC: 记录交易发送者的发送次数
-    u256 m_nonce;						///< The transaction-count of the sender.
+	    u256 m_nonce;						///< The transaction-count of the sender.
 
-	//HC: 交易的以太币数量，单位为wei，注意这个值可以为0
-    u256 m_value;						///< The amount of ETH to be transferred by this transaction. Called 'endowment' for contract-creation transactions.
+	    u256 m_value;						///< The amount of ETH to be transferred by this transaction. Called 'endowment' for contract-creation transactions.
     Address m_receiveAddress;			///< The receiving address of the transaction.
 
-	//HC: 交易费 = m_gas * m_gasPrice
-    u256 m_gasPrice;					///< The base fee and thus the implied exchange rate of ETH to GAS.
+	    u256 m_gasPrice;					///< The base fee and thus the implied exchange rate of ETH to GAS.
     u256 m_gas;							///< The total gas to convert, paid for from sender's account. Any unused gas gets refunded once the contract is ended.
 
-	//HC: 创建智能合约交易时附带的交易编码，对于普通交易这个值为空
-    bytes m_data;						///< The data associated with the transaction, or the initialiser if it's a creation transaction.
+	    bytes m_data;						///< The data associated with the transaction, or the initialiser if it's a creation transaction.
 
-	//HC: 交易的签名, 发送者信息隐藏在m_vrs中，m_vrs可以反推出发送者的公钥，从而得到发送者地址
-    boost::optional<SignatureStruct> m_vrs;	///< The signature of the transaction. Encodes the sender.
+	    boost::optional<SignatureStruct> m_vrs;	///< The signature of the transaction. Encodes the sender.
 
-	//HC: 区分是否采用EIP155，-4表示不采用，1表示采用
-    /// EIP155 value for calculating transaction hash
+	    /// EIP155 value for calculating transaction hash
     /// https://github.com/ethereum/EIPs/blob/master/EIPS/eip-155.md
     boost::optional<uint64_t> m_chainId;
 

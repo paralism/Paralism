@@ -109,7 +109,7 @@ void UdtThreadPool::stop()
 
     m_recvthreads.clear();
 
-    //HC: destructor won't run
+    //HCE: destructor won't run
     UDT::cleanup();
 }
 
@@ -243,7 +243,7 @@ public:
         int32_t datalen = 0;
         char iscompressed = 0;
         if (databuf.size() > 1024) {
-            //HC: zip compress
+            //HCE: zip compress
             stringstream tmpssdata;
             boost::iostreams::filtering_ostream out;
             out.push(boost::iostreams::zlib_compressor(boost::iostreams::zlib::best_compression));
@@ -300,8 +300,8 @@ bool HaveSndRoom(int udtsck)
     nOptlen = sizeof(int);
     UDT::getsockopt(udtsck, 0, UDT_SNDDATA, &nSndDataSize, &nOptlen);
 
-    //HC: m_iSndBufSize
-    int nMaxSndBufSize = nSndbuf / (nMss - 28); //HC: 28, see getsockopt
+    //HCE: m_iSndBufSize
+    int nMaxSndBufSize = nSndbuf / (nMss - 28); //HCE: 28, see getsockopt
 
     if (nMaxSndBufSize <= nSndDataSize)
         return false;
@@ -324,7 +324,7 @@ void UdtThreadPool::SendData(int eid, int udtsck)
         return;
     }
 
-    const int blocksize = 364000; //HC: 364000, see UDT::sendfile
+    const int blocksize = 364000; //HCE: 364000, see UDT::sendfile
     const int maxsendingsize = blocksize * 2;
     const int maxrequestnum = 10;
 
@@ -339,7 +339,7 @@ void UdtThreadPool::SendData(int eid, int udtsck)
     auto &sendings = m_sendDatas[peer].datas;
     m_sendDatas[peer].nsent++;
     m_sendDatas[peer].tmlastsent = time(nullptr);
-    m_sendDatas[peer].sockrecv[udtsck] = peer.uRecv; //HC: data received info
+    m_sendDatas[peer].sockrecv[udtsck] = peer.uRecv; //HCE: data received info
     unilck.unlock();
 
     int sndsize = 0;
@@ -356,7 +356,7 @@ void UdtThreadPool::SendData(int eid, int udtsck)
         auto& sendingD = sendings.front();
         sndsize = (int)(std::get<1>(sendingD).size());
         if (time(nullptr) - std::get<0>(sendingD) > 300) {
-            //HC: timeout, discard
+            //HCE: timeout, discard
             m_nDiscardedSnd++;
             m_nDiscardedSndBytes += sndsize;
 
@@ -390,10 +390,10 @@ void UdtThreadPool::SendData(int eid, int udtsck)
 
     g_console_logger->trace("UdtThreadPool::SendData ({}:{}) : {}[{}]", peer.Ip, peer.Port, totalsize, vfst.GetPackageNum());
 
-    //HC: loop send data
+    //HCE: loop send data
     while (leftsize > 0 && !m_isstop) {
 
-        //HC: make sure UDT doesn't enter state of waiting infinitely when calling UDT::sendfile
+        //HCE: make sure UDT doesn't enter state of waiting infinitely when calling UDT::sendfile
         while (!HaveSndRoom(udtsck)) {
             UDTSTATUS status = UDT::getsockstate(udtsck);
             if (status == CLOSED || status == CLOSING || status == BROKEN || status == NONEXIST || m_isstop) {
@@ -414,7 +414,7 @@ void UdtThreadPool::SendData(int eid, int udtsck)
 
 err:
 
-    //HC: discard
+    //HCE: discard
     m_nDiscardedSnd += vfst.GetPackageNum();
     m_nDiscardedSndBytes += totalsize;
 
@@ -461,7 +461,7 @@ int UdtThreadPool::CreateListenSocket()
         return -1;
     }
 
-    //HC: In practice, we cannot use UDT socket blocking mode.
+    //HCE: In practice, we cannot use UDT socket blocking mode.
     //bool isblock = false;
     //UDT::setsockopt(m_listenFd, 0, UDT_SNDSYN, &isblock, sizeof(bool));
     //UDT::setsockopt(m_listenFd, 0, UDT_RCVSYN, &isblock, sizeof(bool));
@@ -485,7 +485,7 @@ int UdtThreadPool::CreateListenSocket()
 void setrecvsendtimeout(UDTSOCKET socket_fd)
 {
     int nTimeout = 1000; //1 second
-    //HC: In fact, sending timeout option is unnecessary
+    //HCE: In fact, sending timeout option is unnecessary
     UDT::setsockopt(socket_fd, 0, UDT_SNDTIMEO, &nTimeout, sizeof(int));
     UDT::setsockopt(socket_fd, 0, UDT_RCVTIMEO, &nTimeout, sizeof(int));
 }
@@ -513,7 +513,7 @@ UDTSOCKET UdtThreadPool::CreateConnectionSocket(const T_UDTNODE& serverNode)
     inet_pton(AF_INET, serverNode.Ip.c_str(), &serverAddr.sin_addr);
     serverAddr.sin_port = htons(serverNode.Port);
 
-    //HC: close linger
+    //HCE: close linger
     linger ling;
     ling.l_onoff = 0;
     UDT::setsockopt(socket_fd, 0, UDT_LINGER, &ling, sizeof(linger));
@@ -557,8 +557,8 @@ bool UdtThreadPool::AcceptConnectionSocket(int eid, UDTSOCKET listenFd)
 
     uint32_t fromPort = ntohs(serverAddr.sin_port);
 
-    //HC: add a new connection for two nodes, so their connections >= 2,
-    //HC: finally, which one will be used? it is decided by data sending and receiving between nodes.
+    //HCE: add a new connection for two nodes, so their connections >= 2,
+    //HEC: finally, which one will be used? it is decided by data sending and receiving between nodes.
     T_UDTNODE udtnode(fromIp, fromPort);
     m_socketMap[socket_fd] = udtnode;
 
@@ -568,7 +568,7 @@ bool UdtThreadPool::AcceptConnectionSocket(int eid, UDTSOCKET listenFd)
 
     g_console_logger->trace("{}: [{}:{}] socket {}", __FUNCTION__, fromIp, fromPort, socket_fd);
 
-    //HC: insert new one into m_sendDatas or update
+    //HCE: insert new one into m_sendDatas or update
     std::lock_guard<std::mutex> lk(m_sendDatasLock);
     m_sendDatas[udtnode].addSock(socket_fd, udtrecv());
     m_sendDatas[udtnode].refreshReconn(true);
@@ -592,7 +592,7 @@ void UdtThreadPool::FillFdSets(int eid)
 
     auto ststonce = m_actioncoststt.NewStatt(2);
 
-    deque<T_UDTNODE> reconnnodes;  //HC: who need to reconnect
+    deque<T_UDTNODE> reconnnodes;  //HCE: who need to reconnect
     {
         std::lock_guard<std::mutex> lkdata(m_sendDatasLock);
         for (auto it = m_socketMap.begin(); it != m_socketMap.end();) {
@@ -622,7 +622,7 @@ void UdtThreadPool::FillFdSets(int eid)
                 auto& udtdata = m_sendDatas[it->second];
                 udtdata.addSock(it->first, it->second.uRecv);
                 if (UDTSTATUS::CONNECTED == status && udtdata.datas.size() > 0 && !it->second.isInSndFiber) {
-                    //HC: There are data need to send
+                    //HCE: There are data need to send
                     events |= UDT_EPOLL_OUT;
                 }
             }
@@ -639,7 +639,7 @@ void UdtThreadPool::FillFdSets(int eid)
         }
     }
 
-    //HC: reconnect
+    //HCE: reconnect
     const int maxConnectNodes = 5;
     int connNodes = 0;
 
@@ -662,7 +662,7 @@ void UdtThreadPool::FillFdSets(int eid)
             auto& udtd = m_sendDatas[node];
 
             if (udtd.isLongTimeNotConn()) {
-                //HC: node cannot connect, so remove it
+                //HCE: node cannot connect, so remove it
                 removeSendNode(node);
                 unilck.unlock();
                 reconnnodes.pop_front();
@@ -733,11 +733,13 @@ void UdtThreadPool::Listen_fb()
         nFds = UDT::epoll_wait(eid, &readfds, &writefds, 1500);
         if (nFds < 0) {
             //HC: 超时
+            //HCE: Overtime
             continue;
         }
 
         if (readfds.count(m_listenFd)) {
             //HC: 处理连接请求
+            //HCE: Handle connect request
             AcceptConnectionSocket(eid, m_listenFd);
             readfds.erase(m_listenFd);
         }
@@ -747,12 +749,12 @@ void UdtThreadPool::Listen_fb()
                 {
                     std::lock_guard<std::mutex> lkdata(m_sendDatasLock);
                     if (m_socketMap[s].isInRecvFiber) {
-                        //HC: The socket is receiving data
+                        //HCE: The socket is receiving data
                         continue;
                     }
                     m_socketMap[s].isInRecvFiber = true;
                 }
-                //HC: let receiving(priority:1) have high priority than sending(0)
+                //HCE: let receiving(priority:1) have high priority than sending(0)
                 co_create_start(this, 1, eid, s, [this](int eid, UDTSOCKET socket_fd) {
                     RecvData(eid, socket_fd);
                     {
@@ -768,7 +770,7 @@ void UdtThreadPool::Listen_fb()
                 {
                     std::lock_guard<std::mutex> lkdata(m_sendDatasLock);
                     if (m_socketMap[s].isInSndFiber) {
-                        //HC: The socket is sending data
+                        //HCE: The socket is sending data
                         continue;
                     }
                     m_socketMap[s].isInSndFiber = true;
@@ -839,7 +841,7 @@ void UdtThreadPool::RecvData(int eid, UDTSOCKET socket_fd)
     int64_t offset = 0;
     int recvNum = 0;
 
-    const int blocksize = 7280000; //HC: 7280000, see UDT::recvfile
+    const int blocksize = 7280000; //HCE: 7280000, see UDT::recvfile
 
     RecvNode.fromAddr = m_socketMap[socket_fd];
 
@@ -863,10 +865,10 @@ void UdtThreadPool::RecvData(int eid, UDTSOCKET socket_fd)
     m_nTotalRecv++;
     m_nTotalRecvBytes += datasize;
 
-    //HC: loop recv data
+    //HCE: loop recv data
     while (datasize > 0 && !m_isstop) {
 
-        //HC: make sure I can receive data from UDT when calling UDT::recvfile
+        //HCE: make sure I can receive data from UDT when calling UDT::recvfile
         while (!HaveRecvRoom(socket_fd)) {
             UDTSTATUS status = UDT::getsockstate(socket_fd);
             if (status == CLOSED || status == CLOSING || status == BROKEN || status == NONEXIST || m_isstop) {
@@ -916,7 +918,7 @@ void UdtThreadPool::ProcessDataRecv()
             TASKBUF taskbuf;
             std::stringstream ss_decomp;
             if (t.compressed) {
-                //HC: unzip
+                //HCE: unzip
                 try {
                     boost::iostreams::filtering_istream recvData;
                     recvData.push(boost::iostreams::zlib_decompressor());
@@ -939,7 +941,7 @@ void UdtThreadPool::ProcessDataRecv()
                 taskbuf = std::make_shared<std::string>(t.spDataBuf->str());
             }
 
-            //HC: push data to handler which dispatches them to high layers
+            //HCE: push data to handler which dispatches them to high layers
             udprecvhandler->put(t.fromAddr.Ip.c_str(), t.fromAddr.Port, taskbuf);
             if (m_isstop)
                 break;

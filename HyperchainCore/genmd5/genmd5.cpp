@@ -1,11 +1,14 @@
-﻿#include "../UpdateInfo.h"
+#include "../UpdateInfo.h"
 #include <iostream>
 #include <string>
 #include <boost/filesystem/fstream.hpp>
 
-
 using namespace std;
 
+//HCE:
+//HCE: @brief A tool to generate localhc.ini according to filelist.ini.
+//HCE: The program reads the file list from filelist.ini,and write the file list and the corresponding md5 values into localhc.ini. 
+//HCE:
 int main()
 {
 	boost::filesystem::ifstream fin("filelist.ini");
@@ -40,12 +43,15 @@ int main()
 		}
         fin.close();
 
+        boost::filesystem::path pathCurrent = boost::filesystem::current_path();
+        boost::filesystem::path pathFile;
 	 	boost::filesystem::ofstream fout("localhc.ini",ios::out);
 		if (fout.is_open()) {
 			string localmd5;
 			fout << "[preupdate files]" << endl;
 			for (auto& file : preupdatefile) {
-				localmd5 = UpdateInfo::FileDigest(file);
+                pathFile = pathCurrent / file;
+				localmd5 = UpdateInfo::FileDigest(pathFile);
 				fout << "preupdate=" << file << endl;
 				fout << "md5=" << localmd5 << endl;
 			}
@@ -53,16 +59,18 @@ int main()
 			fout << endl;
 			fout<<"[update files]" << endl;
 			for (auto& file : updatefile) {
-				localmd5 = UpdateInfo::FileDigest(file);
-				fout << "updatefile=" << file << endl;
+                pathFile = pathCurrent / file;
+                localmd5 = UpdateInfo::FileDigest(pathFile);
+                fout << "updatefile=" << file << endl;
 				fout << "md5=" << localmd5 << endl;
 			}
 
 			fout << endl;
 			fout << "[lib files]" << endl;
 			for (auto& file : libfile) {
-				localmd5 = UpdateInfo::FileDigest(file);
-				fout << "libfile=" << file << endl;
+                pathFile = pathCurrent / file;
+                localmd5 = UpdateInfo::FileDigest(pathFile);
+                fout << "libfile=" << file << endl;
 				fout << "md5=" << localmd5 << endl;
 			}
 

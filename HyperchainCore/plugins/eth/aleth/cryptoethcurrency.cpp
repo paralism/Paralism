@@ -60,11 +60,11 @@ extern std::map<std::string, std::string> mapArgs;
 
 
 extern string GetHyperChainDataDir();
+extern T_SHA256 to_T_SHA256(const h256& uhash);
 
 string CreateDataChildDir(const string& childdir)
 {
-    //HC: in parent directory
-    fs::path logpath(getDataDir(".."));
+        fs::path logpath(getDataDir(".."));
 
     logpath /= childdir;
     if (!fs::exists(logpath)) {
@@ -110,7 +110,6 @@ string CurrencyConfigPath(const string& shorthash)
     return shorthash;
 }
 
-//HC: Here should be change to pull application block in the future
 static std::map<uint32_t, time_t> mapPullingHyperBlock;
 static std::mutex cs_pullingHyperBlock;
 void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "")
@@ -122,7 +121,6 @@ void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "")
             mapPullingHyperBlock.insert({ hid, now });
         } else {
             if (now - mapPullingHyperBlock[hid] < 60) {
-                //HC: already pulled
                 return;
             } else {
                 mapPullingHyperBlock[hid] = now;
@@ -265,7 +263,6 @@ bool CryptoEthCurrency::ParseCoin(const bytes& payload)
 }
 
 
-//HC: if shorthash is empty,then find one
 bool CryptoEthCurrency::ReadCoinFile(const string& shorthash, string& errormsg)
 {
     string datapath = CurrencyConfigPath(shorthash);
@@ -450,8 +447,7 @@ bytes CryptoEthCurrency::ExtractBlock(const string& payload)
 std::string CryptoEthCurrency::MakePayload(const bytes& blk)
 {
     RLPStream block(1); //HC：准备压入1个List
-    block.appendList(1) //HC: 此list后跟1个元素, 如果n个那么这里就是n
-        << blk;
+    block.appendList(1)         << blk;
     const bytes &b = block.out();
     return string(b.begin(), b.end());
 }
@@ -531,10 +527,19 @@ bool CryptoEthCurrency::RsyncMiningGenesiBlock(const string& configfile)
 
     GENESIS_ACC ga;
     ga.genesis = test.genesisBlock();
-    ga.accmap = test.genesisState; //HC: 账户信息
+    ga.accmap = test.genesisState;
     ga.jsonconfig = strJsonconfig;
 
     BlockHeader header(ga.genesis);
+
+    CHyperChainSpace* chainspace = Singleton<CHyperChainSpace, string>::getInstance();
+    if (!chainspace->CheckHyperBlockHash(header.prevHID(), to_T_SHA256(header.prevHyperBlkHash()))) {
+        cerr << " Hyperblock is invalid " << header.prevHID()
+            << " " << header.prevHyperBlkHash() << endl;
+        return false;
+    }
+
+
     if (ReadCoinFile(header.hash().hex(), errmsg)) {
         cerr << "The CryptoCoin already existed";
         return false;
@@ -550,8 +555,6 @@ bool CryptoEthCurrency::RsyncMiningGenesiBlock(const string& configfile)
     return true;
 }
 
-//HC: What is Pan Gu, creator of the universe in Chinese mythology
-//HC: ethereum genesis block address is [1 1 x]
 std::string CryptoEthCurrency::GetPanGuSettings()
 {
     string jsonconfig = {
@@ -596,8 +599,7 @@ std::string CryptoEthCurrency::GetPanGuSettings()
         }
         )"
         //62EB346B: 2022-08-04 10:52:27
-        //HC: 可以预写账户，格式如下：
-        //"accounts": {
+                //"accounts": {
         //      "003d122ebc2585327bd415c686c0525777227cca" : {
         //      "balance" : "0x100000000000000000000000000000000000000000000000000000000000000"
         //  },
@@ -661,8 +663,7 @@ std::string CryptoEthCurrency::GetInformalNetSettings()
 
 void CryptoEthCurrency::SetDefaultParas()
 {
-    //HC: sandbox，这里可以调整，采用不同的设置
-    //m_spChainParams = make_shared<ChainParams>(GetPanGuSettings());
+        //m_spChainParams = make_shared<ChainParams>(GetPanGuSettings());
 }
 
 void CryptoEthCurrency::SelectNetWorkParas()
@@ -681,15 +682,13 @@ void CryptoEthCurrency::SelectNetWorkParas()
         }
     }
 
-    //HC: sandbox
     SetDefaultParas();
 }
 
 
 bool CryptoEthCurrency::LoadCryptoCurrency(bool &isBuiltIn)
 {
-    //HC: which coin will be used?
-    CApplicationSettings appini;
+        CApplicationSettings appini;
     string defaultAppHash;
     appini.ReadDefaultApp(defaultAppHash);
 
@@ -701,8 +700,7 @@ bool CryptoEthCurrency::LoadCryptoCurrency(bool &isBuiltIn)
         goto emptycoin;
     }
 
-    //HC: load currency
-    if (!ReadCoinFile(coinhash, errmsg)) {
+        if (!ReadCoinFile(coinhash, errmsg)) {
         cerr << StringFormat("Not found cryptocurrency: %s\n", coinhash);
         goto emptycoin;
     }
@@ -733,4 +731,3 @@ emptycoin:
 
 }
 
-CryptoEthCurrency g_CryptoEthCurrency;

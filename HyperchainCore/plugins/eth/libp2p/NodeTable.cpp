@@ -235,7 +235,7 @@ void NodeTable::doDiscoveryRound(
             p.sign(m_secret);
             m_sentFindNodes.emplace_back(nodeEntry->id(), chrono::steady_clock::now());
             LOG(m_logger) << p.typeName() << " to " << nodeEntry->node << " (target: " << _node
-                          << ")";
+                          << ") ***********************";
             m_socket->send(p);
 
             _tried->emplace(nodeEntry);
@@ -277,16 +277,18 @@ void NodeTable::doDiscoveryRound(
 vector<shared_ptr<NodeEntry>> NodeTable::nearestNodeEntries(NodeID const& _target)
 {
     auto const distanceToTargetLess = [](pair<int, shared_ptr<NodeEntry>> const& _node1,
-                                          pair<int, shared_ptr<NodeEntry>> const& _node2) {
-        return _node1.first < _node2.first;
+        pair<int, shared_ptr<NodeEntry>> const& _node2) {
+            return _node1.first < _node2.first;
     };
 
     h256 const targetHash = sha3(_target);
 
     std::multiset<pair<int, shared_ptr<NodeEntry>>, decltype(distanceToTargetLess)>
         nodesByDistanceToTarget(distanceToTargetLess);
+
+    //int nTotal = 0;
     for (auto const& bucket : m_buckets)
-        for (auto const& nodeWeakPtr : bucket.nodes)
+        for (auto const& nodeWeakPtr : bucket.nodes) {
             if (auto node = nodeWeakPtr.lock())
             {
                 nodesByDistanceToTarget.emplace(distance(targetHash, node->nodeIDHash), node);
@@ -294,11 +296,14 @@ vector<shared_ptr<NodeEntry>> NodeTable::nearestNodeEntries(NodeID const& _targe
                 if (nodesByDistanceToTarget.size() > s_bucketSize)
                     nodesByDistanceToTarget.erase(--nodesByDistanceToTarget.end());
             }
+            //nTotal++;
+        }
 
     vector<shared_ptr<NodeEntry>> ret;
     for (auto& distanceAndNode : nodesByDistanceToTarget)
         ret.emplace_back(move(distanceAndNode.second));
 
+    //cout << "nearestNodeEntries: choose " << ret.size() << " from buckets " << nTotal << endl;
     return ret;
 }
 
@@ -434,7 +439,6 @@ NodeTable::NodeBucket& NodeTable::bucket_UNSAFE(NodeEntry const* _n)
     return m_buckets[_n->distance - 1];
 }
 
-//HC: 分发收到UDP请求
 void NodeTable::onPacketReceived(
     UDPSocketFace*, bi::udp::endpoint const& _from, bytesConstRef _packet)
 {
@@ -596,7 +600,9 @@ shared_ptr<NodeEntry> NodeTable::handleNeighbours(
     m_sentFindNodes.remove_if([&](NodeIdTimePoint const& _t) noexcept {
         if (_t.first != in.sourceid)
             return false;
-        if (now - _t.second < c_reqTimeoutMs)
+        //HC: 超时不能太小，太小不容易建立会话，因此扩大10倍
+        //HCE: The timeout cannot be too small, too small to establish a session, so it is expanded by 10 times
+        if (now - _t.second < c_reqTimeoutMs * 10)
             expected = true;
         return true;
     });

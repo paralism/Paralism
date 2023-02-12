@@ -409,6 +409,8 @@ public:
     bool ProcessAlert();
 };
 
+//HC: PBFT共识封装类
+//HCE: PBFT consensus encapsulation class
 class PBFT
 {
 public:
@@ -418,17 +420,20 @@ public:
     void Init();
 
     //HC: Pre-prepare phase, 执行至少2个区块，产生签名，并将签名后的区块广播给所有共识节点
+    //HCE: Pre-prepare phase, Execute at least 2 blocks, generate signatures, and broadcast the signed blocks to all consensus nodes
     bool Preprepare(vector<CBlock>&& vblock);
 
     //HC: Prepare phase, 负责收集签名包，某节点收集满2 * _f + 1的签名包后，表明自身达到可以提交区块的状态
+    //HCE: Responsible for collecting signed packages, a node collects 2 * _f + 1 signed packages, indicating that it has reached the state where it can submit blocks
     bool Prepare(int pkidx, const vector<unsigned char>& vchSig);
 
     //HC: 节点收集满2 * _f + 1后，等待共识层通知到来，将本地缓存的最新区块提交到共识层
+    //HCE: After the node collects 2 * _f + 1, wait for the consensus layer notification to submit the latest block cached locally cached to the consensus layer
     bool Commit();
 
     bool IsSignEnough()
     {
-        //HC: must add myself，so should be (2 * _f + 1 - 1)
+        //HCE: must add myself，so should be (2 * _f + 1 - 1)
         return _s_verified.size() >= (2 * _f + 1 - 1);
     }
 

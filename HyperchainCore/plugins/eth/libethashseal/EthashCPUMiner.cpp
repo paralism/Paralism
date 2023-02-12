@@ -69,23 +69,22 @@ void EthashCPUMiner::minerBody()
     auto tid = std::this_thread::get_id();
     static std::mt19937_64 s_eng((utcTime() + std::hash<decltype(tid)>()(tid)));
 
-	//HC: 先计算一个nonce的随机起始值
-    uint64_t tryNonce = s_eng();
+	uint64_t tryNonce = s_eng();
 
     // FIXME: Use epoch number, not seed hash in the work package.
     WorkPackage w = work();
 
-	//HC: 根据seedHash找到现在的纪元 DAG
-    int epoch = ethash::find_epoch_number(toEthash(w.seedHash));
+	int epoch = ethash::find_epoch_number(toEthash(w.seedHash));
     auto& ethashContext = ethash::get_global_epoch_context_full(epoch);
 
     h256 boundary = w.boundary;
+    //HC: 计算hash，挖到后，提交工作量证明
+    //HCE: Calculate the hash, dig it, and submit the proof of work
     for (unsigned hashCount = 1; !m_shouldStop; tryNonce++, hashCount++)
     {
         auto result = ethash::hash(ethashContext, toEthash(w.headerHash()), tryNonce);
         h256 value = h256(result.final_hash.bytes, h256::ConstructFromPointer);
 
-        //HC: 穷举nonce，找到value使得它小于boundary，找到后，就提交工作量证明 
         if (value <= boundary && submitProof(EthashProofOfWork::Solution{(h64)(u64)tryNonce,
                                      h256(result.mix_hash.bytes, h256::ConstructFromPointer)}))
             break;

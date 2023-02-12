@@ -10,7 +10,7 @@
 #include <pubkey.h>
 #include <serialize.h>
 
-//HC: use old version
+//HCE: use old version
 //#include <support/allocators/secure.h>
 
 #include <uint256.h>

@@ -55,8 +55,11 @@ void NodeManager::startMQHandler()
 
     NodeUPKeepThreadPool* nodeUpkeep = Singleton<NodeUPKeepThreadPool>::instance();
     //HC: 程序启动后延时10秒获取邻居
+    //HCE: Delay 10 seconds to get neighbor nodes after the program start
     _msghandler.registerTimer(10 * 1000, std::bind(&NodeUPKeepThreadPool::NodeFind, nodeUpkeep), true);
+
     //HC: 每间隔5min获取邻居
+    //HCE: Get neighbor nodes every 5 min
     _msghandler.registerTimer(300 * 1000, std::bind(&NodeUPKeepThreadPool::NodeFind, nodeUpkeep));
 
     _msghandler.registerTimer(12 * 1000, std::bind(&NodeUPKeepThreadPool::NodePing, nodeUpkeep), true);
@@ -74,9 +77,10 @@ void NodeManager::startMQHandler()
     m_actioncoststt.AddAction((int32_t)SERVICE::SendTo, "SendTo");
 
     //HC: 定周期广播邻居节点信息
+    //HCE: Broadcast neighbor nodes in fix circle 
     _msghandler.registerTimer(60 * 1000, std::bind(&NodeUPKeepThreadPool::BroadcastNeighbor, nodeUpkeep));
 
-    _msghandler.start();
+    _msghandler.start("NodeManager");
     cout << "NodeManager MQID: " << MQID() << endl;
 }
 
@@ -98,7 +102,7 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         string data = msg->pop_front();
         ToAllNodes(data);
 
-        //HC: no respond to client
+        //HCE: no respond to client
         return;
     }
     case SERVICE::ToNodes: {
@@ -119,7 +123,7 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         CUInt128 nodeid(strnodeid);
         updateNode(nodeid, ip, port);
 
-        //HC: no respond to client
+        //HCE: no respond to client
         return;
     }
     case SERVICE::GetNodesJson: {
@@ -240,7 +244,7 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
 
         sendToHlp(targetnodeid, msgbuf);
 
-        //HC: no respond to client
+        //HCE: no respond to client
         return;
     }
     case SERVICE::MQCostStatistics: {
@@ -249,7 +253,7 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         break;
     }
     default:
-        //HC: throw it
+        //HCE: throw it
         return;
     }
     realwrk->reply(reply_who, msg);
@@ -596,7 +600,7 @@ bool NodeManager::parseNode(const string &node, UdpAccessPoint *ap)
             });
 
         if (ret == std::end(aplist)) {
-            //HC: cannot find udp access point
+            //HCE: cannot find udp access point
             return false;
         }
         return true;
@@ -620,7 +624,7 @@ bool NodeManager::IsSeedServer(const HCNode & node)
         if (ss->getNodeId<CUInt128>() == node.getNodeId<CUInt128>())
             return true;
 
-        //HC: Here is lowly efficient, should improve in the future.
+        //HCE: Here is lowly efficient, should improve in the future.
         string ap = ss->serializeAP();
         if (!ap.empty() && 0 == ap.compare(node.serializeAP())) {
             return true;
@@ -645,6 +649,7 @@ void NodeManager::PushToKBuckets(const CUInt128 &nodeid)
     if (!bret)
     {
         //HC: 放到ping测试
+        //HCE: put to ping test
         NodeUPKeepThreadPool* nodeUpkeepThreadpool = Singleton<NodeUPKeepThreadPool>::instance();
         nodeUpkeepThreadpool->AddToPingList(idRemove);
     }
@@ -652,6 +657,7 @@ void NodeManager::PushToKBuckets(const CUInt128 &nodeid)
 
 
 //HC: 分析返还的节点列表值，记录到_nodemap， 同时提取出新节点，用于Ping测试
+//HCE: Parse the return node list, record to nodemap and draw the new nodes to ping test
 void NodeManager::ParseNodeList(const string &nodes, vector<CUInt128> &vecNewNode)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
@@ -674,7 +680,7 @@ void NodeManager::ParseNodeList(const string &nodes, vector<CUInt128> &vecNewNod
             auto id = n->getNodeId<CUInt128>();
             vecNewNode.push_back(id);
 
-            //HC: in any case here should update into map
+            //HCE: in any case here should update into map
             addNode(n);
         }
     } else {
@@ -700,6 +706,7 @@ void NodeManager::AddToDeactiveNodeList(const CUInt128& nodeid)
     m_lstDeactiveNode.push_back(CKBNode(nodeid));
 
     //HC: 超过一定数量(100个)就保存50个到数据库
+    //HCE: Save 50 to db if over 100
     if (m_lstDeactiveNode.size() > 100)
     {
         int nNum = 0;
@@ -727,7 +734,7 @@ void NodeManager::RemoveNodeFromDeactiveList(const CUInt128 &nodeid)
 
 bool NodeManager::SaveNodeToDB(const CUInt128 &nodeid, system_clock::time_point  lastActTime)
 {
-    //HC: Before call this function, make sure has already gotten lock for _nodemap by upper layer
+    //HCE: Before call this function, make sure has already gotten lock for _nodemap by upper layer
     if (!_nodemap.count(nodeid))
         return false;
 
@@ -738,6 +745,7 @@ bool NodeManager::SaveNodeToDB(const CUInt128 &nodeid, system_clock::time_point 
     std::time_t lasttime = system_clock::to_time_t(lastActTime);
 
     //HC: 注意更新时间
+    //HCE: Notice update time
     DBmgr *pDb = Singleton<DBmgr>::instance();
 
     int num = 0;
@@ -764,6 +772,7 @@ bool NodeManager::SaveNodeToDB(const CUInt128 &nodeid, system_clock::time_point 
 void NodeManager::loadNeighbourNodes_New()
 {
     //HC: 按最后活跃时间调入节点列表
+    //HCE: Load node list according to the last active time
     DBmgr *pDb = Singleton<DBmgr>::instance();
 
     pDb->query("SELECT * FROM neighbornodes ORDER BY lasttime DESC limit 32;",
@@ -823,6 +832,7 @@ void NodeManager::SaveLastActiveNodesToDB()
     int nMinutes = 5;
 
     //HC: 产生随机ID, 获取距离最近的ID集合存储
+    //HCE: Generate random ID and save the nearest node id to db
     string str = HCNode::generateNodeId();
     vector<CUInt128> vecResult = m_actKBuchets.PickLastActiveNodes(CUInt128(str), 10, nMinutes);
     if (!vecResult.empty()) {

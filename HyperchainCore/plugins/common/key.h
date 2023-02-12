@@ -255,7 +255,7 @@ public:
         return CBitcoinAddress(GetPubKey());
     }
 
-    //HC: SegWit
+    //HCE: SegWit
     bool IsCompressed() const
     {
         return false;

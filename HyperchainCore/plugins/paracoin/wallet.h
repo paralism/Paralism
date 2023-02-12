@@ -86,12 +86,12 @@ public:
     }
 
     std::map<uint256, CWalletTx> mapWallet;
-    //HC: UI
+    //HCE: UI
     //std::vector<uint256> vWalletUpdated;
 
     std::map<uint256, int> mapRequestCount;
 
-    //HC: support SegWit
+    //HCE: support SegWit
     std::map<CTxDestination, std::string> mapAddressBook;
 
     std::vector<unsigned char> vchDefaultKey;
@@ -101,7 +101,7 @@ public:
     void ImportScripts(const vector<unsigned char>& vchPubKey, const CKey& key);
     bool AddKey(const vector<unsigned char>& vchPubKey, const CKey& key);
 
-    //HC: vchPubKey has two kinds of types: uncompressed, compressed, only the latter supports SegWit
+    //HCE: vchPubKey has two kinds of types: uncompressed, compressed, only the latter supports SegWit
     bool LoadKey(const vector<unsigned char>& vchPubKey, const CKey& key);
 
     CBitcoinAddress GetKeyFromDestination(const CTxDestination& address, CKey& keyOut, string& error) const;
@@ -261,7 +261,7 @@ public:
     }
 
     //////////////////////////////////////////////////////////////////////////
-    //HC: SegWit
+    //HCE: SegWit
     //
     //
 
@@ -284,7 +284,7 @@ public:
     bool GetNewDestination(const OutputType type, const std::string label, std::vector<unsigned char>& vchPubKey, CTxDestination& dest, std::string& error);
 
 private:
-    //HC: witness
+    //HCE: witness
     bool SignTransaction(CMutableTransaction& tx, set<pair<const CWalletTx*, unsigned int>>& setCoins);
     bool SignTransaction(CMutableTransaction& tx, const std::map<COutPoint, Coin>& coins, int sighash, std::map<int, std::string>& input_errors);
 
@@ -575,12 +575,12 @@ public:
     void GetAmounts(int64& nGeneratedImmature, int64& nGeneratedMature, std::list<std::pair<CTxDestination, int64> >& listReceived,
                     std::list<std::pair<CTxDestination, int64> >& listSent, int64& nFee, std::string& strSentAccount) const;
 
-    //HC: fixed the bugs for RPC command: listaccounts, getbalance
+    //HCE: fixed the bugs for RPC command: listaccounts, getbalance
     using DestReceived = tuple<CTxDestination, int64, bool>;
     void GetAmountsForBalance(list<DestReceived>& listReceived, int64& nFee, int nMinDepth) const;
 
 
-    //HC: Extract address for coinbase tx
+    //HCE: Extract address for coinbase tx
     void GetAmountsEx(int64& nGeneratedImmature, int64& nGeneratedMature, std::list<std::pair<CTxDestination, int64> >& listReceived,
         std::list<std::pair<CTxDestination, int64> >& listSent, int64& nFee, std::string& strSentAccount, bool& isCoinbase) const;
 
@@ -695,9 +695,9 @@ public:
 class CAccount
 {
 public:
-    //HC: support SegWit
+    //HCE: support SegWit
     //std::vector<unsigned char> vchPubKey;
-    std::string address; //HC: a string from type CTxDestination
+    std::string address; //HCE: a string from type CTxDestination
 
     CAccount()
     {

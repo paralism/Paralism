@@ -1,7 +1,7 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2023 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
-file COPYING or https://opensource.org/licenses/MIT.
+file COPYING or https://opensource.org/licenses/MIT.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this
 software and associated documentation files (the "Software"), to deal in the Software
@@ -58,7 +58,10 @@ using std::chrono::system_clock;
 //HC: 0.7.1 超块加入版本号
 //HC: 0.7.2 子块_tlocalblock加入：difficulty，version，requestid
 //HC: 1.0.0 链核心数据结构重新进行设计，不兼容1.0.0 以下版本
-
+//HCE: Block version number history
+//HCE: 0.7.1 Add version number information to the hyperblock
+//HCE: 0.7.2 _tlocalblock add：difficulty，version，requestid
+//HCE: 1.0.0 The chain data structure is redesigned，not compatible with versions below 1.0.0
 #define MAJOR_VER 1
 #define MINOR_VER 0
 #define PATCH_VER 0
@@ -127,6 +130,7 @@ BOOST_CLASS_VERSION(T_PEERADDRESS, 0)
 
 const size_t FILEINFOLEN = 2 * 1024 * 1024;
 
+//HCE:core data structure, private block, obseleted
 typedef struct _tprivateblock
 {
     //_tblockbaseinfo   tBlockBaseInfo;
@@ -134,7 +138,9 @@ typedef struct _tprivateblock
     //T_FILEINFO tPayLoad;
 
     T_LOCALBLOCKADDRESS preBlockAddr;       //HC:前一逻辑块所在子块地址
+                                            //HCE: The address of the subblock where the previous logical block is located
     T_SHA256 tpreBlockHash;                 //HC:前一逻辑子块hash
+                                            //HCE: The hash of the previous logical subblock
     string sData;
 
     /*
@@ -160,15 +166,21 @@ typedef struct _tprivateblock
 }T_PRIVATEBLOCK, *T_PPRIVATEBLOCK;
 BOOST_CLASS_VERSION(T_PRIVATEBLOCK, 0)
 
+//HCE: node application software release verion
 typedef struct _tversion
 {
     union {
         struct {
-            char _major;         //HC: 主版本号，进行不向下兼容的修改时，递增主版本号
-            char _minor;         //HC: 次版本号，保持向下兼容,新增特性时，递增次版本号
-            int16 _patch;        //HC: 修订号，保持向下兼容,修复问题但不影响特性时，递增修订号
+            char _major;     //HC: 主版本号，进行不向下兼容的修改时，递增主版本号
+                             //HCE: Major version number, incremented when making modifications that are not backwards compatible
+            char _minor;  //HC: 次版本号，保持向下兼容,新增特性时，递增次版本号
+                          //HCE: Minor version number, remains backward compatible, 
+                          //HCE: increments the minor version number when new features are added
+            int16 _patch; //HC: 修订号，保持向下兼容,修复问题但不影响特性时，递增修订号
+                          //HCE:Revision number, remains backward compatible, 
+                          //HCE: increments the revision number when fixing the problem but does not affect the feature
         };
-        uint32 ver;             //HC: used for serialize
+        uint32 ver;             //HCE: used for serialize
     };
     _tversion() : _major(MAJOR_VER), _minor(MINOR_VER), _patch(PATCH_VER) {}
     _tversion(char mj, char mi, int16 ptch) : _major(mj), _minor(mi), _patch(ptch) {}
@@ -188,35 +200,45 @@ private:
     }
 } T_VERSION;
 
+//HCE:Application identifer enum in local block
 enum class APPTYPE : uint16 {
     appdefault = 0,
-    smartcontract = 0x02,            //HC: smart contract, T_APPTYPE.sc = 1
-    smartcontractwithresult = 0x06,  //HC: smart contract and result, sc = 1 scrlt =1
-    ledger = 0x11,                   //HC: 00010001, mt = 0, sc =1, val = 1, but support smart contract
-    paracoin = 0x21,                 //HC: 00100001, mt = 0, sc =1, val = 2, but support smart contract
-    ethereum = 0x31,                 //HC: 00110001, mt = 0, sc =1, val = 2, but support smart contract
+    smartcontract = 0x02,            //HCE: smart contract, T_APPTYPE.sc = 1
+    smartcontractwithresult = 0x06,  //HCE: smart contract and result, sc = 1 scrlt =1
+    ledger = 0x11,                   //HCE: 00010001, mt = 1, sc =0, val = 1
+    paracoin = 0x21,                 //HCE: 00100001, mt = 1, sc =0, val = 2
+    ethereum = 0x31,                 //HCE: 00110001, mt = 1, sc =0, val = 3
 };
 
-
+//HCE:Application identifer in local block
 typedef struct _tapptype
 {
     typedef union _inner_at
     {
         struct {
-            unsigned char mt : 1;         //HC: =0 应用不带payload merkle tree hash，=1 带Merkle hash
-            unsigned char sc : 1;         //HC: =0 不含智能合约
-                                          //HC: =1 表示T_LOCALBLOCKBODY.payload存放智能合约运行结果，
+            unsigned char mt : 1;         //HC: mt=0 应用相关局部块不带payload的merkle tree root hash，=1 带Merkle hash
+                                          //HCE: mt=0 the local block of this application doesn't have payload merkle tree root hash
+                                          //HCE: mt=1 The app has payload merkle tree hash
+            unsigned char sc : 1;         //HC: sc=0 应用不含智能合约
+                                          //HC: sc=1 表示局部块负载  (T_LOCALBLOCKBODY.payload)存放智能合约运行结果，
                                           //HC: 而相应的智能合约代码位于T_LOCALBLOCKBODY.sScript中,
-                                          //HC: 如果sScript是模块代码，则payload内容为空
+                                          //HCE: sc=0 The app doesn't contain smart contracts
+                                          //HCE: sc=1 The app contains smart contracts.
+                                          //HCE: The smart contract code is saved in the T_LOCALBLOCKBODY.sScript
+                                          //HCE: The smart contract operation results are saved in the T_LOCALBLOCKBODY.payload
 
             unsigned char scrlt : 1;      //HC: sc=1的情况下才有意义，其含义如下：
-                                          //HC: =0 表示T_LOCALBLOCKBODY.payload不是智能合约结果
+                                          //HC: =0 表示T_LOCALBLOCKBODY.payload不含智能合约运行结果
                                           //HC: =1 表示T_LOCALBLOCKBODY.payload是智能合约计算结果
-
+                                          //HCE: It only makes sense in the case of sc=1, and its meaning is as follows:
+                                          //HCE: scrlt=0, The data in the T_LOCALBLOCKBODY.payload is not the result of a smart contract
+                                          //HCE: scrlt=1, The data in the T_LOCALBLOCKBODY.payload is the result of a smart contract
             unsigned char reserve : 1;    //HC: 系统保留待扩展
-            unsigned char val : 4;        //HC: _apptype的val与后续字节整体按低高位拼接起来组成应用类型
+                                          //HCE: System Reserved for Expansion
+            unsigned char val : 4;        //HC: _apptype的val与后续字节(如创世块号或其他数据)整体按低高位拼接起来组成应用类型
+                                          //HCE: val and subsequent bytes are spliced together in low and high bits to form an application type
         };
-        unsigned char app = 0;            //HC: used for serialize
+        unsigned char app = 0;            //HCE: used for serialize
     } _INNER_AT;
 
     explicit _tapptype(APPTYPE a = APPTYPE::appdefault) {
@@ -247,7 +269,8 @@ typedef struct _tapptype
     {
         vecAT[0].app |= static_cast<char>(a);
     }
-
+    
+    //HCE: set solo chain genesis block into application identifier APPTYPE used in local block
     void set(uint32_t hid, uint16 chainnum, uint16 localid)
     {
         vecAT.resize(9);
@@ -278,7 +301,7 @@ typedef struct _tapptype
     bool isMT() const { return vecAT[0].mt == 1; }
     bool isSmartContract() const { return vecAT[0].sc == 1; }
     bool isSmartContractWithResult() const { return isSmartContract() && vecAT[0].scrlt == 1; }
-
+    //HCE:if apptype vector exists genesis block address triple data or not
     bool containAddr() const {
         uint32_t hid = 0;
         uint16 chainnum = 0;
@@ -290,10 +313,28 @@ typedef struct _tapptype
         }
         return true;
     }
-
+    //HCE: check app type: now support Paracoin, Ledger and Ethereum
     bool isParacoin() const { return (vecAT[0].app == static_cast<char>(APPTYPE::paracoin)) && containAddr(); }
     bool isLedger() const { return (vecAT[0].app == static_cast<char>(APPTYPE::ledger)) && containAddr(); }
     bool isEthereum() const { return (vecAT[0].app == static_cast<char>(APPTYPE::ethereum)) && containAddr(); }
+
+    string appName() const {
+        string name = "unknown";
+        if (!containAddr())
+            return name;
+
+        switch (vecAT[0].app)
+        {
+        case static_cast<char>(APPTYPE::paracoin):
+            return "paracoin";
+        case static_cast<char>(APPTYPE::ledger):
+            return "ledger";
+        case static_cast<char>(APPTYPE::ethereum):
+            return "ethereum";
+        }
+        return name;
+    }
+
 
     size_t size() const { return vecAT.size(); }
     bool operator==(const _tapptype& v) const throw() {
@@ -429,28 +470,37 @@ namespace std {
     };
 }
 
-//HC: payload struct, only for smart contract
+//HCE: obseleted
 typedef struct _tsmartcontractpayload {
     int8 version;
     string realdata;
 } T_SCPAYLOAD;
 
+//HCE: core data structure of local block header
 struct _tlocalblock;
 typedef struct _tlocalblockheader
 {
     T_VERSION uiVersion;
-    uint16 uiID = 1;                                    //HC: 本块ID,local block id 序号从1开始
-    T_SHA256 tPreHash = T_SHA256(1);                    //HC: 前一个块hash
-    T_SHA256 tPreHHash = T_SHA256(1);                   //HC: 前一个超块hash
-    uint64 uiTime;                                      //HC: 块生成时间
-    uint32 uiNonce = 0;                                 //HC: 随机数
+    uint16 uiID = 1;                                    //HC: 局部块ID, 序号从1开始
+                                                        //HCE: Local Block ID, start from 1
+    T_SHA256 tPreHash = T_SHA256(1);                    //HC: 前一个局部块哈希.
+                                                        //HCE: hash of the previous local block
+    T_SHA256 tPreHHash = T_SHA256(1);                   //HC: 前一个超块哈希
+                                                        //HCE: hash of the previous hyperblock
+    uint64 uiTime;                                      //HC: 局部块生成时间
+                                                        //HCE: The time when this local block generated
+    uint32 uiNonce = 0;                                 //HC: 随机数,预留未来使用
+                                                        //HCE: local block nounce, preserved for future implementation
 
     T_APPTYPE appType;                                  //HC: 应用类型
 
-    //HC: appType.mt=1,子块body中payload域的记录hash的Merkle Tree Root
-    //HC: appType.mt=0,子块body中payload域的整体hash
-    T_SHA256 tMTRootorBlockBodyHash = T_SHA256(0);
-    T_SHA256 tScriptHash = T_SHA256(0);                 //HC: 共识脚本hash
+    //HC: appType.mt=1,局部块body中payload域的记录hash的Merkle Tree Root
+    //HC: appType.mt=0,局部块body中payload域的整体hash
+    //HCE: appType.mt=1, tMTRootorBlockBodyHash holds the Merkle Tree Root of the hash for each record in the payload field in the subblock body
+    //HCE: appType.mt=0, tMTRootorBlockBodyHash holds the hash of the data in the payload field in the subblock body
+    T_SHA256 tMTRootorBlockBodyHash = T_SHA256(0);      //HCE: is merkle root if payload is a kind of ledger, or is local block body verify hash if payload is arbitary data.
+    T_SHA256 tScriptHash = T_SHA256(0);                 //HC: 局部共识脚本hash
+                                                        //HCE: local consensus script hash
 
 
     _tlocalblockheader() : uiTime(time(nullptr)) {}
@@ -509,7 +559,7 @@ private:
         ar & tScriptHash;
     }
 
-    //HC: notice: only use to calculate digest
+    //HCE: notice: only use to calculate verify hash
     friend struct _tlocalblock;
     template <typename D>
     void AddData(D &d) const
@@ -530,10 +580,12 @@ private:
 } T_LOCALBLOCKHEADER;
 BOOST_CLASS_VERSION(T_LOCALBLOCKHEADER, 0)
 
-
+//HCE:core data structure of Local Block body
 typedef struct _tlocalblockbody {
-    string sScript;                         //HC: 共识脚本、智能合约字节码
-    string sAuth;                           //HC: 签注
+    string sScript;                         //HC: 局部共识脚本或智能合约字节码，未来智能合约字节码会迁移到局部块payload
+                                            //HCE: local consensus scripts or smart contract bytecode, bytecode would migrate to localblock payload in future implementation
+    string sAuth;                           //HC: 节点设置的局部共识脚本签名
+                                            //HCE: script signature provided by builder node
     string payload;
 
     _tlocalblockbody() {}
@@ -595,7 +647,7 @@ private:
         ar >> boost::serialization::make_binary_object(const_cast<char*>(payload.data()), payloadlen);
     }
     BOOST_SERIALIZATION_SPLIT_MEMBER()
-    //HC: notice: only use to calculate digest
+    //HCE: notice: only use to calculate hash
     friend struct _tlocalblock;
     template <typename D>
     void AddData(D &d) const
@@ -606,13 +658,14 @@ private:
     }
 }T_LOCALBLOCKBODY;
 
-
+//HCE:the whole Localblock data structure composed of both header and body 
 typedef struct _tlocalblock
 {
     T_LOCALBLOCKHEADER header;
     T_LOCALBLOCKBODY body;
 
-    //HC: 子块Payload merkle tree hash（可选, header.appType.mt == 1 ? 有 : 无）
+    //HC: 局部块数据负载为账本交易数据时的默克尔树（可选）
+    //HCE: Optional data filed, store the transaction hash list of merkle leaf if payload stored a ledger.
     vector<T_SHA256> payloadMTree;
 
     _tlocalblock() {};
@@ -727,7 +780,7 @@ typedef struct _tlocalblock
             str += "\n\t";
             p = p + r * nRowLen;
 
-            //HC: sPrint size >= nPreviewLen + 1
+            //HCE: sPrint size >= nPreviewLen + 1
             char sPrint[33] = { 0 };
             char buff[64 + 1] = { 0 };
 
@@ -819,7 +872,7 @@ private:
     BOOST_SERIALIZATION_SPLIT_MEMBER()
 
 private:
-    //The following member is in-memory
+    //HCE: memory only variables
     uint64 _prehid = UINT64_MAX;
     uint16 _chain_num = UINT16_MAX;
     mutable T_SHA256 _myselfHash = T_SHA256(0);
@@ -830,47 +883,60 @@ BOOST_CLASS_VERSION(T_LOCALBLOCK, 0)
 typedef list<T_LOCALBLOCK> LIST_T_LOCALBLOCK;
 typedef LIST_T_LOCALBLOCK::iterator ITR_LIST_T_LOCALBLOCK;
 
+//HCE: header struct of a lingering hyperblock during backtracking 
 typedef struct _tsingleheader
 {
-    uint64   id;             //HC: 本块IDT_SHA256 headerhash;     //HC: 块头hash
-    T_SHA256 headerhash;     //HC: 块头hash
-    T_SHA256 preheaderhash;  //HC: 前一个块头hash
-    string   from_id;
+    uint64   id;             //HCE: Block ID
+    T_SHA256 headerhash;     //HCE: The header hash of the hyperblock
+    T_SHA256 preheaderhash;  //HCE: The header hash of the previous hyperblock
+    string   from_id;        //HCE: node ID indicates where this block received from
 }T_SINGLEHEADER, *T_PSINGLEHEADERINDEX;
 
 typedef struct _thyperblockheaderindex
 {
-    uint64   id;             //HC: 本块ID
-    T_SHA256 prehash;        //HC: 前一个块hash
-    T_SHA256 headerhash;     //HC: 块头hash
-    T_SHA256 preheaderhash;  //HC: 前一个块头hash
-    uint64   ctime;          //HC: 块生成时间
-    uint16   weight;
-    uint64   total_weight;
-    string   from_id;
+    uint64   id;             //HCE: Block ID
+    T_SHA256 prehash;        //HCE: The hash of the previous hyperblock
+    T_SHA256 headerhash;     //HCE: The header hash
+    T_SHA256 preheaderhash;  //HCE: The header hash of the previous hyperblock
+    uint64   ctime;          //HCE: Block creation time
+    uint16   weight;         //HCE: Sum of all local chains difficulty of this hyperblock,
+    uint64   total_weight;   //HCE: Sum of difficulty from the genesis hyperblock. i.e. total difficulty of Hyperchain
+    string   from_id;        //HCE: node ID indicates where this block received from
 }T_HEADERINDEX, *T_PHEADERINDEX;
 
 typedef map<T_SHA256, T_HEADERINDEX> MAP_T_HEADERINDEX;
 typedef MAP_T_HEADERINDEX::iterator ITR_MAP_T_HEADERINDEX;
 
+//HCE:core data structure of Hyper Block
 struct _thyperblock;
+//HCE:core data structure of Hyper Block Header
 typedef struct _thyperblockheader
 {
     T_VERSION  uiVersion;
-    uint32  uiWeight = 2;                   //HC: 负载评分 = 难度 + 块数 + 网络连接数等
-
-    uint64 uiID = UINT64_MAX;                       //HC: 本块ID,创世区块id为0
-    T_SHA256 tPreHash = T_SHA256(1);        //HC: 前一个块hash
-    T_SHA256 tPreHeaderHash = T_SHA256(1);  //HC: 前一个块头hash
+    uint32  uiWeight = 2;                   //HC: 负载评分 = 超块对应共识周期里局部块数量，未来增加更多权重因子
+                        //HCE: hyperblock payload weighting = now only caculate the number of local blocks that consensus produced ,more factors would add in future implementation.
+    uint64 uiID = UINT64_MAX;               //HC: 超块ID,创世区块id默认为0
+                                            //HCE: Hyper Block ID, The genesis block id sets to 0
+    T_SHA256 tPreHash = T_SHA256(1);        //HC: 前一个超块hash
+                                            //HCE: The hash of the previous hyperblock
+    T_SHA256 tPreHeaderHash = T_SHA256(1);  //HC: 前一个超块头hash
+                                            //HCE: The hash of the previous hyperblock header
     uint64 uiTime;                          //HC: 块生成时间
-
-    T_SHA256 tMerkleHashAll;                //HC: 子块头hash默克尔树根
-    T_SHA256 tBRRoot = T_SHA256(1);         //HC: 基础奖励对的MT根
-    T_SHA256 tXWHash = T_SHA256(1);         //HC: 跨链存证记录摘要
-    T_SHA256 tScriptHash = T_SHA256(1);     //HC: 共识脚本hash
-    uint16 uiBRRule = 0;                    //HC: 奖励规则类型
-    list<T_SHA256> listTailLocalBlockHash;  //HC: 每条子链的最后子块hash
-    vector<uint16> vecChildChainBlockCount;      //HC: 每条子链子块数
+                                            //HCE: Block creation time
+    T_SHA256 tMerkleHashAll;                //HC: 超块相关所有局部块块头哈希的默克尔树根
+                                            //HCE: The merkle root of all local block header hashes
+    T_SHA256 tBRRoot = T_SHA256(1);         //HC: 基础奖励对的默克尔树根,预留未来使用
+                                            //HCE: The merkle root for hyperblock miner reward, preserved for future.
+    T_SHA256 tXWHash = T_SHA256(1);         //HC: 超块相关局部块跨链存证记录默克尔树根
+                                            //HCE: merkle root of all cross-chain transaction witness data hash stored in each local blocks of this hyperblock
+    T_SHA256 tScriptHash = T_SHA256(1);     //HC: 全局共识脚本hash
+                                            //HCE: The hash of the consensus script
+    uint16 uiBRRule = 0;                    //HC: 基础奖励规则类型设置,预留未来使用
+                                            //HCE: The type of hyperblock reward rule，preserved for future
+    list<T_SHA256> listTailLocalBlockHash;  //HC: 超块相关每条局部链的尾部局部块哈希列表
+                                            //HCE: The hash list of all tail local blocks of each local chain
+    vector<uint16> vecChildChainBlockCount; //HC: 记录超块相关局部链中局部块数量的数组
+                                            //HCE: The array of number of local blocks of each local chain of this hyper block
 
     _thyperblockheader() {}
 
@@ -1011,14 +1077,17 @@ private:
     }
 }T_UINT160;
 
+//HCE:core data structure of hyper block body
 typedef struct _thyperblockbody
 {
-    vector<list<T_SHA256>> localBlocksHeaderHash;     //HC: 子块头hash
-
-    vector<T_UINT160> listBRAddr;                   //HC: 基础奖励
-    string sScript;                                 //HC: 共识脚本
-    string sAuth;                                   //HC: 签注
-
+    vector<list<T_SHA256>> localBlocksHeaderHash;     //HC: 存放超块相关所有局部链中局部块块头哈希的数组
+                                                      //HCE: The hash array of all local blocks header hash contained in all local chains
+    vector<T_UINT160> listBRAddr;                   //HC: 获得基础奖励的地址列表
+                                                    //HCE: address list of hyperblock rewards receivers
+    string sScript;                                 //HC: 全局共识脚本
+                                                    //HCE: global consensus script
+    string sAuth;                                   //HC: 全局共识脚本签名
+                                                    //HCE: global consensus script signature
     _thyperblockbody() {}
 
     _thyperblockbody(const _thyperblockbody&) = default;
@@ -1128,6 +1197,7 @@ private:
 }T_HYPERBLOCKBODY;
 BOOST_CLASS_VERSION(T_HYPERBLOCKBODY, 0)
 
+//HCE: core data structure of Hyperblock composed by both header and body
 typedef struct _thyperblock
 {
     T_HYPERBLOCKHEADER header;
@@ -1299,7 +1369,7 @@ private:
         ar & body;
     }
 private:
-    //The following member is in-memory.
+    //HCE: The following member is in-memory.
     mutable T_SHA256 _myselfHash = 0;
     vector<LIST_T_LOCALBLOCK> vecChildChain;
 }T_HYPERBLOCK, *T_PHYPERBLOCK;
@@ -1308,7 +1378,7 @@ BOOST_CLASS_VERSION(T_HYPERBLOCK, 0)
 typedef struct _tbatchbuffer
 {
     string id;
-    system_clock::time_point ctime;  //create time
+    system_clock::time_point ctime;  //HCE: create time
     bool full;
     size_t len;
     string data;
@@ -1334,11 +1404,11 @@ typedef struct tagsubmitdata
     T_APPTYPE app;
     string MTRootHash;
     string payload;
-    string jssourcecode;  //smart contract javascript source code
-    string jsbytecode;    //smart contract byte code
+    string jssourcecode;  //HCE: smart contract javascript source code
+    string jsbytecode;    //HCE: smart contract byte code
 } SubmitData;
 
-
+//HCE:Unused
 typedef struct _tchainStateinfo //HC: 健康状态结构
 {
     uint64 uiBlockNum;          //HC: 超块号
@@ -1349,7 +1419,7 @@ typedef struct _tchainStateinfo //HC: 健康状态结构
 
 }T_CHAINSTATEINFO, *T_PCHAINSTATEINFO;
 
-
+//HCE: Unused 
 typedef struct _tpeerinfo
 {
     T_PEERADDRESS tPeerInfoByMyself;    //HC: 内网信息
@@ -1389,7 +1459,7 @@ typedef struct _tpeerinfo
 
 }T_PEERINFO, *T_PPEERINFO;
 
-
+//HCE:
 typedef struct _tblockstateaddr
 {
     T_PEERADDRESS tPeerAddr;
@@ -1422,12 +1492,14 @@ private:
 }T_BLOCKSTATEADDR, *T_PBLOCKSTATEADDR;
 BOOST_CLASS_VERSION(T_BLOCKSTATEADDR, 0)
 
-typedef struct _tlocalconsensus             //HC: 每一个小链里边的一个小块信息
+//HC: 记录局部共识状态的数据结构
+//HCE: The structure of local consensus state and context
+typedef struct _tlocalconsensus
 {
-    T_BLOCKSTATEADDR tPeer;                 //HC: local块对应节点IP信息
-    T_LOCALBLOCK  tLocalBlock;              //HC: local块信息
-    uint64 uiRetryTime = 0;                       //HC: 重试次数
-    char strFileHash[DEF_SHA512_LEN + 1] = { 0 };   //HC: 上链hash
+    T_BLOCKSTATEADDR tPeer;                 //HCE: the builder Node of local block 
+    T_LOCALBLOCK  tLocalBlock;              //HCE: local block Data
+    uint64 uiRetryTime = 0;                       //HCE: retry times of joining local consensus
+    char strFileHash[DEF_SHA512_LEN + 1] = { 0 };   //HCE: Chained hash ?unused?
 
     _tlocalconsensus() {}
 
@@ -1471,11 +1543,14 @@ private:
 }T_LOCALCONSENSUS, *T_PLOCALCONSENSUS;
 BOOST_CLASS_VERSION(T_LOCALCONSENSUS, 0)
 
-typedef struct _tglobalconsenus //HC: 全局共识过程中一个块信息
+//HC: 全局共识的数据结构
+//HCE: The structure of global consensus state 
+typedef struct _tglobalconsenus
 {
-    T_BLOCKSTATEADDR tPeer;     //HC: 每一个小块的节点信息
-    T_LOCALBLOCK  tLocalBlock;  //HC: 每一个小块信息
-    uint64 uiAtChainNum;        //HC: 每一个小块在哪一条链上
+    T_BLOCKSTATEADDR tPeer;     //HCE: builder Node of the local block
+    T_LOCALBLOCK  tLocalBlock;  //HCE: local block data
+    uint64 uiAtChainNum;        //HC: 局部块所在局部链链号
+                                //HCE: The identifier of localchain which the local block joined
 
     T_BLOCKSTATEADDR GetPeer()const;
     uint64 GetChainNo()const;
@@ -1502,12 +1577,16 @@ private:
 }T_GLOBALCONSENSUS, *T_PGLOBALCONSENSUS;
 BOOST_CLASS_VERSION(T_GLOBALCONSENSUS, 0)
 
+//HCE:Buddy building buffer
 typedef struct _tbuddyinfo
 {
-    uint8 tType;                //HC: 1表示上链请求包 2.表示上链请求回应包
+    uint8 tType;                //HC: 1表示上链请求包 2.表示上链请求回应包,不再使用
+                                //HCE: Obseleted, type 1 is request , type 2 is response
     size_t bufLen;
     string recvBuf;             //HC: 包具体内容
-    T_PEERADDRESS tPeerAddrOut; //HC: 请求的地址来源
+                                //HCE: The contents of the package
+    T_PEERADDRESS tPeerAddrOut; //HC: buddy 对手方节点信息
+                                //HCE: The node identifier of buddy peer
 
     uint8 GetType()const;
     size_t GetBufferLength()const;
@@ -1523,10 +1602,12 @@ typedef LIST_T_LOCALCONSENSUS::iterator ITR_LIST_T_LOCALCONSENSUS;
 typedef list<T_PLOCALCONSENSUS> LIST_T_PLOCALCONSENSUS;
 typedef LIST_T_PLOCALCONSENSUS::iterator ITR_LIST_T_PLOCALCONSENSUS;
 
+//HCE:buddy consensus progress state 
 typedef struct _tbuddyinfostate
 {
     int8 strBuddyHash[DEF_STR_HASH256_LEN];
-    uint8 uibuddyState;     //HC: 四次握手的状态
+    uint8 uibuddyState;     //HC: 四次握手,状态参考枚举定义_ep2pprotocoltypestate
+                            //HCE: The state of buddy handshakes, state enum please refer to enum _ep2pprotocoltypestate
     T_PEERADDRESS tPeerAddrOut;
 
     LIST_T_LOCALCONSENSUS localList;
@@ -1557,10 +1638,13 @@ typedef struct _tbuddyinfostate
 
 }T_BUDDYINFOSTATE, *T_PBUDDYINFOSTATE;
 
+//HCE: memory data only data struture of tracking onchain status of local block being built by node  
 typedef struct _tsearchinfo
 {
-    T_LOCALBLOCKADDRESS addr;   //HC: 块地址
-    uint64 uiTime;              //HC: 超块生成时间
+    T_LOCALBLOCKADDRESS addr;   //HC: 局部块地址
+                                //HCE: Local Block address
+    uint64 uiTime;              //HC: 局部块对应超块生成时间
+                                //HCE: Localblock joined hyperblock generation time
     _tsearchinfo() : uiTime(time(nullptr)) {
     }
     uint64 GetHyperID()const {
@@ -1585,7 +1669,7 @@ typedef LIST_T_PBUDDYINFOSTATE::iterator ITR_LIST_T_PBUDDYINFOSTATE;
 typedef list<T_BUDDYINFOSTATE> LIST_T_BUDDYINFOSTATE;
 typedef LIST_T_BUDDYINFOSTATE::iterator ITR_LIST_T_BUDDYINFOSTATE;
 
-using LB_UUID = string; //HC: local block uuid
+using LB_UUID = string; //HCE: local block uuid
 
 typedef struct _tpalyloadaddr
 {
@@ -1595,39 +1679,58 @@ typedef struct _tpalyloadaddr
 }T_PAYLOADADDR;
 
 //HC: 处理应用层的创世块
+//HCE: Handle the genesis block of the application layer
 using HANDLEGENESISCBFN = std::function<bool(vector<T_PAYLOADADDR>&)>;
 
 //HC: 共识将结成buddy阶段，这是校验块的合法，正确性的最适宜时机，不合法的块，共识层将其抛弃
+//HCE: The consensus is about to form a buddy stage, which is the most opportune time for the legitimacy 
+//HCE: and correctness of the check block, and the consensus layer discards the invalid block
 using CONSENSUSCBFN = std::function<bool(T_PAYLOADADDR&, map<boost::any, T_LOCALBLOCKADDRESS>&, boost::any&)>;
 using VALIDATEFN = CONSENSUSCBFN;
 
 //HC: 新创建了超块，或者收到了超块，将相同应用的子块按顺序组成集合，并通知应用层进行合法性检查
+//HCE: A new hyperblock is created, or a hyperblock is received, subblocks of the same application 
+//HCE: are grouped sequentially and the application layer is notified for legitimacy checks
 using VALIDATECHAINFN = std::function<bool(vector<T_PAYLOADADDR>& vecPA)>;
 
 //HC: 当新增超块或更优合法超块被选择，将相同应用的子块按顺序组成集合，通知应用层同步更新
+//HCE: When a new hyperblock is created or a better legal hyperblock is selected, 
+//HCE: subblocks of the same application are organized into a collection 
+//HCE: in order to notify the application layer to synchronize the update
 using ACCEPTCHAINFN = std::function<bool(map<T_APPTYPE, vector<T_PAYLOADADDR>>&, uint32_t & hidFork, uint32_t& hid, T_SHA256& thhash, bool)>;
 
 //HC: 当创建超块时，通知应用层检查应用链是否有效
+//HCE: When a hyperblock is created, the application layer is notified to check whether the application chain is valid
 using CHECKCHAINFN = std::function<bool(vector<T_PAYLOADADDR>& vecPA, uint32_t& prevhid, T_SHA256& tprevhhash)>;
 
 //HC: 新共识周期开始，对未上链数据发起重新上链操作，并通知应用层提供修改上链数据机会
+//HCE: A new consensus cycle begins, initiates a re-on-chain operation on unchained data, 
+//HCE: and notifies the application layer to provide an opportunity to modify the on-chain data
 using REONCHAINFN = std::function<bool(string& payload, std::string& newpayload)>;
 
-//HC: 计算UUID，提取payload中不变部分来计算，这样确保可以连续跟踪该块，但是哪些是不变部分，只有应用层自己知道。
+//HC: 计算UUID，提取payload中不变部分来计算，这样确保可以连续跟踪该块，但是哪些是不变部分，只有应用层自己知道
+//HCE: Calculate the UUID, extract the invariant part of the payload to calculate, 
+//HCE: so as to ensure that the block can be continuously tracked, 
+//HCE: but which are the invariant parts, only the application layer itself knows
 using UUIDFN = std::function<bool(string& payload, string& uuid)>;
 
 //HC: 上链回调
+//HCE: On-chain callbacks
 using PUTONCHAINFN = std::function<bool()>;
 
 //HC: 获取虚拟链路径
+//HCE: Get the virtual chain path
 using GETVPATHFN = std::function<bool(T_LOCALBLOCKADDRESS& sAddr, T_LOCALBLOCKADDRESS& eAddr, vector<string>& vecVPath)>;
 
 //HC: 通知应用层提交直接参与全局共识的应用链, 主要供Paracoin使用
+//HCE: Notify the application layer to submit the application chain that directly participates 
+//HCE: in the global consensus, mainly for the use of Paracoin applications
 using PUTGLOBALCHAINFN = std::function<bool()>;
 
 using GETNEIGHBORNODES = std::function<bool(list<string>&)>;
 
 //HC: 共识层发给应用层的回调通知
+//HCE: A callback notification sent by the consensus layer to the application layer
 using CONSENSUSNOTIFY = std::tuple<HANDLEGENESISCBFN,
                                     PUTONCHAINFN,
                                     PUTGLOBALCHAINFN,

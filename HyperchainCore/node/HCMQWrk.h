@@ -31,12 +31,27 @@ public:
     HCMQWrk(const char *servicename, int socktype = ZMQ_DEALER);
     virtual ~HCMQWrk() {}
 
+    //HCE: Send message to m_worker 
+    //HCE: @para command Command char buffer
+    //HCE: @para option Option char buffer
+    //HCE: @para msg Pointer to zmsg
     void send_to_broker(char *command, std::string option, zmsg *_msg);
+
+    //HCE: Connect to broker and register service with broker
     void connect_to_broker();
+
+    //HCE: Set m_heartbeat_at = s_clock() + m_heartbeat;
     void set_heartbeat_at();
+
+    //HCE: Set m_liveness = HEARTBEAT_LIVENESS;
     void live();
+
+    //HCE: Connect to broker and heartbeat
     void keepalive(zmq::pollitem_t &poll_item);
+
     void idle();
+
+    //HCE: Reply to broker
     void reply(string reply_who, zmsg *&reply_p);
 
     zmq::socket_t* getsocket() { return m_worker.get(); }
@@ -50,18 +65,18 @@ private:
     std::string m_service;
     zmq::context_t *m_context = nullptr;
     int m_socktype;
-    std::shared_ptr<zmq::socket_t> m_worker;      //HC: Socket to broker
+    std::shared_ptr<zmq::socket_t> m_worker;      //HCE: Socket to broker
 
     //HC: Heartbeat management
-    int64_t m_heartbeat_at;       //HC: When to send HEARTBEAT
-    size_t m_liveness;            //HC: How many attempts left
-    int m_heartbeat = 2500;              //HC: Heartbeat delay, msecs
-    int m_reconnect = 2500;              //HC: Reconnect delay, msecs
+    int64_t m_heartbeat_at;       //HCE: When to send HEARTBEAT
+    size_t m_liveness;            //HCE: How many attempts left
+    int m_heartbeat = 2500;              //HCE: Heartbeat delay, msecs
+    int m_reconnect = 2500;              //HCE: Reconnect delay, msecs
 
-    //HC: Internal state
-    bool m_expect_reply = false;         //HC: Zero only at start
+    //HCE: Internal state
+    bool m_expect_reply = false;         //HCE: Zero only at start
 
-    //HC: Return address, if any
+    //HCE: Return address, if any
     std::string m_reply_to;
 };
 

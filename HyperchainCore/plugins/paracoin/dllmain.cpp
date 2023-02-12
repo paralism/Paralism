@@ -69,14 +69,15 @@ set<CWallet*> setpwalletRegistered;
 
 CCriticalSection cs_main;
 
-//HC: blocks will do global consensus
+//HCE: blocks will do global consensus
 CBlockCacheLocator mapBlocks;
 
 map<uint256, CTransaction> mapTransactions;
 CCriticalSection cs_mapTransactions;
 unsigned int nTransactionsUpdated = 0;
 
-//HC:用于代替交易功能
+//HC: 用于代替交易功能
+//HCE: Used in place of trading functions
 map<COutPoint, CInPoint> mapNextTx;
 
 //CCacheLocator<CBlockIndex, CTxDB_Wrapper> mapBlockIndex;
@@ -86,13 +87,13 @@ ParaMQCenter paramqcenter;
 
 //map<uint256, CBlockIndex*> mapBlockIndex;
 
-//HC: The following is target.
+//HCE: The following is target.
 uint256 hashGenesisBlock;
 
 //static CBigNum bnProofOfWorkLimit(~uint256(0) >> 32);
 static CBigNum bnProofOfWorkLimit(~uint256(0) >> 4);
-const int nTotalBlocksEstimate = 0;     //HC: Conservative estimate of total nr of blocks on main chain
-const int nInitialBlockThreshold = 30;  //HC: Regard blocks up until N-threshold as "initial download"
+const int nTotalBlocksEstimate = 0;     //HCE: Conservative estimate of total nr of blocks on main chain
+const int nInitialBlockThreshold = 30;  //HCE: Regard blocks up until N-threshold as "initial download"
 CBlockIndexSP pindexGenesisBlock;
 int nBestHeight = -1;
 CBigNum bnBestChainWork = 0;
@@ -152,7 +153,7 @@ CBlockDiskLocator LatestParaBlock::_mapBlockAddressOnDisk;
 
 bool GetBlockData(const uint256& hashBlock, CBlock& block, BLOCKTRIPLEADDRESS& addrblock, char** pWhere);
 
-//HC: convert uint256 to T_SHA256
+//HCE: convert uint256 to T_SHA256
 T_SHA256 to_T_SHA256(const uint256 &uhash)
 {
     unsigned char tmp[DEF_SHA256_LEN];
@@ -200,6 +201,7 @@ bool isSandboxNetwork()
 }
 
 //HC: 如何判断para块在超块链上, 最可靠的办法是hash比对
+//HCE: How to determine that the para block is on the Hyperchain, the most reliable way is hash comparison 
 CBlockIndexSP LatestBlockIndexOnChained()
 {
     CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
@@ -217,7 +219,7 @@ CBlockIndexSP LatestBlockIndexOnChained()
             CBlock block;
             if (block.ReadFromDisk(pIndex->triaddr)) {
                 if (block.GetHash() == pIndex->GetBlockHash()) {
-                    //HC: To be done: need to update pIndex triaddr,but how to simplely get hhash?
+                    //HCE: To be done: need to update pIndex triaddr,but how to simplely get hhash?
                     return pIndex;
                 }
             }
@@ -385,7 +387,7 @@ std::string CTransaction::ToString() const
 //{
 //    string payload;
 //    if (pos.addr.isValid()) {
-//        //HC: Read data from chain space
+//        //HCE: Read data from chain space
 //        CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
 //
 //        if (!hyperchainspace->GetLocalBlockPayload(pos.addr, payload)) {
@@ -394,8 +396,8 @@ std::string CTransaction::ToString() const
 //        }
 //    }
 //    else {
-//        //HC: Alternative way is calling SearchTxInTransactions()
-//        //HC: Read data from block cache
+//        //HCE: Alternative way is calling SearchTxInTransactions()
+//        //HCE: Read data from block cache
 //        CBlockIndexSP pIndex = pindexBest;
 //        bool tx_ok = false;
 //        while (pIndex && pIndex->nHeight >= pos.nHeight) {
@@ -405,7 +407,7 @@ std::string CTransaction::ToString() const
 //                blockdb.LoadBlockUnChained(pIndex->hashBlock, [&payload, &hash](CDataStream& ssKey, CDataStream& ssValue) -> bool {
 //                    payload = ssValue.str();
 //                    ssKey >> hash;
-//                    return false; //HC: break from load loop
+//                    return false; //HCE: break from load loop
 //                });
 //
 //                if (hash == pIndex->hashBlock) {
@@ -432,7 +434,7 @@ std::string CTransaction::ToString() const
 
 bool CTransaction::ReadFromDisk(CDiskTxPos pos)
 {
-    //HC: Alternative way is calling SearchTxInTransactions()
+    //HCE: Alternative way is calling SearchTxInTransactions()
     CBlock block;
     BLOCKTRIPLEADDRESS addrblock;
     char* pWhere = nullptr;
@@ -680,6 +682,8 @@ bool CTransaction::AcceptToMemoryPool(CTxDB_Wrapper& txdb, bool fCheckInputs, bo
         int64 nMinFee = GetMinFee(1000, true, true);
         if (nFees < nMinFee) {
             //HC:  1 mPara = 1000 uPara 微，nMinFee和nFees用的是最小的单位聪: 10^8，  1 uPara = 100聪
+            //HCE: 1 mPara = 1000 uPara micro, nMinFee and nFees use the smallest unit satoshi: 10^8, 1 uPara = 100 satoshis
+
             m_strRunTimeErr = strprintf("not enough fees, at least %" PRI64d ", but provide %" PRI64d, nMinFee, nFees);
             return ERROR_FL("%s", m_strRunTimeErr.c_str());
         }
@@ -787,7 +791,7 @@ int CMerkleTx::GetDepthInMainChain(int& nHeightRet) const
             return 0;
         fMerkleVerified = true;
     }
-    //HC: to be done
+    //HCE: to be done
     nHeightRet = pindex->nHeight;
     return pindexBest->nHeight - pindex->nHeight + 1;
 }
@@ -797,7 +801,7 @@ int CMerkleTx::GetBlocksToMaturity() const
 {
     if (!IsCoinBase())
         return 0;
-    //HC:for test
+    //HCE:for test
     //return max(0, (COINBASE_MATURITY + 20) - GetDepthInMainChain());
     return max(0, (COINBASE_MATURITY + 20) - GetDepthInMainChain());
 }
@@ -828,7 +832,7 @@ bool CWalletTx::AcceptWalletTransaction(CTxDB_Wrapper& txdb, bool fCheckInputs)
 {
     CRITICAL_BLOCK(cs_mapTransactions)
     {
-        //HC: Add previous supporting transactions first
+        //HCE: Add previous supporting transactions first
         BOOST_FOREACH(CMerkleTx& tx, vtxPrev)
         {
             if (!tx.IsCoinBase())
@@ -877,7 +881,7 @@ const CUInt128& getMyNodeID()
     return myID;
 }
 
-//HC: Get block header progpow hash based header, nonce and mix hash
+//HCE: Get block header progpow hash based header, nonce and mix hash
 uint256 getBlockHeaderProgPowHash(CBlock *pblock)
 {
     if (pblock->nSolution.empty()) {
@@ -889,14 +893,14 @@ uint256 getBlockHeaderProgPowHash(CBlock *pblock)
     ethash::hash256 header_hash = pblock->GetHeaderHash();
 
     ethash::hash256 mix;
-    //HC: solution starts with 32 bytes mix hash.
+    //HCE: solution starts with 32 bytes mix hash.
     memcpy(mix.bytes, pblock->nSolution.data(), sizeof(mix.bytes));
 
-    //HC: ethash::progpow
+    //HCE: ethash::progpow
     ethash::hash256 ret = progpow::verify_final_hash(header_hash, mix, nonce);
 
     uint256 &r = pblock->hashMyself;
-    //HC: ethash hash is always consider as big endian. uint256 is little endian.
+    //HCE: ethash hash is always consider as big endian. uint256 is little endian.
     std::reverse_copy(std::begin(ret.bytes), std::end(ret.bytes), r.begin());
 
     return r;
@@ -964,10 +968,10 @@ bool CBlock::IsLastestHyperBlockMatched() const
 
 ethash::hash256 CBlock::GetHeaderHash() const
 {
-    //HC: I = the block header minus nonce and solution.
-    //HC: also uses CEquihashInput as custom header
+    //HCE: I = the block header minus nonce and solution.
+    //HCE: also uses CEquihashInput as custom header
     CEquihashInput I{ *this };
-    //HC: I||V  nonce part should be zeroed
+    //HCE: I||V  nonce part should be zeroed
     CDataStream ss(SER_BUDDYCONSENSUS);
     ss << I;
 
@@ -1019,7 +1023,7 @@ bool CBlock::ReadFromDisk(const CBlockIndexSP &pindex, bool fReadTransactions)
         return true;
     }
 
-    //HC: Read from cache at first
+    //HCE: Read from cache at first
     if (ReadFromMemoryPool(pindex->GetBlockHash())) {
         return true;
     }
@@ -1028,7 +1032,7 @@ bool CBlock::ReadFromDisk(const CBlockIndexSP &pindex, bool fReadTransactions)
             return false;
         }
 
-        //HC: Read data from chain space
+        //HCE: Read data from chain space
         CHyperChainSpace *hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
         if (pindex->triaddr.isValid()) {
             T_LOCALBLOCK localblock;
@@ -1063,13 +1067,13 @@ bool CBlock::ReadFromDisk(const CBlockIndexSP &pindex, bool fReadTransactions)
 
 bool CBlock::ReadFromDisk(const CBlockIndexSimplified* pindex)
 {
-    //HC: Read from cache at first
+    //HCE: Read from cache at first
     bool isGot = false;
     if (ReadFromMemoryPool(pindex->GetBlockHash())) {
         isGot = true;
     }
     else {
-        //HC: Read data from chain space
+        //HCE: Read data from chain space
         BLOCKTRIPLEADDRESS blkaddr = pindex->addr;
         if (!pindex->addr.isValid()) {
             BLOCKTRIPLEADDRESS addr;
@@ -1129,7 +1133,7 @@ void CBlockLocator::Set(CBlockIndexSP pindex)
             break;
         }
 
-        //HC: don't back too deeply, else performance will be low.
+        //HCE: don't back too deeply, else performance will be low.
         if (ttSpent.Elapse() > 3000) {
             uint256 hashbegin;
             uint256 hashend;
@@ -1202,7 +1206,7 @@ uint256 CBlockLocator::GetBlockHash()
 
 uint256 static GetOrphanRoot(const CBlock* pblock)
 {
-    //HC: Work back to the first block in the orphan chain
+    //HCE: Work back to the first block in the orphan chain
     CBlockSP spblk;
     uint256 hPrevBlk = pblock->hashPrevBlock;
     while (mapOrphanBlocks.count(hPrevBlk)) {
@@ -1231,21 +1235,21 @@ unsigned int static GetNextWorkRequired(const CBlockIndexSP pindexLast)
     //const int64 nTargetTimespan = 14 * 24 * 60 * 60; // two weeks
     //const int64 nTargetSpacing = 10 * 60;
 
-    //HC: 12 block: 144 * 25, 25              formal network
-    //HC: 2016 blocks: 14 * 24 * 60 * 2,  20  informal network
+    //HCE: 12 block: 144 * 25, 25              formal network
+    //HCE: 2016 blocks: 14 * 24 * 60 * 2,  20  informal network
     const int64 nTargetTimespan = 14 * 24 * 60 * 2;
-    const int64 nTargetSpacing = 20;                       //HC: 20 seconds
+    const int64 nTargetSpacing = 20;                       //HCE: 20 seconds
 
-    //HC: to a new para chain, 'nTargetTimespan' should be set the following value directly
+    //HCE: to a new para chain, 'nTargetTimespan' should be set the following value directly
     //if (pindexLast->nHeight > 10625) {
-    //    nTargetTimespan = 14 * 24 * 60 * 2 / 4;      //HC: every 504 blocks
+    //    nTargetTimespan = 14 * 24 * 60 * 2 / 4;      //HCE: every 504 blocks
     //}
 
 #ifdef MinDiff
     nTargetTimespan = 24; // 144; // 14 * 24 * 60 * 2;
-    nTargetSpacing = 1; //20;                       //HC: 20 seconds
+    nTargetSpacing = 1; //20;                       //HCE: 20 seconds
 #endif
-    //HC: Every 'nInterval' blocks, tune work for Para.
+    //HCE: Every 'nInterval' blocks, tune work for Para.
     const int64 nInterval = nTargetTimespan / nTargetSpacing;
 
     // Genesis block
@@ -1258,7 +1262,7 @@ unsigned int static GetNextWorkRequired(const CBlockIndexSP pindexLast)
     if (pindexLast->nHeight == g_cryptoCurrency.GetMaxMultiCoinBaseBlockHeight()) {
         return g_cryptoCurrency.GetBits();
     }
-    //HC: Only change once per interval
+    //HCE: Only change once per interval
     if ((pindexLast->nHeight + 1) % nInterval != 0) {
         return pindexLast->nBits;
     }
@@ -1272,7 +1276,7 @@ unsigned int static GetNextWorkRequired(const CBlockIndexSP pindexLast)
     for (; pindexFirst && i < nInterval - 1; i++)
         pindexFirst = pindexFirst->pprev();
 
-    //HC: cannot exit, it maybe damages database
+    //HCE: cannot exit, it maybe damages database
     //assert(pindexFirst);
     if (!pindexFirst) {
         cerr << StringFormat("Para: %s failed due to block(%d(%s)) %d, chain has errors, unload module...\n",
@@ -1366,7 +1370,7 @@ void static InvalidChainFound(CBlockIndexSP pindexNew)
     }
     WARNING_FL("InvalidChainFound: invalid block=%s  height=%d  work=%s\n", pindexNew->GetBlockHash().ToString().substr(0, 20).c_str(), pindexNew->nHeight, pindexNew->bnChainWork.ToString().c_str());
     WARNING_FL("InvalidChainFound:  current best=%s  height=%d  work=%s\n", hashBestChain.ToString().substr(0, 20).c_str(), nBestHeight, bnBestChainWork.ToString().c_str());
-    //HC: Bitcoin is 6, to hc, should be 6 * 24 = 144
+    //HCE: Bitcoin is 6, to hc, should be 6 * 24 = 144
     if (pindexBest && bnBestInvalidWork > bnBestChainWork + pindexBest->GetBlockWork() * 144)
         WARNING_FL("InvalidChainFound: WARNING: Displayed transactions may not be correct!  You may need to upgrade, or other nodes may need to upgrade.\n");
 }
@@ -1417,7 +1421,7 @@ inline bool SearchTxInTransactions(const uint256& hashTx, CTransaction& tx)
     return true;
 }
 
-//HC: find the transaction in the in-memory and unchained blocks
+//HCE: find the transaction in the in-memory and unchained blocks
 bool SeachTxInUnchainedBlocks(const uint256& hashTx, CTransaction& tx, CBlockIndex& idxBlock)
 {
     bool isFound = false;
@@ -1512,6 +1516,7 @@ bool CTransaction::ConnectInputs(CTxDB_Wrapper& txdb, map<uint256, std::tuple<CT
 
             if (!fFound || txindex.pos == CDiskTxPos(1)) {
                 //HC: 连续交易，本交易的输入交易所在块就是当前块
+                //HCE: For continuous trading, the input transaction is in the current block
                 // Get prev tx from single transactions in memory
                 if (!SearchTxInTransactions(prevout.hash, txPrev)) {
                     reason = StringFormat("%s prev tx %s index entry not found", GetHash().ToString(), prevout.hash.ToString());
@@ -1531,7 +1536,7 @@ bool CTransaction::ConnectInputs(CTxDB_Wrapper& txdb, map<uint256, std::tuple<CT
                         break;
                     }
 
-                    //HC: Search in transaction pool
+                    //HCE: Search in transaction pool
                     if (!SearchTxInTransactions(prevout.hash, txPrev)) {
                         //if (!SearchTxByBlockHeight(pindexBlock, prevout.hash, txindex.pos.nHeight, txPrev)) {
                         //    return ERROR_FL("%s Transactions prev not found %s", GetHash().ToString().substr(0, 10).c_str(), prevout.hash.ToString().substr(0, 10).c_str());
@@ -1689,7 +1694,7 @@ bool CBlock::DisconnectBlock(CTxDB_Wrapper& txdb, CBlockIndexSP pindex)
             return ERROR_FL("WriteBlockIndex failed");
     }
 
-    //HC: Remove transactions, maybe it is a bug for Bitcoin
+    //HCE: Remove transactions, maybe it is a bug for Bitcoin
     BOOST_FOREACH(CTransaction& tx, vtx)
         EraseFromWallets(tx.GetHash());
 
@@ -1699,12 +1704,12 @@ bool CBlock::DisconnectBlock(CTxDB_Wrapper& txdb, CBlockIndexSP pindex)
 bool CBlock::ConnectBlock(CTxDB_Wrapper& txdb, CBlockIndexSP pindex)
 {
     // Check it again in case a previous version let a bad block in
-    //HC: don't check again, it need a lot of time
+    //HCE: don't check again, it need a lot of time
     //if (!CheckBlock())
     //    return false;
 
     //// issue here: it doesn't know the version
-    //HC: why -2, because nSolution member of CBlock, even if nSolution's size is 0,it will take 1 byte.
+    //HCE: why -2, because nSolution member of CBlock, even if nSolution's size is 0,it will take 1 byte.
     unsigned int nTxPos = ::GetSerializeSize(CBlock(), SER_BUDDYCONSENSUS) - 2 + GetSizeOfCompactSize(vtx.size());
 
     map<uint256, std::tuple<CTxIndex, CTransaction>> mapQueuedChanges;
@@ -1718,7 +1723,7 @@ bool CBlock::ConnectBlock(CTxDB_Wrapper& txdb, CBlockIndexSP pindex)
             return false;
     }
     // Write queued txindex changes
-    //HC: save transaction index to db
+    //HCE: save transaction index to db
     for (auto mi = mapQueuedChanges.begin(); mi != mapQueuedChanges.end(); ++mi) {
         CTxIndex txindex;
         std::tie(txindex, std::ignore) = (*mi).second;
@@ -1729,8 +1734,8 @@ bool CBlock::ConnectBlock(CTxDB_Wrapper& txdb, CBlockIndexSP pindex)
     if (vtx[0].GetValueOut() > GetBlockValue(pindex->nHeight, nFees))
         return false;
 
-    //HC: Update block index on disk without changing it in memory.
-    //HC: The memory index structure will be changed after the db commits.
+    //HCE: Update block index on disk without changing it in memory.
+    //HCE: The memory index structure will be changed after the db commits.
     auto spprev = pindex->pprev();
     if (spprev) {
         CDiskBlockIndex blockindexPrev(spprev.get());
@@ -1743,7 +1748,7 @@ bool CBlock::ConnectBlock(CTxDB_Wrapper& txdb, CBlockIndexSP pindex)
         return false;
     }
 
-    //HC: Watch for transactions paying to me
+    //HCE: Watch for transactions paying to me
     BOOST_FOREACH(CTransaction& tx, vtx)
         SyncWithWallets(tx, this, true);
 
@@ -1762,7 +1767,7 @@ bool ForwardFindBlockInMain(int blkheight, const uint256 &blkhash, int h1, int h
         h1 = genesisHID + 1;
     }
 
-    //(i >= 203239 && i <= 203247) || //HC: first 172 blocks they are in hyperblock : 203239 ~ 203247
+    //(i >= 203239 && i <= 203247) || //HCE: first 172 blocks they are in hyperblock : 203239 ~ 203247
     for (int i = h1; i <= h2; ++i) {
         vector<T_PAYLOADADDR> vecPA;
         T_SHA256 thhash;
@@ -1774,13 +1779,13 @@ bool ForwardFindBlockInMain(int blkheight, const uint256 &blkhash, int h1, int h
                     continue;
                 }
 
-                //HC: skip some hyper block for bugs
+                //HCE: skip some hyper block for bugs
                 bool heightIncreCond = true;
                 if (isInformalNetwork() && i < 430000)
-                    //( i == 213084  //HC: para 146027 triple address is [213084,3,34], but 146026 is [213084,3,35]
-                    //|| i == 203343 //HC:  [203343, 1, 8] height is 644, but [213343, 1, 7]'s height is 644 too, [203343, 1, 7] is in main chain
-                    //|| i == 211538 //HC:  [211538, 1, 33] height is 136026, but [213343, 1, 23]'s height is 136028
-                    //|| i == 211549 //HC:  [211549, 1, 28] height is 136252, but [213343, 1, 29]'s height is 136251
+                    //( i == 213084  //HCE: para 146027 triple address is [213084,3,34], but 146026 is [213084,3,35]
+                    //|| i == 203343 //HCE:  [203343, 1, 8] height is 644, but [213343, 1, 7]'s height is 644 too, [203343, 1, 7] is in main chain
+                    //|| i == 211538 //HCE:  [211538, 1, 33] height is 136026, but [213343, 1, 23]'s height is 136028
+                    //|| i == 211549 //HCE:  [211549, 1, 28] height is 136252, but [213343, 1, 29]'s height is 136251
                     //)
                     heightIncreCond = false;
 
@@ -1802,25 +1807,28 @@ bool ForwardFindBlockInMain(int blkheight, const uint256 &blkhash, int h1, int h
 }
 
 //HC: 前向块和待分析块在同一个超块里
+//HCE: The forward block and the block to be analyzed are in the same Hyperblock 
 static bool ValidateBlockInSameHyperblock(CBlockIndexSP pindexPrev, CBlockIndexSP pindexNew, string& reason)
 {
     bool isValidBlk = true;
     BLOCKTRIPLEADDRESS& triaddrPrev = pindexPrev->triaddr;
 
     if (!pindexNew->triaddr.isValid()) {
-        //HC: try to read from disk
+        //HCE: try to read from disk
         BLOCKTRIPLEADDRESS triaddr = triaddrPrev;
         triaddr.id++;
         CBlock blk;
         if (!blk.ReadFromDisk(triaddr)) {
-            //HC: maybe not found Hyper block
-            //HC: if pindexNew->triaddr.isValid() is false, we think the block is invalid
+            //HCE: maybe not found Hyper block
+            //HCE: if pindexNew->triaddr.isValid() is false, we think the block is invalid
             isValidBlk = false;
             RSyncRemotePullHyperBlock(triaddr.hid);
             reason = StringFormat("ValidateBlockInSameHyperblock: failed to read the Para block, please download hyperblock %d", triaddr.hid);
 
-            //HC: Notice: The following condition will be removed in the future
-            //HC: 测试网因为存在bug, 下面高度的Para块，不在超块主链上，因此不检查是否落地，认为是合法的
+            //HCE: Notice: The following condition will be removed in the future
+            //HC: 对测试网, 下面高度的Para块，不在超块主链上，因此不检查是否落地，认为是合法的
+            //HCE: To test net, the Para block with the height below is not on the Hyperchain, 
+            //HCE: so it does not check whether it has landed, and it is considered valid
             if (isInformalNetwork() && ( (pindexNew->nHeight >= 142258 && pindexNew->nHeight <= 142269) ||
                 (pindexNew->nHeight >= 142458 && pindexNew->nHeight <= 142470) ||
                 (pindexNew->nHeight >= 143679 && pindexNew->nHeight <= 143699) ||
@@ -1837,10 +1845,15 @@ static bool ValidateBlockInSameHyperblock(CBlockIndexSP pindexPrev, CBlockIndexS
         //HC: 新块已经落在超块链上了
         //HC: 先后2个块子链序号必须满足id = （prev id） + 1 关系， 并且超块hhash相同
 
-        //HC: Notice: The following condition will be removed in the future
-        //HC: 测试网430302高度前不检查先后2个Para块的子链序号必须满足的递增关系，因为存在bug，但是超块hhash必须相同
+        //HCE: The new block has landed on the Hyperchain
+        //HCE: The sequence number of the two block must satisfy the id = (prev id) + 1 relationship, and the Hyperblock hhash is the same
+
+        //HCE: Notice: The following condition will be removed in the future
+        //HC: 测试网430302高度前不检查先后2个Para块的子链序号必须满足的递增关系，但是超块hhash必须相同
+        //HCE: The increasing relationship for the sequence number of the two block is not checked before the height 430302 of the test net, but the Hyperblock hhash must be the same
         if (isInformalNetwork() && pindexNew->nHeight < 430302) {
-            //HC:  说明前后2个块至少有一个块的triaddr是错的，所以要检查超块是否正确
+            //HC: 说明前后2个块至少有一个块的triaddr是错的，所以要检查超块是否正确
+            //HCE: Explain that the triaddr of at least one block of the 2 blocks is wrong, so check whether the Hyperblock is correct
             if (pindexNew->triaddr.hhash != triaddrPrev.hhash) {
                 isValidBlk = false;
                 reason = StringFormat("ValidateBlockInSameHyperblock: pindexNew's previous HyperBlock info error(1), downloading hyperblock %d", pindexNew->triaddr.hid);
@@ -1848,6 +1861,7 @@ static bool ValidateBlockInSameHyperblock(CBlockIndexSP pindexPrev, CBlockIndexS
             }
         } else if (pindexNew->triaddr.id != triaddrPrev.id + 1  || pindexNew->triaddr.hhash != triaddrPrev.hhash ) {
             //HC:  说明前后2个块至少有一个块的triaddr是错的，所以要检查超块是否正确
+            //HCE: Explain that the triaddr of at least one block of the 2 blocks is wrong, so check whether the Hyperblock is correct
             isValidBlk = false;
             reason = StringFormat("ValidateBlockInSameHyperblock: pindexNew's previous HyperBlock info error(2), downloading hyperblock %d", pindexNew->triaddr.hid);
             RSyncRemotePullHyperBlock(pindexNew->triaddr.hid);
@@ -1862,6 +1876,7 @@ static bool ValidateBlockbyHyperchain(CBlockIndexSP pindexNew, string &reason)
     bool isValidBlk = false;
 
     //HC: 在超块链[h1,h2]区间内寻找Para块, 如果找到，那么说明Para块有效，否则可能无效
+    //HCE: Look for the Para block in the Hyperchain [h1,h2] interval, if found, then the Para block is valid, otherwise it may be invalid
     int h1 = pindexNew->nPrevHID + 1;
     auto pprev = pindexNew;
     auto p = pindexNew->pnext();
@@ -1872,17 +1887,19 @@ static bool ValidateBlockbyHyperchain(CBlockIndexSP pindexNew, string &reason)
 
     if (p) {
         int h2 = p->nPrevHID;
-        //HC: Para block must in hyper block(h1 ~ h2), else the block is invalid
+        //HCE: Para block must in hyper block(h1 ~ h2), else the block is invalid
         BLOCKTRIPLEADDRESS triaddr;
         vector<int> vecHyperBlkIdLacking;
         CBlock blk;
         if (ForwardFindBlockInMain(pindexNew->nHeight, pindexNew->GetBlockHash(), h1, h2, blk, triaddr, vecHyperBlkIdLacking)) {
-            //更新地址
+            //HC: 更新地址
+            //HCE: update triple address
             blk.UpdateToBlockIndex(pindexNew, triaddr);
             isValidBlk = true;
         }
         else {
             //HC: 也许是没有超块，那么要去拉取超块, 拉取第一个缺少的块
+            //HCE: Maybe there is no Hyperblock, so go and pull the Hyperblock, pull the first missing block
             isValidBlk = false;
             if (vecHyperBlkIdLacking.size() > 0) {
                 RSyncRemotePullHyperBlock(vecHyperBlkIdLacking[0]);
@@ -1890,6 +1907,7 @@ static bool ValidateBlockbyHyperchain(CBlockIndexSP pindexNew, string &reason)
             }
             else {
                 //HC: 当前来看当前Para块不在超块链上，因此不合法
+                //HCE: At present, the current Para block is not on the Hyperblock, so it is not legal
                 reason = StringFormat("Invalid block due to cannot find it in main hyperblock chain: [%d, %d]", h1, h2);
             }
             isValidBlk = false;
@@ -1897,6 +1915,7 @@ static bool ValidateBlockbyHyperchain(CBlockIndexSP pindexNew, string &reason)
     }
     else if (pprev->pprev() == pindexBest) {
         //HC: 挖矿阶段产生的新块，可认为是有效的
+        //HCE: New blocks generated during the mining phase can be considered valid
         isValidBlk = true;
     }
     return isValidBlk;
@@ -1909,7 +1928,7 @@ static bool ValidateBlockbyTriaddr(CBlockIndexSP pindexNew, string& reason)
         CBlock blk;
         BLOCKTRIPLEADDRESS &triaddr = pindexNew->triaddr;
         if (!blk.ReadFromDisk(triaddr)) {
-            //HC: maybe not found Hyper block
+            //HCE: maybe not found Hyper block
             RSyncRemotePullHyperBlock(triaddr.hid);
             reason = StringFormat("ValidateBlockbyTriaddr: failed to read the Para block, please download hyperblock %d", triaddr.hid);
         } else if (blk.GetHash() == pindexNew->GetBlockHash()) {
@@ -1931,15 +1950,18 @@ bool static ValidateNewParaBlock(CBlockIndexSP pindexPrev, CBlockIndexSP pindexN
     string reason;
 
     if (pindexNew->triaddr.isValid()) {
-        //HC：新块已经落在超块链, 确认是否属实
+        //HC: 新块已经落在超块链, 确认是否属实
+        //HCE: The new block has fallen on the Hyperchain, confirm whether it is true
         if (!ValidateBlockbyTriaddr(pindexNew, reason))
             goto retval;
     }
 
     if (triaddrPrev.isValid()) {
-        //HC：前向块已经落在超块链
+        //HC: 前向块已经落在超块链
+        //HCE: The forward block has fallen on the Hyperchain
         if (triaddrPrev.hid > pindexNew->nPrevHID) {
             //HC: 前后2个块必须在同一个超块里
+            //HCE: The front and back blocks must be in the same Hyperblock 
             if (pindexPrev->nPrevHID != pindexNew->nPrevHID || pindexPrev->hashPrevHyperBlock != pindexNew->hashPrevHyperBlock) {
                 reason = "pindexNew's previous HyperBlock info error, which must be same with prev block";
             } else {
@@ -1947,7 +1969,8 @@ bool static ValidateNewParaBlock(CBlockIndexSP pindexPrev, CBlockIndexSP pindexN
             }
         } else if (triaddrPrev.hid == pindexNew->nPrevHID && triaddrPrev.hhash != pindexNew->hashPrevHyperBlock) {
             //HC: 前后2个块不在同一个超块里，但是有个必要条件不满足：超块ID相同情况下，超块hash不同
-            //HC: Notice: The following condition will be removed in the future
+            //HCE: The two blocks before and after are not in the same Hyperblock, but there is a necessary condition that is not met: if the Hyperblock ID is the same, the Hyperblock hash is different 
+            //HCE: Notice: The following condition will be removed in the future
             if (isInformalNetwork() && (
                 (pindexNew->nPrevHID >= 228097 && pindexNew->nPrevHID < 228109)
                 )) {
@@ -1961,6 +1984,7 @@ bool static ValidateNewParaBlock(CBlockIndexSP pindexPrev, CBlockIndexSP pindexN
         }
     } else {
         //HC: 在超块链合适高度区间内寻找Para块
+        //HCE: Look for the Para block in the appropriate height range of the hyperblock chain
         isValidBlk = ValidateBlockbyHyperchain(pindexNew, reason);
     }
 
@@ -1995,7 +2019,7 @@ static bool ValidateBlockbyHyperchainRange(CBlockIndexSP pindexNew, const Height
 {
     bool isValidBlk = false;
 
-    //HC: Notice: The following condition will be removed in the future
+    //HCE: Notice: The following condition will be removed in the future
     if (isInformalNetwork()) {
         if (pindexNew->nHeight == 100000 && pindexNew->GetBlockHash() != uint256S("0072f164da3d5b21fd28b288bd12bbe07afecc24a5c0120db2ceaf2a9371cf73")) {
             return false;
@@ -2016,10 +2040,13 @@ static bool ValidateBlockbyHyperchainRange(CBlockIndexSP pindexNew, const Height
             return false;
         }
 
-        if(pindexNew->nHeight < 520000) //HC：520000以后的Para块必须严格检查是否在主链
+        //HC: 520000以后的Para块必须严格检查是否在主链
+        //HCE: Para blocks after 520000 must be strictly checked whether they are in the main chain
+        if(pindexNew->nHeight < 520000) 
             return true;
 
         //HC: 测试网因为存在bug, 目前发现下面高度的Para块，不在超块主链上，因此不检查是否落地，认为是合法的
+        //HCE: Do not check whether it has landed, it is considered legitimate
         //(pindexNew->nHeight >= 275 && pindexNew->nHeight <= 279) ||
         //    (pindexNew->nHeight >= 142258 && pindexNew->nHeight <= 142269) ||
         //    (pindexNew->nHeight >= 142458 && pindexNew->nHeight <= 142470) ||
@@ -2038,23 +2065,24 @@ static bool ValidateBlockbyHyperchainRange(CBlockIndexSP pindexNew, const Height
         return true;
 
     //HC: 在超块链[h1,h2]区间内寻找Para块, 如果找到，那么说明Para块有效，否则无效
+    //HCE: Look for the Para block in the Hyperchain [h1,h2] interval, if found, then the Para block is valid, otherwise it is invalid
     int h1 = hrange.h1;
     int h2 = hrange.h2;
 
-    //HC: Para block must in hyper block[h1 ~ h2], else the block is invalid
+    //HCE: Para block must in hyper block[h1 ~ h2], else the block is invalid
     BLOCKTRIPLEADDRESS triaddr;
     vector<int> vecHyperBlkIdLacking;
     CBlock blk;
     if (ForwardFindBlockInMain(pindexNew->nHeight, pindexNew->GetBlockHash(), h1, h2, blk, triaddr, vecHyperBlkIdLacking)) {
-        //更新地址
         blk.UpdateToBlockIndex(pindexNew, triaddr);
         isValidBlk = true;
     } else {
         //HC: 也许是没有超块，那么要去拉取超块, 拉取第一个缺少的块
+        //HCE: Maybe there is no Hyperblock, so go and pull the Hyperblock, pull the first missing block
         if (vecHyperBlkIdLacking.size() > 0) {
             RSyncRemotePullHyperBlock(vecHyperBlkIdLacking[0]);
             reason = StringFormat("pindexNew's previous HyperBlock info error(4), downloading hyperblock %d", vecHyperBlkIdLacking[0]);
-        } else { //HC: 当前来看当前Para块不在超块链上，因此不合法
+        } else { 
             reason = StringFormat("Invalid block due to cannot find it in main hyperblock chain: [%d, %d]", h1, h2);
         }
     }
@@ -2064,6 +2092,10 @@ static bool ValidateBlockbyHyperchainRange(CBlockIndexSP pindexNew, const Height
 //HC: 沿超块链前向检查新的Para链中Para块是否在主链上
 //HC: 原理：前后2个块的前向超块nPrevHID(假设分别为:h1, h2)发生变化就认为需要检查，检查前一个块是否落在超块链的[h1+1,h2]范围内
 //HC: 如果发现fork块不在主链上，那么forkblkerr返回true，Para链相应应该回退
+
+//HCE: Check whether the Para block in the new Para chain is on the Hyperchain
+//HCE: Principle: The forward hyperblock nPrevHID (assuming h1, h2) of the two blocks before and after changes is considered to be checked to check whether the previous block falls within the range of [h1+1, h2] of the Hyperchain
+//HCE: If the fork block is found not on the main chain, then forkblkerr returns true and the Para chain should roll back accordingly
 bool checkInMainChain(CBlockIndexSP pfork, vector<CBlockIndexSP>& vConnect, bool &forkblkerr)
 {
     HeightRange heightrange;
@@ -2071,6 +2103,7 @@ bool checkInMainChain(CBlockIndexSP pfork, vector<CBlockIndexSP>& vConnect, bool
     std::map<HeightRange, CBlockIndexSP> mapNeedCheckBlocks;
 
     //HC: 提取需要检查的Para块，包括fork块
+    //HCE: Extract the Para blocks that need to be checked, including fork blocks
     int nCount = vConnect.size();
     for (int i = nCount - 1; i >= 0; i--) {
         if (stackTmp.empty()) {
@@ -2100,7 +2133,8 @@ bool checkInMainChain(CBlockIndexSP pfork, vector<CBlockIndexSP>& vConnect, bool
         }
     }
 
-    //检查块是否落在超块链
+    //HC: 检查块是否落在超块链
+    //HCE: Check if the block falls on the Hyperchain
     string reason;
     bool isOK = true;
     CBlockIndexSP pindexNew;
@@ -2126,7 +2160,7 @@ bool checkInMainChain(CBlockIndexSP pfork, vector<CBlockIndexSP>& vConnect, bool
     return isOK;
 }
 
-//HC: Validate whether it is able to switch
+//HCE: Validate whether it is able to switch
 bool CBlock::TryReorganize(CTxDB_Wrapper& txdb, CBlockIndexSP pindexNew,
     vector<CBlockIndexSP> &vDisconnect,
     vector<CBlockIndexSP> &vConnect,
@@ -2172,7 +2206,7 @@ bool CBlock::TryReorganize(CTxDB_Wrapper& txdb, CBlockIndexSP pindexNew,
         return false;
     }
 
-    //HC: check preHID of every block in vConnect if it is valid
+    //HCE: check preHID of every block in vConnect if it is valid
     //CBlockIndexSP pPrev = pfork;
     //for (size_t i = 0; i < vConnect.size(); i++) {
     //    if (!ValidateNewParaBlock(pPrev, vConnect[i])) {
@@ -2232,7 +2266,7 @@ bool static Reorganize(CTxDB_Wrapper& txdb, CBlockIndexSP pindexNew, vector<CBlo
         auto spprev = pindex->pprev();
         if (spprev) {
             spprev->hashNext = 0;
-            //HC: The following operator has already done in above: block.DisconnectBlock
+            //HCE: The following operator has already done in above: block.DisconnectBlock
             //if (!txdb.WriteBlockIndex(CDiskBlockIndex(spprev.get())))
             //    return ERROR_FL("WriteBlockIndex failed");
         }
@@ -2244,7 +2278,7 @@ bool static Reorganize(CTxDB_Wrapper& txdb, CBlockIndexSP pindexNew, vector<CBlo
         auto spprev = pindex->pprev();
         if (spprev) {
             spprev->hashNext = pindex->GetBlockHash();
-            //HC: The following operator has already done in above: block.ConnectBlock
+            //HCE: The following operator has already done in above: block.ConnectBlock
             //if(!txdb.WriteBlockIndex(CDiskBlockIndex(spprev.get())))
             //    return ERROR_FL("WriteBlockIndex failed");
         }
@@ -2266,18 +2300,18 @@ bool CBlock::SetBestChain(CTxDB_Wrapper& txdb, CBlockIndexSP pindexNew)
     if (pindexNew == pindexBest) {
         return true;
     }
-    //HC: make sure the reference count > 1, avoid db flush frequencely
+    //HCE: make sure the reference count > 1, avoid db flush frequencely
     CBlockDB_Wrapper blockdb;
 
     uint256 hash = GetHash();
 
-    //HC: allow read for other thread
-    //HC: what difference for DB_READ_COMMITTED TXN_READ_COMMITTED?
+    //HCE: allow read for other thread
+    //HCE: what difference for DB_READ_COMMITTED TXN_READ_COMMITTED?
     if(!txdb.TxnBegin(DB_READ_COMMITTED))
         return ERROR_FL("%s : TxnBegin failed", __FUNCTION__);
 
     if (pindexGenesisBlock == nullptr && hash == hashGenesisBlock) {
-        //HC: Connect genesis block's transactions
+        //HCE: Connect genesis block's transactions
         ConnectBlock(txdb, pindexNew);
         txdb.WriteHashBestChain(hash);
         if (!txdb.TxnCommit())
@@ -2293,6 +2327,7 @@ bool CBlock::SetBestChain(CTxDB_Wrapper& txdb, CBlockIndexSP pindexNew)
             txdb.TxnAbort();
             if (forkblkerr) {
                 //HC: fork 块 不在主链上, 回退
+                //HCE: Fork blocks are not on the main chain, rollback
                 auto& hashfork = pindexBest->hashPrevHyperBlock;
                 CBlockIndexSP pforknew = pindexBest->pprev();
                 if (!pforknew)
@@ -2346,6 +2381,7 @@ bool CBlock::SetBestChain(CTxDB_Wrapper& txdb, CBlockIndexSP pindexNew)
             txdb.TxnAbort();
             if (forkblkerr && !fShutdown) {
                 //HC: fork 块 不在主链上, 回退
+                //HCE: Fork blocks are not on the main chain, rollback
                 auto& hashfork = pfork->hashPrevHyperBlock;
                 CBlockIndexSP pforknew = pfork->pprev();
                 if (!pforknew)
@@ -2379,7 +2415,7 @@ bool CBlock::SetBestChain(CTxDB_Wrapper& txdb, CBlockIndexSP pindexNew)
 
     // Update best block in wallet (so we can detect restored wallets)
     //if (!IsInitialBlockDownload()) {
-        //HC: CBlockLocator's construct need a large time cost, so take a simple way.
+        //HCE: CBlockLocator's construct need a large time cost, so take a simple way.
         CBlockLocator locator;
         locator.SetBrief(pindexNew, hashchk);
         ::SetBestChain(locator);
@@ -2388,7 +2424,7 @@ bool CBlock::SetBestChain(CTxDB_Wrapper& txdb, CBlockIndexSP pindexNew)
     nTimeBestReceived = GetTime();
     nTransactionsUpdated++;
 
-    //HC: To solve a bug, add the following log
+    //HCE: To solve a bug, add the following log
     //CBlockIndexSP pprevindex = pindexBest->pprev();
     //LogToFile("SetBestChain: new best=%s  height=%d work=%s, Pre's hashNext=%s\n",
     //    hashBestChain.ToString().c_str(), nBestHeight, pindexBest->bnChainWork.ToString().c_str(),
@@ -2404,7 +2440,7 @@ bool CheckBlockTriAddr(const BLOCKTRIPLEADDRESS * pblktriaddr)
         CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
         T_SHA256 hb_thash;
         if (!hyperchainspace->GetHyperBlockHash(pblktriaddr->hid, hb_thash)) {
-            //HC: no found hyperblock
+            //HCE: no found hyperblock
             return false;
         }
         uint256 hb_uhash = to_uint256(hb_thash);
@@ -2424,7 +2460,7 @@ bool CBlock::UpdateToBlockIndex(CBlockIndexSP pIndex, const BLOCKTRIPLEADDRESS& 
     pIndex->triaddr = blktriaddr;
 
     CTxDB_Wrapper txdb;
-    //HC: maybe here is a nested transaction
+    //HCE: maybe here is a nested transaction
     if (!txdb.TxnBegin())
         return ERROR_FL("%s : TxnBegin failed", __FUNCTION__);
 
@@ -2459,7 +2495,7 @@ bool CBlock::AddToBlockIndex(const BLOCKTRIPLEADDRESS& addrIn)
     if (miPrev) {
         pindexNew->hashPrev = hashPrevBlock;// (*miPrev).second;
         pindexNew->nHeight = miPrev->nHeight + 1;
-        //HC: here cannot set miPrev->hashNext, because the action must be done in 'SetBestChain'
+        //HCE: here cannot set miPrev->hashNext, because the action must be done in 'SetBestChain'
         //miPrev->hashNext = hash;
     } else if(pindexNew->nHeight >= 1){
         cerr << StringFormat("Para: Not found Block(%d %s)'s previous block index\n", pindexNew->nHeight, pindexNew->ToString());
@@ -2470,14 +2506,14 @@ bool CBlock::AddToBlockIndex(const BLOCKTRIPLEADDRESS& addrIn)
 
     auto isSuccess = mapBlockIndex.insert(make_pair(hash, pindexNew));
     if (!isSuccess) {
-        //HC: Maybe another thread is handling.
+        //HCE: Maybe another thread is handling.
 
         LogToFile("Para: AddToBlockIndex cannot insert new CBlockIndex(%d %s)\n", pindexNew->nHeight, pindexNew->hashBlock.ToString().c_str());
         cerr << StringFormat("Para: AddToBlockIndex cannot insert new CBlockIndex(%d %s)\n", pindexNew->nHeight, pindexNew->hashBlock.ToString());
         return false;
     }
 
-    //HC: Cannot use pindexNew directly, must get index from pool
+    //HCE: Cannot use pindexNew directly, must get index from pool
     pindexNew = mapBlockIndex[hash];
 
     //LogToFile("Para: AddToBlockIndex new CBlockIndex(%d %s) work:%s %s best:%s\n", pindexNew->nHeight, pindexNew->hashBlock.ToString().c_str(),
@@ -2488,6 +2524,7 @@ bool CBlock::AddToBlockIndex(const BLOCKTRIPLEADDRESS& addrIn)
     //new block
     if (pindexNew->bnChainWork > bnBestChainWork) {
         //HC: Paracoin挖矿形成子链阶段，按难度来取舍最优链
+        //HCE: Paracoin mining forms a subchain stage, and the optimal chain is selected according to the difficulty
 #ifdef COST_PARSE
         CSpentTime t;
 #endif
@@ -2556,13 +2593,13 @@ bool CBlock::CheckBlock() const
     // These are checks that are independent of context
     // that can be verified before saving an orphan block.
 
-    //HC: Fix me(how to do for the received block)
+    //HCE: Fix me(how to do for the received block)
     //if (!CheckExternalData()) {
     //    return ERROR_FL("CheckExternalData invalid at height %d\n", nHeight);
     //}
 
 #ifdef COST_PARSE
-    //HC: calling CheckProgPow take a lot of time, in 39.103.171.221: somtimes 5~9 seconds
+    //HCE: calling CheckProgPow take a lot of time, in 39.103.171.221: somtimes 5~9 seconds
     CSpentTime t;
 #endif
     if (!CheckProgPow()) {
@@ -2583,7 +2620,7 @@ bool CBlock::CheckBlock() const
         return ERROR_FL("proof of work failed");
 
     // Check timestamp
-    //HC: Skip the time check
+    //HCE: Skip the time check
     //if (GetBlockTime() > GetAdjustedTime() + 2 * 60 * 60)
     //    return ERROR_FL("block timestamp too far in the future");
 
@@ -2613,7 +2650,7 @@ bool CBlock::CheckBlock() const
     return true;
 }
 
-//HC:check transaction
+//HCE:check transaction
 bool CBlock::CheckTrans()
 {
     uint256 hash = GetHash();
@@ -2634,8 +2671,8 @@ bool CBlock::CheckProgPow() const
         return false;
     }
 
-    //HC: progpow nonce is 8 bytes, located the (24-32) of 32 bytes nonce
-    //HC: little endian
+    //HCE: progpow nonce is 8 bytes, located the (24-32) of 32 bytes nonce
+    //HCE: little endian
     uint64_t nonce = nNonce;
 
     uint32_t epoch = ethash::get_epoch_number(nHeight);
@@ -2645,7 +2682,7 @@ bool CBlock::CheckProgPow() const
 
     ethash::hash256 mix;
 
-    //HC: nSolution is 32 bytes mix hash.
+    //HCE: nSolution is 32 bytes mix hash.
     const unsigned char *p = &*(nSolution.begin());
     memcpy(mix.bytes, &p[0], 32);
 
@@ -2654,7 +2691,7 @@ bool CBlock::CheckProgPow() const
     bnNew.SetCompact(nBits);
     uint256 hashTarget = bnNew.getuint256();
 
-    //HC: endian conversion. ethash hash is considered as big endian.
+    //HCE: endian conversion. ethash hash is considered as big endian.
     std::reverse_copy(hashTarget.begin(), hashTarget.end(), target.bytes);
 
     if (progpow::verify(epoch_ctx, nHeight,header_hash, mix, nonce, target)) {
@@ -2675,7 +2712,7 @@ bool CBlock::AcceptBlock()
     }
 
     while(mapBlockIndex.count(hash)) {
-        //HC: Update the logic address and block index for the block
+        //HCE: Update the logic address and block index for the block
         CBlockIndexSP pIndex = mapBlockIndex[hash];
         if (pIndex->triaddr.isValid()) {
             if (tripleaddr == pIndex->triaddr) {
@@ -2693,10 +2730,10 @@ bool CBlock::AcceptBlock()
         break;
     }
 
-    //HC: Get prev block index
+    //HCE: Get prev block index
     auto mi = mapBlockIndex[hashPrevBlock];
     if (!mi) {
-        //HC: Request the block I have not
+        //HCE: Request the block I have not
         CRITICAL_BLOCK(cs_vNodes)
         {
             BOOST_FOREACH(CNode* pnode, vNodes)
@@ -2708,7 +2745,7 @@ bool CBlock::AcceptBlock()
     CBlockIndexSP pindexPrev = mi;
     int nHeight = pindexPrev->nHeight + 1;
 
-    //HC: Check proof of work
+    //HCE: Check proof of work
     if (nBits != GetNextWorkRequired(pindexPrev))
         return ERROR_FL("incorrect proof of work");
 
@@ -2722,7 +2759,7 @@ bool CBlock::AcceptBlock()
             return ERROR_FL("contains a non-final transaction");
 
     // Check that the block chain matches the known block chain up to a checkpoint
-    //HC: don't check
+    //HCE: don't check
     //if (!fTestNet)
     //    if ((nHeight ==  11111 && hash != uint256("0x0000000069e244f73d78e8fd29ba2fd2ed618bd6fa2ee92559f542fdb26e7c1d")) ||
     //        (nHeight ==  33333 && hash != uint256("0x000000002dd5588a74784eaa7ab0507a18ad16a236e7b1ce69f00d7ddfb5d0a6")) ||
@@ -2744,18 +2781,18 @@ bool CBlock::AcceptBlock()
     //if (!AddToBlockIndex(nFile, nBlockPos))
     //    return error("AcceptBlock() : AddToBlockIndex failed");
 
-    //HC: Write block to memory pool and disk index file
+    //HCE: Write block to memory pool and disk index file
     if(!AddToMemoryPool(hash))
         return ERROR_FL("Block AddToMemoryPool failed");
 
     if (!AddToBlockIndex(tripleaddr))
         return WARNING_FL("AddToBlockIndex failed");
 
-    //HC: Relay inventory, but don't relay old inventory during initial block download
+    //HCE: Relay inventory, but don't relay old inventory during initial block download
     if (hashBestChain == hash)
         CRITICAL_BLOCK(cs_vNodes)
         BOOST_FOREACH(CNode* pnode, vNodes)
-        //HC:
+        //HCE:
         //if (nBestHeight > (pnode->nStartingHeight != -1 ? pnode->nStartingHeight - 2000 : 140700))
             pnode->PushInventory(CInv(MSG_BLOCK, hash));
 
@@ -2786,7 +2823,7 @@ void ProcessOrphanBlocks(const uint256& hash)
 
 bool ProcessBlock(CNode* pfrom, CBlock* pblock)
 {
-    //HC: Check for duplicate
+    //HCE: Check for duplicate
     uint256 hash = pblock->GetHash();
     INFO_FL("%s %d ", hash.ToPreViewString().c_str(), pblock->nHeight);
 
@@ -2796,13 +2833,13 @@ bool ProcessBlock(CNode* pfrom, CBlock* pblock)
          return INFO_FL("already have block %d %s (orphan)", mapOrphanBlocks[hash]->nHeight, hash.ToPreViewString().c_str());
 
 
-    //HC: Preliminary checks
+    //HCE: Preliminary checks
     if (!pblock->CheckBlock())
         return WARNING_FL("CheckBlock %s FAILED", hash.ToPreViewString().c_str());
 
     bool hyperblock_ok = true;
     if (pfrom) {
-        //HC: Received block
+        //HCE: Received block
         CSpentTime t;
 
         int ret = pblock->CheckHyperBlockConsistence(pfrom);
@@ -2825,7 +2862,7 @@ bool ProcessBlock(CNode* pfrom, CBlock* pblock)
     }
 
     CSpentTime t;
-    //HC: If don't already have its previous block, shunt it off to holding area until we get it
+    //HCE: If don't already have its previous block, shunt it off to holding area until we get it
     if (!hyperblock_ok || !mapBlockIndex.count(pblock->hashPrevBlock) ) {
         TRACE_FL("%d(%s) ORPHAN BLOCK, hyperblock_ok:%d prev=%s\n", pblock->nHeight, hash.ToPreViewString().c_str(),
             hyperblock_ok,
@@ -2837,13 +2874,13 @@ bool ProcessBlock(CNode* pfrom, CBlock* pblock)
 
         bool ismining = g_miningCond.IsMining();
 
-        //HC: save the orphan block.
+        //HCE: save the orphan block.
         if (!ismining) {
             COrphanBlockDB_Wrapper blockdb;
             blockdb.WriteBlock(*spblock2);
         }
 
-        //HC: Ask this guy to fill in what we're missing
+        //HCE: Ask this guy to fill in what we're missing
         if (pfrom && ismining)
             pfrom->PushGetBlocks(pindexBest, GetOrphanRoot(spblock2.get()));
 #ifdef COST_PARSE
@@ -2854,11 +2891,11 @@ bool ProcessBlock(CNode* pfrom, CBlock* pblock)
     }
 
     if (g_miningCond.IsSwitching()) {
-        //HC: Switching, avoid to switch again
+        //HCE: Switching, avoid to switch again
         return false;
     }
 
-    //HC: Store to disk
+    //HCE: Store to disk
     if (!pblock->AcceptBlock())
         return WARNING_FL("AcceptBlock %s FAILED", hash.ToPreViewString().c_str());
 
@@ -2887,7 +2924,7 @@ bool ProcessBlockWithTriaddr(CNode* pfrom, CBlock* pblock, BLOCKTRIPLEADDRESS* p
     uint256 hash = pblock->GetHash();
     if (isValidTriAddr) {
         if (mapBlockIndex.count(hash)) {
-            //HC: compare and update block address
+            //HCE: compare and update block address
             CBlockIndexSP pIndex = mapBlockIndex[hash];
             if (pIndex->triaddr != *pblockaddr) {
                 pblock->UpdateToBlockIndex(pIndex, *pblockaddr);
@@ -2912,7 +2949,7 @@ bool ProcessBlockWithTriaddr(CNode* pfrom, CBlock* pblock, BLOCKTRIPLEADDRESS* p
         return false;
     }
 
-    //HC: compare and update block address
+    //HCE: compare and update block address
     CBlockIndexSP pIndex = mapBlockIndex[hash];
     if (isValidTriAddr && pIndex->triaddr != *pblockaddr) {
         if (!pblock->UpdateToBlockIndex(pIndex, *pblockaddr)) {
@@ -2920,7 +2957,7 @@ bool ProcessBlockWithTriaddr(CNode* pfrom, CBlock* pblock, BLOCKTRIPLEADDRESS* p
         }
     }
 
-    //HC: try to switch to new chain
+    //HCE: try to switch to new chain
     if (pindexBest != pIndex && bnBestChainWork < pIndex->bnChainWork) {
         SwitchChainToBlock(*pblock, pIndex);
         INFO_FL("SwitchChainToBlock: %d(%s)\n", pIndex->Height(), pIndex->hashBlock.ToPreViewString().c_str());
@@ -2935,8 +2972,8 @@ bool ProcessBlock(CNode* pfrom, CBlock* pblock, T_LOCALBLOCKADDRESS* pblockaddr)
     //    if (pblockaddr->isValid()) {
     //        uint256 hash = pblock->GetHash();
 
-    //        //HC: Update block address
-    //        //HC: compare and update block address
+    //        //HCE: Update block address
+    //        //HCE: compare and update block address
     //        if (!mapBlockIndex.count(hash)) {
     //            BLOCKTRIPLEADDRESS tripleaddr(*pblockaddr);
     //            COrphanBlockTripleAddressDB().WriteBlockTripleAddress(hash, tripleaddr);
@@ -3042,7 +3079,7 @@ void AddGenesisBlockToIndex()
     uint256 hashGenesis = genesis.GetHash();
     assert(hashGenesis == g_cryptoCurrency.GetHashGenesisBlock());
 
-    //HC: genesis block exists in HC genesis block
+    //HCE: genesis block exists in HC genesis block
     BLOCKTRIPLEADDRESS addr;
     addr.hid = g_cryptoCurrency.GetHID();
     addr.chainnum = g_cryptoCurrency.GetChainNum();
@@ -3058,6 +3095,7 @@ void AddGenesisBlockToIndex()
 }
 
 //HC: 读取本地底层链子块缺失的para块
+//HCE: Read the missing para block of the local underlying chain 
 bool LoadBlockUnChained()
 {
     cout << "Paracoin: read block cache asynchronously in the background...\n";
@@ -3185,7 +3223,7 @@ void UpgradeBlockIndex(CTxDB_Wrapper &txdb, int height_util)
                             }
                         }
                     } else {
-                        //HC: This is a critical error, which means the block is not in main hyperblock chain.
+                        //HCE: This is a critical error, which means the block is not in main hyperblock chain.
                         nError++;
                         ff << strprintf("block %d[%s] index error, block index hash %s, %s in storage\n",
                             pIndex->nHeight,
@@ -3271,7 +3309,7 @@ void FixBlockIndexByHyperBlock(CTxDB_Wrapper& txdb, int begin_height, int end_he
                     ProcessBlockWithTriaddr(nullptr, &block, &blockaddr);
 
                     if (!mapBlockIndex.count(blkhash)) {
-                        //HC: maybe in orphan pool
+                        //HCE: maybe in orphan pool
                         block.AddToBlockIndex(blockaddr);
                     }
                     nAdded++;
@@ -3483,7 +3521,7 @@ string GetWarnings(string strFor)
     }
 
     // Longer invalid proof-of-work chain
-    //HC: Bitcoin is 6, to hc, should be 6 * 24 = 144
+    //HCE: Bitcoin is 6, to hc, should be 6 * 24 = 144
     //if (pindexBest && bnBestInvalidWork > bnBestChainWork + pindexBest->GetBlockWork() * 144)
     //{
     //    nPriority = 2000;
@@ -3586,7 +3624,7 @@ bool static AlreadyHave(CTxDB_Wrapper& txdb, const CInv& inv)
                 return true;
             }
 
-            //HC: search in local block cache db
+            //HCE: search in local block cache db
             if (mapBlocks.contain(inv.hash)) {
                 return true;
             }
@@ -3625,7 +3663,7 @@ void RequestBlockSpace(CNode* pfrom)
         }
         else {
             if (now - mapPullingBlocksSpaceNodes[pfrom] < 120) {
-                //HC: pulling
+                //HCE: pulling
                 return;
             }
             else {
@@ -3644,10 +3682,10 @@ const int SentBlock_TimeOut = 30;
 void InsertSentBlock(CNode* pfrom, const uint256 &hashBlock, const uint256 &hashPrevBlock)
 {
     if (!pfrom->mapBlockSent.count(hashBlock)) {
-        //HC: clear expired element
+        //HCE: clear expired element
         auto now = time(nullptr);
         if (pfrom->mapBlockSent.size() > 1000) {
-            //HC: LRU policy
+            //HCE: LRU policy
             auto it = pfrom->listBlockSent.begin();
             for (; it != pfrom->listBlockSent.end(); ) {
                 if (std::get<0>((*it)->second) + SentBlock_TimeOut < now) {
@@ -3681,7 +3719,7 @@ bool FixBlockIndexofChain(CBlockIndexSP pindexInMain, CBlockIndexSP pindexEnd, C
         while (pindexFork) {
             if (ppindex == pindexFork ||
                 ppindex->GetBlockHash() == pindexFork->GetBlockHash()) {
-                //HC: find fork block
+                //HCE: find fork block
                 break;
             }
             if (pindexInMain == pindexFork)
@@ -3713,7 +3751,7 @@ bool FixBlockIndexofChain(CBlockIndexSP pindexInMain, CBlockIndexSP pindexEnd, C
     return false;
 }
 
-//HC: reply blocks from low height to high
+//HCE: reply blocks from low height to high
 void ReplyGetBlocks(CNode* pfrom, const uint256 &hashInMain, const uint256 &lasthash)
 {
     int nLimit = 100;
@@ -3740,14 +3778,14 @@ void ReplyGetBlocks(CNode* pfrom, const uint256 &hashInMain, const uint256 &last
                 if (!pindex) {
                     pindex = pindexIn;
                 } else if ( pindexIn->nHeight > pindex->nHeight) {
-                    //HC: choose maximum height block index
+                    //HCE: choose maximum height block index
                     pindex = pindexIn;
                 }
                 break;
             }
         }
 
-        //HC: not found
+        //HCE: not found
         if (!pindex) {
             LogRequestFromNode(pfrom->nodeid,
                 "\n\nRespond fgetblocks: requesting data(%s %s) not in main chain from: %s ***********************\n",
@@ -3776,7 +3814,7 @@ void ReplyGetBlocks(CNode* pfrom, const uint256 &hashInMain, const uint256 &last
     for (; pindex; pprevindex = pindex, pindex = pindex->pnext()) {
 
         if (!pindex->pnext() && pindex->nHeight < pindexBest->nHeight) {
-            //HC: index data of block's pnext has problem
+            //HCE: index data of block's pnext has problem
             CBlockIndexSP pNew;
 
             WARNING_FL("Try to fix block index...%d", pindex->nHeight);
@@ -3788,7 +3826,7 @@ void ReplyGetBlocks(CNode* pfrom, const uint256 &hashInMain, const uint256 &last
         }
 
         if (pprevindex->GetBlockHash() != pindex->hashPrev) {
-            //HC: index data of block's has problem
+            //HCE: index data of block's has problem
             ERROR_FL("Find issue in block index: %d, please restart to fix with '-scanbestindex'", pprevindex->nHeight);
             break;
         }
@@ -3821,7 +3859,7 @@ void ReplyGetBlocks(CNode* pfrom, const uint256 &hashInMain, const uint256 &last
     LogRequestFromNode(pfrom->nodeid, "  fgetblocks (%d, %.2f KB) \n", nTotalSendBlock, (float)nTotalSendSize / 1024);
 }
 
-//HC: reply blocks from high height to low
+//HCE: reply blocks from high height to low
 void ReplyRGetBlocks(CNode* pfrom, uint256 hashBlock, int64 timeReq)
 {
     int nLimit = 300;
@@ -4191,7 +4229,7 @@ std::unordered_map<string, std::function<bool(CNode*, CDataStream&)>> mapRecvMes
 
         //outputlog(strprintf("Received getdata %d \n", vInv.size()));
 
-        std::set<uint256> setBlockSended; //HC: avoid to send the same block repeatedly
+        std::set<uint256> setBlockSended; //HCE: avoid to send the same block repeatedly
         BOOST_FOREACH(const CInv & inv, vInv)
         {
             if (fShutdown)
@@ -4206,10 +4244,10 @@ std::unordered_map<string, std::function<bool(CNode*, CDataStream&)>> mapRecvMes
                 BLOCKTRIPLEADDRESS addrblock;
                 char* pWhere = nullptr;
                 if (!setBlockSended.count(inv.hash) && GetBlockData(inv.hash, block, addrblock, &pWhere)) {
-                    //HC: send block address at the same time
+                    //HCE: send block address at the same time
                     //outputlog(strprintf("reply block: %d, %s\n", block.nHeight, addrblock.tostring().c_str()));
                     if (pfrom->nVersion > VERSION_V72) {
-                        //HC: v73 added
+                        //HCE: v73 added
                         pfrom->PushMessage("blockz", block, addrblock);
                     }
                     else {
@@ -4340,7 +4378,7 @@ std::unordered_map<string, std::function<bool(CNode*, CDataStream&)>> mapRecvMes
 
         T_LOCALBLOCKADDRESS addrblock;
 
-        recvMsg >> addrblock.hid;  //HC: here hid type is uint64
+        recvMsg >> addrblock.hid;  //HCE: here hid type is uint64
         recvMsg >> addrblock.chainnum;
         recvMsg >> addrblock.id;
 
@@ -4578,10 +4616,11 @@ bool static ProcessMessage(CNode* pfrom, const string &strCommand, CDataStream& 
     }
 
     //HC: 不同版本有不同的数据通讯格式，所以必须有版本号才能开始交互
+    //HCE: Different versions have different data communication formats, so you must have a version number to start the interaction
     if (pfrom->nVersion == 0)     {
         // Must have a version message before anything else
         TRACE_FL("I have not yet node version info, Maybe myself restarted, please tell me again. (%s)", pfrom->addr.ToString().c_str());
-        //HC: I think his version is VERSION_1 which is first version
+        //HCE: I think his version is VERSION_1 which is first version
         //pfrom->nVersion = VERSION_1;
         pfrom->PushMessage("veragain");
     } else if (mapRecvMessages.count(strCommand)) {
@@ -4630,7 +4669,7 @@ bool ProcessMessages(CNode* pfrom)
     const int nBaseHandleTime = 300; //ms
     int allowedtime = 0;
 
-    //HC: To improve performance, reduce the divide operation
+    //HCE: To improve performance, reduce the divide operation
     if (nRecvDataLen < 1024) {
         allowedtime = nBaseHandleTime;
     } else if(nRecvDataLen < 2048) {
@@ -4699,7 +4738,7 @@ bool ProcessMessages(CNode* pfrom)
         bool fRet = false;
         try {
             if (hyperblockMsgs.size() > 0) {
-                //HC: Process hyper block reached message
+                //HCE: Process hyper block reached message
                 CRITICAL_BLOCK_T_MAIN(cs_main)
                     hyperblockMsgs.process();
             }
@@ -4748,7 +4787,7 @@ bool ProcessMessages(CNode* pfrom)
 
 bool SendMessages(CNode* pto, bool fSendTrickle)
 {
-    //HC: We can remove cs_main
+    //HCE: We can remove cs_main
     //CRITICAL_BLOCK_T_MAIN(cs_main)
     {
         // Don't send anything until we get their version message
@@ -4845,7 +4884,7 @@ bool SendMessages(CNode* pto, bool fSendTrickle)
                 vInvWait.reserve(pto->vInventoryToSend.size());
                 BOOST_FOREACH(const CInv & inv, pto->vInventoryToSend)
                 {
-                    //HC:
+                    //HCE:
                     //if (pto->setInventoryKnown.count(inv))
                     //    continue;
 
@@ -4875,7 +4914,7 @@ bool SendMessages(CNode* pto, bool fSendTrickle)
 
                     // returns true if wasn't already contained in the set
                     //printf("  setInventoryKnown size: %u  pto: %s\n", pto->setInventoryKnown.size(), pto->nodeid.c_str());
-                    //HC: remove send cache
+                    //HCE: remove send cache
                     //if (pto->setInventoryKnown.insert(inv).second)
                     {
                         TRACE_FL("  send inventory: %s to: %s\n", inv.ToString().c_str(), pto->nodeid.c_str());
@@ -4986,12 +5025,12 @@ unsigned int static ScanHash_CryptoPP(char* pmidstate, char* pdata, char* phash1
         SHA256Transform(phash1, pdata, pmidstate);
         SHA256Transform(phash, phash1, pSHA256InitState);
 
-        //HC: Return the nonce if the hash has at least some zero bits,
-        //HC: caller will check if it has enough to reach the target
+        //HCE: Return the nonce if the hash has at least some zero bits,
+        //HCE: caller will check if it has enough to reach the target
         if (((unsigned short*)phash)[14] == 0)
             return nNonce;
 
-        //HC: If nothing found after trying for a while, return -1
+        //HCE: If nothing found after trying for a while, return -1
         if ((nNonce & 0xffff) == 0)         {
             nHashesDone = 0xffff + 1;
             return -1;
@@ -4999,7 +5038,7 @@ unsigned int static ScanHash_CryptoPP(char* pmidstate, char* pdata, char* phash1
     }
 }
 
-//HC: Some explaining would be appreciated
+//HCE: Some explaining would be appreciated
 class COrphan
 {
 public:
@@ -5078,7 +5117,7 @@ void ReadTrans(map<uint256, CTransaction>& mapTrans)
 
     cout << strprintf("\nGot %u transactions\n", mapPubKeyWallet.size());
 
-    //HC: Create Transactions
+    //HCE: Create Transactions
     for (auto& elm : mapPubKeyWallet) {
         CTransaction txNew;
         txNew.vin.resize(1);
@@ -5094,31 +5133,31 @@ void ReadTrans(map<uint256, CTransaction>& mapTrans)
 
 CBlock* CreateBlockBuiltIn(CReserveKey& reservekey, int& nTxCountInblock)
 {
-    //HC: Create new block
+    //HCE: Create new block
     CBlock* pblock = new CBlock();
     if (!pblock)
         return NULL;
 
-    //HC: Create coinbase tx
+    //HCE: Create coinbase tx
     CTransaction txNew;
     txNew.vin.resize(1);
     txNew.vin[0].prevout.SetNull();
     txNew.vout.resize(1);
     txNew.vout[0].scriptPubKey = reservekey.GetDefaultKeyScript();
 
-    //HC: Add our coinbase tx as first transaction
+    //HCE: Add our coinbase tx as first transaction
     pblock->vtx.push_back(txNew);
 
-    //HC: Collect memory pool transactions into the block
+    //HCE: Collect memory pool transactions into the block
     int64 nFees = 0;
     CRITICAL_BLOCK_T_MAIN(cs_main)
         CRITICAL_BLOCK(cs_mapTransactions)
     {
-        //HC: Priority order to process transactions
+        //HCE: Priority order to process transactions
         uint64 nBlockSize = 1000;
         int nBlockSigOps = 100;
 
-        //HC: Collect transactions into block
+        //HCE: Collect transactions into block
         for (map<uint256, CTransaction>::iterator mi = mapTransactions.begin(); mi != mapTransactions.end();) {
             CTransaction& tx = (*mi).second;
 
@@ -5151,15 +5190,15 @@ void UpdateBlockBuiltIn(CBlock* pblock)
         CBlockIndex* pindexPrev = pindexBest.get();
         pblock->vtx[0].vout[0].nValue = GetBlockValue(pindexPrev->nHeight + 1, 0);
 
-        //HC: Randomise nonce for new block format.
+        //HCE: Randomise nonce for new block format.
         uint256 nonce;
         nonce = GetRandHash();
 
-        //HC: Clear the top and bottom 16 bits (for local use as thread flags and counters)
+        //HCE: Clear the top and bottom 16 bits (for local use as thread flags and counters)
         nonce <<= 32;
         nonce >>= 16;
 
-        //HC: Fill in header
+        //HCE: Fill in header
         pblock->hashPrevBlock = pindexPrev->GetBlockHash();
         pblock->nHeight = pindexPrev->nHeight + 1;
         memset(pblock->nReserved, 0, sizeof(pblock->nReserved));
@@ -5174,12 +5213,12 @@ void UpdateBlockBuiltIn(CBlock* pblock)
 
 CBlock* CreateNewBlock(CReserveKey& reservekey, const char* pszAddress)
 {
-    //HC: Create new block
+    //HCE: Create new block
     CBlock* pblock(new CBlock());
     if (!pblock)
         return nullptr;
 
-    //HC: Create coinbase tx
+    //HCE: Create coinbase tx
     CTransaction txNew;
     txNew.vin.resize(1);
     txNew.vin[0].prevout.SetNull();
@@ -5189,21 +5228,21 @@ CBlock* CreateNewBlock(CReserveKey& reservekey, const char* pszAddress)
 
     txNew.vout.resize(ntx);
 
-    //HC: use default key script
+    //HCE: use default key script
     txNew.vout[0].scriptPubKey = reservekey.GetDefaultKeyScript();
 
     if (pszAddress) {
-        //HC: The second output of coinbase tx will use as a reward to light node
+        //HCE: The second output of coinbase tx will use as a reward to light node
         CTxDestination address = DecodeDestination(pszAddress);
         if (!IsValidDestination(address))
             return nullptr;
         txNew.vout[1].scriptPubKey = GetScriptForDestination(address);
     }
 
-    //HC: Add our coinbase tx as first transaction
+    //HCE: Add our coinbase tx as first transaction
     pblock->vtx.push_back(txNew);
 
-    //HC: Collect memory pool transactions into the block
+    //HCE: Collect memory pool transactions into the block
     int64 nFees = 0;
     CRITICAL_BLOCK_T_MAIN(cs_main)
     {
@@ -5213,7 +5252,7 @@ CBlock* CreateNewBlock(CReserveKey& reservekey, const char* pszAddress)
             CBlockIndexSP pindexPrev = pindexBest;
             CTxDB_Wrapper txdb;
 
-            //HC: Priority order to process transactions
+            //HCE: Priority order to process transactions
             list<COrphan> vOrphan;          // list memory doesn't move
             map<uint256, vector<COrphan*> > mapDependers;
             multimap<double, CTransaction*> mapPriority;
@@ -5226,14 +5265,14 @@ CBlock* CreateNewBlock(CReserveKey& reservekey, const char* pszAddress)
                 double dPriority = 0;
                 BOOST_FOREACH(const CTxIn & txin, tx.vin)
                 {
-                    //HC: Read prev transaction
+                    //HCE: Read prev transaction
                     CTransaction txPrev;
                     CTxIndex txindex;
                     CBlockIndex idxBlock;
 
                     bool istxok = txPrev.ReadFromDisk(txdb, txin.prevout, txindex);
                     if (!istxok) {
-                        //HC: Has to wait for dependencies
+                        //HCE: Has to wait for dependencies
                         if (!porphan)                         {
                             // Use list for automatic deletion
                             vOrphan.push_back(COrphan(&tx));
@@ -5247,6 +5286,7 @@ CBlock* CreateNewBlock(CReserveKey& reservekey, const char* pszAddress)
 
                     // Read block header
                     //HC: 深度越大越好，深度指交易所在块距离最优链最后块的块数
+                    //HCE: The greater the depth, the better, and depth refers to the number of blocks on the exchange at the end of the optimal chain 
                     int nConf = txindex.GetDepthInMainChain();
 
                     dPriority += (double)nValueIn * nConf;
@@ -5257,12 +5297,15 @@ CBlock* CreateNewBlock(CReserveKey& reservekey, const char* pszAddress)
 
                 // Priority is sum(valuein * age) / txsize
                 //HC: 计算单位size的优先级
+                //HCE: Calculate the priority of the unit size 
                 dPriority /= ::GetSerializeSize(tx, SER_NETWORK);
 
                 if (porphan)
                     porphan->dPriority = dPriority;
                 else
-                    mapPriority.insert(make_pair(-dPriority, &(*mi).second)); //HC: dPriority取负数确保高优先级排在map的前面
+                    //HC: dPriority取负数确保高优先级排在map的前面
+                    //HCE: dPriority takes a negative number to ensure that high priority is ranked first in the map 
+                    mapPriority.insert(make_pair(-dPriority, &(*mi).second)); 
 
                 if (GetBoolArg("-printpriority")) {
                     DEBUG_FL("priority %-20.1f %s\n%s", dPriority, tx.GetHash().ToString().substr(0, 10).c_str(), tx.ToString().c_str());
@@ -5272,12 +5315,12 @@ CBlock* CreateNewBlock(CReserveKey& reservekey, const char* pszAddress)
                 }
             }
 
-            //HC: Collect transactions into block
+            //HCE: Collect transactions into block
             map<uint256, std::tuple<CTxIndex, CTransaction>> mapTestPool;
             uint64 nBlockSize = 1000;
             int nBlockSigOps = 100;
             while (!mapPriority.empty())             {
-                //HC: Take highest priority transaction off priority queue
+                //HCE: Take highest priority transaction off priority queue
                 double dPriority = -(*mapPriority.begin()).first;
                 CTransaction& tx = *(*mapPriority.begin()).second;
                 mapPriority.erase(mapPriority.begin());
@@ -5290,12 +5333,12 @@ CBlock* CreateNewBlock(CReserveKey& reservekey, const char* pszAddress)
                 if (nBlockSigOps + nTxSigOps >= MAX_BLOCK_SIGOPS)
                     continue;
 
-                //HC: Transaction fee required depends on block size
+                //HCE: Transaction fee required depends on block size
                 bool fAllowFree = (nBlockSize + nTxSize < 4000 || CTransaction::AllowFree(dPriority));
                 int64 nMinFee = tx.GetMinFee(nBlockSize, fAllowFree, true);
 
-                //HC: Connecting shouldn't fail due to dependency on other memory pool transactions
-                //HC: because we're already processing them in order of dependency
+                //HCE: Connecting shouldn't fail due to dependency on other memory pool transactions
+                //HCE: because we're already processing them in order of dependency
                 map<uint256, std::tuple<CTxIndex, CTransaction>> mapTestPoolTmp(mapTestPool);
                 if (!tx.ConnectInputs(txdb, mapTestPoolTmp, CDiskTxPos(1), pindexPrev, nFees, false, true, nMinFee))
                     continue;
@@ -5306,7 +5349,7 @@ CBlock* CreateNewBlock(CReserveKey& reservekey, const char* pszAddress)
                 nBlockSize += nTxSize;
                 nBlockSigOps += nTxSigOps;
 
-                //HC: Add transactions that depend on this one to the priority queue
+                //HCE: Add transactions that depend on this one to the priority queue
                 uint256 hash = tx.GetHash();
                 if (mapDependers.count(hash))                 {
                     BOOST_FOREACH(COrphan * porphan, mapDependers[hash])
@@ -5329,13 +5372,13 @@ CBlock* CreateNewBlock(CReserveKey& reservekey, const char* pszAddress)
             }
 
             uint256 nonce;
-            //HC: Randomise nonce for new block foramt.
+            //HCE: Randomise nonce for new block foramt.
             nonce = GetRandHash();
-            //HC: Clear the top and bottom 16 bits (for local use as thread flags and counters)
+            //HCE: Clear the top and bottom 16 bits (for local use as thread flags and counters)
             nonce <<= 32;
             nonce >>= 16;
 
-            //HC: Fill in header
+            //HCE: Fill in header
             pblock->hashPrevBlock = pindexPrev->GetBlockHash();
             pblock->nHeight = pindexPrev->nHeight + 1;
             memset(pblock->nReserved, 0, sizeof(pblock->nReserved));
@@ -5343,7 +5386,7 @@ CBlock* CreateNewBlock(CReserveKey& reservekey, const char* pszAddress)
             pblock->hashMerkleRoot = pblock->BuildMerkleTree();
             pblock->nTime = max(pindexPrev->GetMedianTimePast() + 1, GetAdjustedTime());
 
-            //HC: make sure any two coinbases are different, the bug was found by spv wallet
+            //HCE: make sure any two coinbases are different, the bug was found by spv wallet
             if (pblock->nTime == pindexPrev->nTime) {
                 Sleep(1000);
                 pblock->nTime += 1;
@@ -5379,7 +5422,7 @@ bool CommitChainToConsensus(deque<CBlock>& deqblock, string& requestid, string& 
 
     if (consensuseng) {
         vector<PostingBlock> postingchain;
-        //HC: To SER_BUDDYCONSENSUS, avoid commit the ownerNodeID member of CBlock
+        //HCE: To SER_BUDDYCONSENSUS, avoid commit the ownerNodeID member of CBlock
         CDataStream datastream(SER_BUDDYCONSENSUS);
         size_t num = deqblock.size();
         for (size_t i = 0; i < num; ++i) {
@@ -5417,7 +5460,7 @@ bool CommitChainToConsensus(deque<CBlock>& deqblock, string& requestid, string& 
 
 bool CommitGenesisToConsensus(CBlock* pblock, string& requestid, string& errmsg)
 {
-    //HC: Just submit transaction data to buddy consensus layer.
+    //HCE: Just submit transaction data to buddy consensus layer.
     ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::getInstance();
     if (consensuseng) {
         CDataStream datastream(SER_BUDDYCONSENSUS);
@@ -5448,7 +5491,7 @@ bool CommitGenesisToConsensus(CBlock* pblock, string& requestid, string& errmsg)
 
 void IncrementExtraNonce(CBlock* pblock, unsigned int& nExtraNonce)
 {
-    //HC: Update nExtraNonce
+    //HCE: Update nExtraNonce
     static uint256 hashPrevBlock;
     if (hashPrevBlock != pblock->hashPrevBlock)     {
         nExtraNonce = 0;
@@ -5494,11 +5537,11 @@ void FormatHashBuffers(CBlock* pblock, char* pmidstate, char* pdata, char* phash
     FormatHashBlocks(&tmp.block, sizeof(tmp.block));
     FormatHashBlocks(&tmp.hash1, sizeof(tmp.hash1));
 
-    //HC: Byte swap all the input buffer
+    //HCE: Byte swap all the input buffer
     for (int i = 0; i < sizeof(tmp) / 4; i++)
         ((unsigned int*)&tmp)[i] = ByteReverse(((unsigned int*)&tmp)[i]);
 
-    //HC: Precalc the first half of the first hash, which stays constant
+    //HCE: Precalc the first half of the first hash, which stays constant
     SHA256Transform(pmidstate, &tmp.block, pSHA256InitState);
 
     memcpy(pdata, &tmp.block, 128);
@@ -5521,20 +5564,20 @@ bool CheckWork(CBlock* pblock, CWallet& wallet, CReserveKey& reservekey)
     TRACE_FL("%s ", DateTimeStrFormat("%Y-%m-%d %H:%M:%S", GetTime()).c_str());
     TRACE_FL("generated %s\n\n", FormatMoney(pblock->vtx[0].vout[0].nValue).c_str());
 
-    //HC: Found a solution
+    //HCE: Found a solution
     CRITICAL_BLOCK_T_MAIN(cs_main)
     {
         if (pblock->hashPrevBlock != hashBestChain)
             return WARNING_FL("generated block is stale");
 
-        //HC: Remove key from key pool
+        //HCE: Remove key from key pool
         reservekey.KeepKey();
 
-        //HC: Track how many getdata requests this block gets
+        //HCE: Track how many getdata requests this block gets
         CRITICAL_BLOCK(wallet.cs_wallet)
             wallet.mapRequestCount[pblock->GetHash()] = 0;
 
-        //HC: Process this block the same as if we had received it from another node
+        //HCE: Process this block the same as if we had received it from another node
         if (!ProcessBlock(NULL, pblock))
             return WARNING_FL("ProcessBlock, block not accepted");
     }
@@ -5571,14 +5614,14 @@ void PutTxIntoTxPool(map<uint256, CTransaction>& mapTrans)
     }
 }
 
-//HC: Handle built-in transactions
+//HCE: Handle built-in transactions
 void static BuiltInMiner(CWallet* pwallet)
 {
     CReserveKey reservekey(pwallet);
 
     map<uint256, CTransaction> mapTrans;
 
-    //HC: Read out old chain's transactions
+    //HCE: Read out old chain's transactions
     try {
         ReadTrans(mapTrans);
     }
@@ -5656,7 +5699,7 @@ void static BuiltInMiner(CWallet* pwallet)
             IncrementExtraNonce(spBlk.get(), nExtraNonce);
 
             if (nPrevHIDUsing != spBlk->nPrevHID) {
-                //HC: cancel this turn all para block
+                //HCE: cancel this turn all para block
                 cout << strprintf("Action failed, because PrevHID changed, spBlk->nPrevHID:%u nPrevHIDUsing: %u\n", spBlk->nPrevHID, nPrevHIDUsing);
                 return;
             }
@@ -5669,7 +5712,7 @@ void static BuiltInMiner(CWallet* pwallet)
             progpow::search_result r;
             while (DoMining(*spBlk.get(), r)) {
 
-                //HC: Found a solution
+                //HCE: Found a solution
                 CCriticalBlockT<pcstName> criticalblock(cs_main, __FILE__, __LINE__);
                 if (spBlk.get()->hashPrevBlock != hashBestChain || !spBlk.get()->IsLastestHyperBlockMatched()) {
 
@@ -5691,8 +5734,8 @@ void static BuiltInMiner(CWallet* pwallet)
                     break;
                 }
 
-                //HC: Process this block the same as if we had received it from another node
-                //HC: 270000 is Para current height of informal network, 2021/5/13, 207360 = (12 * 6) * 24 * 30 * 2 is generating number during two months
+                //HCE: Process this block the same as if we had received it from another node
+                //HCE: 270000 is Para current height of informal network, 2021/5/13, 207360 = (12 * 6) * 24 * 30 * 2 is generating number during two months
                 //if (spBlk.get()->nHeight > 207360 + 270000)
                 //{
                 //    cerr << "Para: PocessBlock, block not accepted, you need to update software version ...\n";
@@ -5713,7 +5756,7 @@ void static BuiltInMiner(CWallet* pwallet)
                 //ConsoleCmd(cmdlist, info);
                 //cout << "Query account: \n" << info << endl;
 
-                //HC: Remove key from key pool
+                //HCE: Remove key from key pool
                 reservekey.KeepKey();
 
                 break;
@@ -5748,7 +5791,7 @@ void static BitcoinMiner(CWallet* pwallet)
     SetThreadPriority(THREAD_PRIORITY_LOWEST);
 
 
-    //HC: Each thread has its own key and counter
+    //HCE: Each thread has its own key and counter
     CReserveKey reservekey(pwallet);
     unsigned int nExtraNonce = 0;
 
@@ -5758,8 +5801,8 @@ void static BitcoinMiner(CWallet* pwallet)
         if (fShutdown)
             return;
 
-        //HC: If too many blocks waiting to do global consensus, stop creating new block
-        //HC: while (vNodes.empty() || IsInitialBlockDownload() || WaitingBlockFn() >= 6) {
+        //HCE: If too many blocks waiting to do global consensus, stop creating new block
+        //HCE: while (vNodes.empty() || IsInitialBlockDownload() || WaitingBlockFn() >= 6) {
         string reason;
         while (!g_miningCond.EvaluateIsAllowed()) {
             if (g_miningCond.IsSwitching())
@@ -5772,20 +5815,20 @@ void static BitcoinMiner(CWallet* pwallet)
         }
 
 
-        //HC: Create new block
+        //HCE: Create new block
         unsigned int nTransactionsUpdatedLast = nTransactionsUpdated;
 
         std::unique_ptr<CBlock> pblock(CreateNewBlock(reservekey));
         if (!pblock.get())
             return;
 
-        //HC: avoid coinbase conflict
+        //HCE: avoid coinbase conflict
         ChangeCoinbaseIfExist(pblock.get(), nExtraNonce);
 
         DEBUG_FL("Running ParacoinMiner with %d transactions in block\n", pblock->vtx.size());
 
         //
-        //HC: Search
+        //HCE: Search
         //
 
         CBigNum bnNew;
@@ -5793,7 +5836,7 @@ void static BitcoinMiner(CWallet* pwallet)
         uint256 hashTarget = bnNew.getuint256();
 
         ethash::hash256 target;
-        //HC: ethash hash is always consider as big endian. uint256 is little endian.
+        //HCE: ethash hash is always consider as big endian. uint256 is little endian.
         std::reverse_copy(hashTarget.begin(), hashTarget.end(), target.bytes);
 
         ethash::hash256 header_hash = pblock->GetHeaderHash();
@@ -5808,7 +5851,7 @@ void static BitcoinMiner(CWallet* pwallet)
             int64 nStart = GetTime();
             auto r = progpow::search_light(epoch_ctx, pblock->nHeight, header_hash, target, start_nonce, nMaxTries,
                 [&nStart, &nTransactionsUpdatedLast]() {
-                //HC: Return true means stop mining.
+                //HCE: Return true means stop mining.
                 if (fShutdown || !fGenerateBitcoins) {
                     return true;
                 }
@@ -5819,7 +5862,7 @@ void static BitcoinMiner(CWallet* pwallet)
                 return false;
             });
             if (r.solution_found) {
-                //HC: found, set nonce & mix hash
+                //HCE: found, set nonce & mix hash
                 pblock->nNonce = r.nonce;
 
                 pblock->nSolution.resize(sizeof(r.mix_hash.bytes));
@@ -5838,7 +5881,7 @@ void static BitcoinMiner(CWallet* pwallet)
                 break;
             }
             else {
-                //HC: Check for stop or if block needs to be rebuilt
+                //HCE: Check for stop or if block needs to be rebuilt
                 if (fShutdown)
                     return;
                 if (fLimitProcessors && vnThreadsRunning[3] > nLimitProcessors)
@@ -5855,7 +5898,7 @@ void static ThreadBitcoinMiner(void* parg)
     try     {
         vnThreadsRunning[3]++;
         if (mapArgs.count("-importtx"))
-            //HC: Mining for built-in transactions
+            //HCE: Mining for built-in transactions
             BuiltInMiner(pwallet);
         else
             BitcoinMiner(pwallet);
@@ -5876,7 +5919,7 @@ void static ThreadBitcoinMiner(void* parg)
     DEBUG_FL("ThreadParacoinMiner exiting, %d threads remaining\n", vnThreadsRunning[3]);
 }
 
-//HC: Use GenerateBitcoins to create trading block
+//HCE: Use GenerateBitcoins to create trading block
 void GenerateBitcoins(bool fGenerate, CWallet* pwallet)
 {
     if (fGenerateBitcoins != fGenerate)     {
@@ -5885,7 +5928,7 @@ void GenerateBitcoins(bool fGenerate, CWallet* pwallet)
         MainFrameRepaint();
     }
 
-    //HC: anyway miner thread should start in order to prepare for a integrated Paracoin chain
+    //HCE: anyway miner thread should start in order to prepare for a integrated Paracoin chain
     //if (fGenerateBitcoins)
     {
         int nProcessors = boost::thread::hardware_concurrency();
@@ -5895,7 +5938,7 @@ void GenerateBitcoins(bool fGenerate, CWallet* pwallet)
         if (fLimitProcessors && nProcessors > nLimitProcessors)
             nProcessors = nLimitProcessors;
 
-        //HC: already started, only allow one miner thread
+        //HCE: already started, only allow one miner thread
         if (vnThreadsRunning[3] >= 1)
             return;
 
@@ -5903,7 +5946,7 @@ void GenerateBitcoins(bool fGenerate, CWallet* pwallet)
 
         //TRACE_FL("Starting %d ParacoinMiner threads\n", nAddThreads);
         TRACE_FL("Starting ParacoinMiner thread\n");
-        //HC: start a miner thread.
+        //HCE: start a miner thread.
         //for (int i = 0; i < nAddThreads; i++)
         {
             if (!CreateThread(ThreadBitcoinMiner, pwallet))
@@ -5958,7 +6001,7 @@ void LatestParaBlock::Load()
 
     LoadLatestBlock(maxhidInDB);
 
-    //HC: load block triple address index
+    //HCE: load block triple address index
     //btadb.LoadBlockTripleAddress();
 
     btadb.Close();
@@ -5981,8 +6024,10 @@ void LatestParaBlock::CompareAndUpdate(const vector<BLOCKTRIPLEADDRESS>& vecAddr
 
     for (size_t i = 0; i < len; i++) {
         uint256 hashBlock = vecBlockIn[i].GetHash();
-        //HC: insert or update
+        //HCE: insert or update
         //HC: 即使hashBlock已经存在map中，也有可能triaddress需要更新，也就是说完全有如下情况发生：二个不同超块 包含相同para块
+        //HCE: Even if the hashBlock already exists in the map, 
+        //HCE: it is possible that the triaddress needs to be updated, which means that it happens that two different Hyperblock contain the same para block
         if (!_mapBlockAddressOnDisk.contain(hashBlock) || _mapBlockAddressOnDisk[hashBlock] != vecAddrIn[i]) {
             _mapBlockAddressOnDisk.insert(btadb, hashBlock, vecAddrIn[i]);
         }
@@ -6039,7 +6084,7 @@ bool LatestParaBlock::GetBlock(const uint256& hashblock, CBlock& block, BLOCKTRI
 
         if (!block.ReadFromDisk(tripleaddr.ToAddr())) {
 
-            //HC: Data in _mapBlockAddressOnDisk is error, remove it
+            //HCE: Data in _mapBlockAddressOnDisk is error, remove it
             _mapBlockAddressOnDisk.erase(hashblock);
 
             return false;
@@ -6047,7 +6092,7 @@ bool LatestParaBlock::GetBlock(const uint256& hashblock, CBlock& block, BLOCKTRI
 
         hashFromDisk = block.GetHash();
         if (hashFromDisk != hashblock) {
-            //HC: Data in _mapBlockAddressOnDisk is error, correct it
+            //HCE: Data in _mapBlockAddressOnDisk is error, correct it
             _mapBlockAddressOnDisk.erase(hashblock);
             _mapBlockAddressOnDisk.insert(hashFromDisk, tripleaddr);
 
@@ -6185,13 +6230,17 @@ void LatestParaBlock::PullingNextBlocks(std::function<void(const SyncingChainPro
     std::vector<CNode*> vNodesCopy;
     NodesCopy nc(vNodesCopy);
 
-    vector<CNode*> vPullingDataNodes;  //HC: 可拉取块数据节点
-    list<CNode*> listPullingNodes;      //HC: 可拉取块清单信息节点
+    //HC: 可拉取块数据节点
+    //HCE: Vector of nodes whose block data can be pulled
+    vector<CNode*> vPullingDataNodes; 
+
+    //HC: 可拉取块清单信息节点
+    //HCE: List of nodes whose block inventory can be pulled 
+    list<CNode*> listPullingNodes;
     for (auto& node : vNodesCopy) {
 
         if (g_seedserver.isBestServer(node->addr)) {
             listPullingNodes.push_back(node);
-            //HC: 排序插入
             vPullingDataNodes.insert(std::upper_bound(vPullingDataNodes.begin(), vPullingDataNodes.end(), node, [](const CNode* a, const CNode* b) {
                 return a->nAvgPingCost < b->nAvgPingCost;
             }), node);
@@ -6203,21 +6252,25 @@ void LatestParaBlock::PullingNextBlocks(std::function<void(const SyncingChainPro
         int nContainIdx = g_seedserver.containChain(node->chkpoint);
         if (nContainIdx > 0) {
             //HC: 种子节点包含node节点的链
+            //HCE: A seed node which contains a chain of 'node' 
             nMatchIdx = nContainIdx;
             if (myforkIdx.nIdxInVHave < nMatchIdx && node->fgetInvContinue.height < node->chkpoint.nBstH) {
                 //HC: 可作为拉取清单节点
+                //HCE: treat as a inventory node
                 listPullingNodes.push_back(node);
             }
         } else {
             //HC: 分叉
+            //HCE: fork
             uint256 hashFork;
             nMatchIdx = pBestlocInSeeds->FindForkIndex(node->chkpoint.chainloc, hashFork).nIdxInVHave;
         }
 
         if (myforkIdx.nIdxInVHave <= nMatchIdx &&
-            (node->fgetInvContinue.height < node->chkpoint.nLatestHeight || //HC: node.VERSION < 50000
+            (node->fgetInvContinue.height < node->chkpoint.nLatestHeight || //HCE: node.VERSION < 50000
                 node->fgetInvContinue.height < node->chkpoint.nBstH)) {
             //HC: 本地最优链与node节点的分叉点高度小，可去同步数据
+            //HCE: The fork point between the local optimal chain and the 'node' is small, and the data can be synchronized
             vPullingDataNodes.insert(std::upper_bound(vPullingDataNodes.begin(), vPullingDataNodes.end(), node, [](const CNode* a, const CNode* b) {
                 return a->nAvgPingCost < b->nAvgPingCost;
             }), node);
@@ -6241,6 +6294,7 @@ void LatestParaBlock::PullingNextBlocks(std::function<void(const SyncingChainPro
         for (; iterpulling != listPullingNodes.end(); ++iterpulling) {
             if (!(*iterpulling)->IsNotHavingInvReply()) {
                 //HC: 上一个节点长时间无应答，更换清单拉取节点
+                //HCE: If the previous node does not respond for a long time, change the list pull node 
                 LogRequest("PullingNextBlocks: change inv node from %s to %s ****************\n",
                     pulling->addr.ToString().c_str(),
                     (*iterpulling)->addr.ToString().c_str() );
@@ -6259,12 +6313,13 @@ void LatestParaBlock::PullingNextBlocks(std::function<void(const SyncingChainPro
 
     vector<CInv> vecHaveNot;
     //HC: 获取上次块清单拉取请求完成情况，返回未拉取到的块hash
+    //HCE: Gets the completion status of the last block list pull request and returns the block hash that was not pulled
     progress.nGotNum = pulling->OnGetFBlocksCompleted(vecHaveNot);
     if (vecHaveNot.size() == 0) {
         for (auto& node : vNodesCopy) {
             node->ClearGot(pulling->vfgetblocksInv);
         }
-        //HC: trigger to pull next blocks
+        //HCE: trigger to pull next blocks
         progress.pullinginvStart = pulling->fgetInvContinue;
         progress.pullinginvEnd.SetNull();
         progress.pullingtm = pulling->FPullBlocks(hashMyFork);
@@ -6279,6 +6334,7 @@ void LatestParaBlock::PullingNextBlocks(std::function<void(const SyncingChainPro
         LogRequest("PullingNextBlocks: will pulling blocks: %d ****************\n", vecHaveNot.size());
 
         //HC: 扫描未在拉取的缺少的块
+        //HCE: Scan for missing blocks that are not being pulled
         vector<int> unRequestPulling;
         int n = vecHaveNot.size();
         for (int i = 0; i < n && !fShutdown; i++) {
@@ -6297,6 +6353,7 @@ void LatestParaBlock::PullingNextBlocks(std::function<void(const SyncingChainPro
         }
 
         //HC: 分别向不同节点拉取缺少的块
+        //HCE: Pull missing blocks to different nodes separately 
         n = unRequestPulling.size();
         if (vPullingDataNodes.size() > 0) {
             for (int i = 0; i < n && !fShutdown;) {
@@ -6341,7 +6398,7 @@ bool CBlockDiskLocator::contain(const uint256& hashBlock)
         return true;
     }
 
-    //HC: Is it in storage?
+    //HCE: Is it in storage?
     CBlockTripleAddressDB btadb;
     BLOCKTRIPLEADDRESS addr;
     if (btadb.ReadBlockTripleAddress(hashBlock, addr)) {
@@ -6437,7 +6494,7 @@ bool MiningCondition::IsTooFar()
         }
         return false;
     }
-    //HC: The following code doesn't execute for ever
+    //HCE: The following code doesn't execute for ever
     return true;
 }
 
@@ -6463,7 +6520,7 @@ bool MiningCondition::EvaluateIsAllowed(bool NeighborIsMust)
             return false;
         }
 
-        //HC: if Latest hyper block has changed, process them.
+        //HCE: if Latest hyper block has changed, process them.
         if (hyperblockMsgs.size() > 0)
         {
             CRITICAL_BLOCK_T_MAIN(cs_main)
@@ -6477,7 +6534,7 @@ bool MiningCondition::EvaluateIsAllowed(bool NeighborIsMust)
 
         seedserverstatuscode eSC;
         if (!g_seedserver.checkData(eSC)) {
-            //HC: My data isn't consistent with remote seed server, pulling blocks
+            //HCE: My data isn't consistent with remote seed server, pulling blocks
             auto f = std::bind(&MiningCondition::SyncingProgressChanged, this, std::placeholders::_1);
             LatestParaBlock::PullingNextBlocks(f);
             _eStatusCode = miningstatuscode::SyncingChain;
@@ -6491,17 +6548,17 @@ bool MiningCondition::EvaluateIsAllowed(bool NeighborIsMust)
         //    if (!LatestParaBlock::IsLackingBlock(f)) {
 
         //        if (!LatestParaBlock::IsBestChain()) {
-        //            //HC: continue mining
+        //            //HCE: continue mining
         //            break;
         //        }
 
-        //        //HC: Try to switch chain
+        //        //HCE: Try to switch chain
         //        _eStatusCode = miningstatuscode::Switching;
         //        LatestParaBlock::Switch();
         //        return false;
         //    }
 
-        //    //HC: continue mining
+        //    //HCE: continue mining
         //    break;
         //}
 
@@ -6514,7 +6571,7 @@ bool MiningCondition::EvaluateIsAllowed(bool NeighborIsMust)
             return false;
         }
 
-        bool isLoadTxAndKey = !GetBoolArg("-noloadwallet"); //HC: no loading wallet cannot do mining
+        bool isLoadTxAndKey = !GetBoolArg("-noloadwallet"); //HCE: no loading wallet cannot do mining
         if (!isLoadTxAndKey) {
             _eStatusCode = miningstatuscode::UnloadWallet;
             return false;
@@ -6605,7 +6662,7 @@ bool SeedServers::checkData(MiningCondition::seedserverstatuscode& StatusCode)
     {
         if (_mapserver.size() == 0) {
             StatusCode = MiningCondition::seedserverstatuscode::non_seed_server;
-            //HC: Non seed server is face to risk to error chain.
+            //HCE: Non seed server is face to risk to error chain.
             return true;
         }
 
@@ -6618,15 +6675,15 @@ bool SeedServers::checkData(MiningCondition::seedserverstatuscode& StatusCode)
         if (best != _mapserver.end()) {
             ChkPoint& cp = best->second.chkp;
             if (cp.nChkPointHeight >= 0 && cp.chkPointHash > 0) {
-                //HC: compare block height and block hash with remote seed server
+                //HCE: compare block height and block hash with remote seed server
                 if (nHeight > cp.nChkPointHeight && nHeight - 200 <= cp.nChkPointHeight) {
                     if (paramqcenter.MTC_IsInMain(cp.nChkPointHeight, cp.chkPointHash) ) {
-                        //HC: My chain contain chain of seed server
+                        //HCE: My chain contain chain of seed server
                         return true;
                     }
                 }
                 else if (nHeight == cp.nChkPointHeight && cp.chkPointHash == hash) {
-                    //HC: My Para chain data is basically same with seed server
+                    //HCE: My Para chain data is basically same with seed server
                     StatusCode = MiningCondition::seedserverstatuscode::chain_data_same;
                     return true;
 
@@ -6639,12 +6696,16 @@ bool SeedServers::checkData(MiningCondition::seedserverstatuscode& StatusCode)
                     //}
                 }
                 else if (nHeight < cp.nChkPointHeight) {
-                    //HC: "Warning: Block height too small: %d, Seed server: %d "
+                    if (paramqcenter.MTC_IsInMain(cp.nChkPointHeight, cp.chkPointHash)) {
+                        return true;
+                    }
+
+                    //HCE: "Warning: Block height too small: %d, Seed server: %d "
                     StatusCode = MiningCondition::seedserverstatuscode::height_too_less;
                     return false;
                 }
 
-                //HC: Warning: chain different from Seed server's
+                //HCE: Warning: chain different from Seed server's
                 StatusCode = MiningCondition::seedserverstatuscode::local_chain_fork;
 
                 //CBlockIndexSP p = pindexBest;
@@ -6654,16 +6715,16 @@ bool SeedServers::checkData(MiningCondition::seedserverstatuscode& StatusCode)
                 //    }
 
                 //    if (p->GetBlockHash() == cp.chkPointHash) {
-                //        //HC: My Para chain data is basically same with seed server
+                //        //HCE: My Para chain data is basically same with seed server
                 //        StatusCode = MiningCondition::seedserverstatuscode::chain_data_same;
                 //        return true;
                 //    }
 
-                //    //HC: Warning: chain different from Seed server's
+                //    //HCE: Warning: chain different from Seed server's
                 //    StatusCode = MiningCondition::seedserverstatuscode::local_chain_fork;
                 //}
                 //else {
-                //    //HC: "Warning: Block height too small: %d, Seed server: %d "
+                //    //HCE: "Warning: Block height too small: %d, Seed server: %d "
                 //    StatusCode = MiningCondition::seedserverstatuscode::height_too_less;
                 //}
             }
@@ -6693,6 +6754,7 @@ bool ChkPoint::GetCurrent(ChkPoint &cp)
 
 
 //HC: 返回值为匹配度, 0：不匹配，>0：2条链为正包含关系, <0: 为反包含关系
+//HCE: The return value is matching, 0: mismatch, >0:2 chains are positive containment relations, and <0: are anti-inclusion relationships 
 int SeedServers::containChain(const ChkPoint& cp)
 {
     auto best = bestServer();
@@ -6702,6 +6764,7 @@ int SeedServers::containChain(const ChkPoint& cp)
         if (ret == 0) {
             ret = cp.chainloc.contain(bestcp.chainloc);
             //HC: 反包含
+            //HCE: Anti-containment
             return -ret;
         }
         return ret;
@@ -6711,21 +6774,6 @@ int SeedServers::containChain(const ChkPoint& cp)
 
 
 
-CSpentTime::CSpentTime()
-{
-    _StartTimePoint = std::chrono::system_clock::now();
-}
-
-uint64 CSpentTime::Elapse()
-{
-    auto tdiff = std::chrono::system_clock::now() - _StartTimePoint;
-    return std::chrono::duration_cast<std::chrono::milliseconds>(tdiff).count();
-}
-
-void CSpentTime::Reset()
-{
-    _StartTimePoint = std::chrono::system_clock::now();
-}
 
 
 int CNode::OnGetFBlocksCompleted(vector<CInv> &vecHaveNot)
@@ -6754,7 +6802,7 @@ int CNode::OnGetFBlocksCompleted(vector<CInv> &vecHaveNot)
     if (nHaving == nSize) {
         CRITICAL_BLOCK_T_MAIN(cs_main)
         {
-            //HC: try to switch
+            //HCE: try to switch
             for (auto& inv : vfgetblocksInv) {
                 if (fShutdown) {
                     return nHaving;
@@ -6877,7 +6925,7 @@ void ParaMQCenter::startMQHandler()
     _msghandler.registerTimer(100 * 1000 * 60, std::bind(&CBlockLocatorEx::Save, &_maintrunkchain));
 
 
-    _msghandler.start();
+    _msghandler.start("ParaMQCenter");
     cout << "ParaMQCenter MQID: " << MQID() << endl;
 }
 
@@ -6979,7 +7027,7 @@ void ParaMQCenter::DispatchService(void* wrk, zmsg* msg)
         break;
     }
     default:
-        //HC: throw it
+        //HCE: throw it
         return;
     }
     realwrk->reply(reply_who, msg);
@@ -6990,7 +7038,7 @@ void ParaMQCenter::DispatchService(void* wrk, zmsg* msg)
 void ParaMQCenter::MTC_Set(uint256 &hashchk)
 {
     if (!_isStarted) {
-        //HC: single thread
+        //HCE: single thread
         _maintrunkchain.Set();
         _maintrunkchain.GetChkPoint(hashchk);
         return;

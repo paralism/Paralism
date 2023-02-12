@@ -69,7 +69,7 @@
 #define HAVE_BOOST_UNIT_TEST_FRAMEWORK /**/
 
 /* Define to 1 if you have the <byteswap.h> header file. */
-//HC:
+//HCE:
 //#define HAVE_BYTESWAP_H 1
 
 /* Define this symbol if the consensus lib has been built */
@@ -92,12 +92,12 @@
 
 /* Define to 1 if you have the declaration of `bswap_16', and to 0 if you
    don't. */
-//HC:
+//HCE:
 #define HAVE_DECL_BSWAP_16 0
 
 /* Define to 1 if you have the declaration of `bswap_32', and to 0 if you
    don't. */
-//HC:
+//HCE:
 #define HAVE_DECL_BSWAP_32 0
 
 /* Define to 1 if you have the declaration of `bswap_64', and to 0 if you
@@ -114,7 +114,7 @@
 
 /* Define to 1 if you have the declaration of `htobe16', and to 0 if you
    don't. */
-//HC:
+//HCE:
 #define HAVE_DECL_HTOBE16 0
 
 /* Define to 1 if you have the declaration of `htobe32', and to 0 if you
@@ -173,7 +173,7 @@
 #define HAVE_DLFCN_H 1
 
 /* Define to 1 if you have the <endian.h> header file. */
-//HC:
+//HCE:
 #ifndef WIN32
 #define HAVE_ENDIAN_H 1
 #endif // !
@@ -408,7 +408,7 @@
 
 /* UPnP support not compiled if undefined, otherwise value (0 or 1) determines
    default state */
-//HC: no upnp
+//HCE: no upnp
 //#define USE_UPNP 0
 
 /* Define WORDS_BIGENDIAN to 1 if your processor stores words with the most

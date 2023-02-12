@@ -51,8 +51,7 @@ fs::path dev::getDataDir(string _prefix)
 	if (_prefix.empty())
 		_prefix = "ethereum";
 
-    //HC: Any data directory have a same root path
-    return s_ethereumDatadir / _prefix;
+        return s_ethereumDatadir / _prefix;
 
 	//if (_prefix == "ethereum" && !s_ethereumDatadir.empty())
 	//	return s_ethereumDatadir;

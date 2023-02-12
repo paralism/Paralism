@@ -4,6 +4,10 @@
 
 #include "BlockChain.h"
 
+#include "node/Singleton.h"
+#include "HyperChain/HyperChainSpace.h"
+
+
 #include "Block.h"
 #include "GenesisInfo.h"
 #include "ImportPerformanceLogger.h"
@@ -28,6 +32,14 @@ using namespace dev::eth;
 namespace fs = boost::filesystem;
 
 #define ETH_TIMED_IMPORTS 1
+
+T_SHA256 to_T_SHA256(const h256& uhash)
+{
+    unsigned char tmp[DEF_SHA256_LEN];
+    std::copy(uhash.begin(), uhash.end(), std::begin(tmp));
+    return T_SHA256(tmp);
+}
+
 
 namespace
 {
@@ -689,7 +701,6 @@ void BlockChain::insert(VerifiedBlockRef _block, bytesConstRef _receipts, bool _
 
     try
     {
-        //HC: 提交区块数据到leveldb
         m_blocksDB->commit(std::move(blocksWriteBatch));
     }
     catch (boost::exception const& ex)
@@ -714,7 +725,6 @@ void BlockChain::insert(VerifiedBlockRef _block, bytesConstRef _receipts, bool _
 ImportRoute BlockChain::import(VerifiedBlockRef const& _block, OverlayDB const& _db, bool _mustBeNew)
 {
     //@tidy This is a behemoth of a method - could do to be split into a few smaller ones.
-
     ImportPerformanceLogger performanceLogger;
 
     // Check block doesn't already exist first!
@@ -825,7 +835,6 @@ void BlockChain::checkBlockTimestamp(BlockHeader const& _header) const
     }
 }
 
-//HC: 保存区块数据并且建立索引
 ImportRoute BlockChain::insertBlockAndExtras(VerifiedBlockRef const& _block, bytesConstRef _receipts, u256 const& _totalDifficulty, ImportPerformanceLogger& _performanceLogger)
 {
     std::unique_ptr<db::WriteBatchFace> blocksWriteBatch = m_blocksDB->createWriteBatch();
@@ -871,6 +880,7 @@ ImportRoute BlockChain::insertBlockAndExtras(VerifiedBlockRef const& _block, byt
         addBlockInfo(ex, _block.info, _block.block.toBytes());
         throw;
     }
+
 
     h256s route;
     h256 common;
@@ -982,6 +992,33 @@ ImportRoute BlockChain::insertBlockAndExtras(VerifiedBlockRef const& _block, byt
         cwarn << "Fail writing to extras database. Bombing out.";
         exit(-1);
     }
+
+    //HCE: Erase and next time querying will update m_blockHashes
+    h256 hcache;
+    bool isExist = false;
+    int blknum = _block.info.number();
+    DEV_READ_GUARDED(x_blockHashes)
+        if (m_blockHashes.count(blknum)) {
+            hcache = m_blockHashes[blknum].value;
+            isExist = true;
+        }
+    
+    if (isExist) {
+        h256 h = _block.info.hash();
+        if (h != hcache) {
+            //DEV_READ_GUARDED(x_lastBlockHash)
+            //    clearCachesDuringChainReversion(blknum);
+            // 
+            //HC: 过期块还在cache里， 所以清除cache即可
+            //HCE: The expired block is still in the cache, so just clear the cache
+            DEV_WRITE_GUARDED(x_blockHashes)
+                m_blockHashes.erase(blknum);
+            //DEV_WRITE_GUARDED(x_transactionAddresses)
+            //    m_transactionAddresses.clear();
+            //clearBlockBlooms(blknum, blknum);
+        }
+    }
+
     if (m_lastBlockHash != newLastBlockHash)
         DEV_WRITE_GUARDED(x_lastBlockHash)
         {
@@ -1001,6 +1038,7 @@ ImportRoute BlockChain::insertBlockAndExtras(VerifiedBlockRef const& _block, byt
             }
         }
 
+
     _performanceLogger.onStageFinished("checkBest");
 
     unsigned const gasPerSecond = static_cast<double>(_block.info.gasUsed()) / _performanceLogger.stageDuration("enactment");
@@ -1015,8 +1053,12 @@ ImportRoute BlockChain::insertBlockAndExtras(VerifiedBlockRef const& _block, byt
     if (!route.empty())
         noteCanonChanged();
 
+
+    //Timer tt;
     if (isImportedAndBest && m_onBlockImport)
         m_onBlockImport(_block.info);
+
+    //LOG(m_logger) << "   Imported and best, m_onBlockImport *******@@@******: " << tt.elapsed();
 
     h256s fresh;
     h256s dead;
@@ -1201,6 +1243,7 @@ tuple<h256s, h256, unsigned> BlockChain::treeRoute(h256 const& _from, h256 const
     return make_tuple(ret, from, i);
 }
 
+//HCE: Put into block hash cache and mark used
 void BlockChain::noteUsed(h256 const& _h, unsigned _extra) const
 {
     auto id = CacheID(_h, _extra);
@@ -1445,12 +1488,12 @@ bool BlockChain::isKnown(h256 const& _hash, bool _isCurrent) const
     if (!m_blocks.count(_hash) && !m_blocksDB->exists(toSlice(_hash)))
     {
         return false;
-        }
+    }
     DEV_READ_GUARDED(x_details)
     if (!m_details.count(_hash) && !m_extrasDB->exists(toSlice(_hash, ExtraDetails)))
     {
         return false;
-        }
+    }
 //  return true;
     return !_isCurrent || details(_hash).number <= m_lastBlockNumber;       // to allow rewind functionality.
 }
@@ -1552,7 +1595,22 @@ VerifiedBlockRef BlockChain::verifyBlock(bytesConstRef _block, std::function<voi
             parent = BlockHeader(parentHeader, HeaderData, h.parentHash());
         }
         sealEngine()->verify((_ir & ImportRequirements::ValidSeal) ? Strictness::CheckEverything : Strictness::QuickNonce, h, parent, _block);
+
         res.info = h;
+
+        //HC: 验证块自身
+        //HCE: Verify the block itself
+        CHyperChainSpace* chainspace = Singleton<CHyperChainSpace, string>::getInstance();
+        if (chainspace && !chainspace->CheckHyperBlockHash(h.m_prevHID, to_T_SHA256(h.m_prevHyperBlockHash))) {
+            //cout 
+            LOG(m_logger)
+                << "block is invalid " << h.m_number
+                << " block hash " << h.hash()
+                << " because Hyperblock is invalid " << h.m_prevHID
+                << " " << h.m_prevHyperBlockHash << endl;
+            BOOST_THROW_EXCEPTION(InvalidNumber());
+        }
+
     }
     catch (Exception& ex)
     {
@@ -1643,3 +1701,23 @@ unsigned BlockChain::chainStartBlockNumber() const
     auto const value = m_extrasDB->lookup(c_sliceChainStart);
     return value.empty() ? 0 : number(h256(value, h256::FromBinary));
 }
+
+
+BlockHeader BlockChain::pprev(const BlockHeader& header) const {
+    if (header.number() <= 0)
+        return BlockHeader();
+    return info(header.parentHash());
+}
+
+BlockHeader BlockChain::pnext(const BlockHeader& header) const {
+
+    if (header.number() >= number())
+        return BlockHeader();
+
+    h256 h = numberHash(header.number() + 1);
+    if (h == h256()) {
+        return BlockHeader();
+    }
+    return info(h);
+}
+

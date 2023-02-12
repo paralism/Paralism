@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2023 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -48,7 +48,7 @@ int CHyperchainDB::saveHyperBlocksToDB(const vector<T_HYPERBLOCK> &vHyperblock)
 
 int CHyperchainDB::cleanTmp(HyperchainDB &hyperchainDB)
 {
-    //HC: 清除掉临时数据
+    //HCE: Clear temporary data
     if (hyperchainDB.size() > 0)
     {
         HyperchainDB::iterator it = hyperchainDB.begin();
@@ -127,7 +127,7 @@ void CHyperchainDB::addLocalBlocks(T_HYPERBLOCK &h)
             chainnum = l.GetChainNum();
         }
         if (chainnum != l.GetChainNum()) {
-            //HC: push into a child chain
+            //HCE: push into a subchain
             h.AddChildChain(std::move(childchain));
             childchain.clear();
             chainnum = l.GetChainNum();
@@ -151,7 +151,7 @@ void CHyperchainDB::addLocalBlocksbyhhash(T_HYPERBLOCK &h)
             chainnum = l.GetChainNum();
         }
         if (chainnum != l.GetChainNum()) {
-            //HC: push into a child chain
+            //HCE: push into a subchain
             h.AddChildChain(std::move(childchain));
             childchain.clear();
             chainnum = l.GetChainNum();
@@ -164,7 +164,7 @@ void CHyperchainDB::addLocalBlocksbyhhash(T_HYPERBLOCK &h)
 }
 
 
-//HC: 获取最新块号
+//HCE: Get the latest hyperblock number
 uint64 CHyperchainDB::GetLatestHyperBlockNo()
 {
     return Singleton<DBmgr>::instance()->getLatestHyperBlockNo();

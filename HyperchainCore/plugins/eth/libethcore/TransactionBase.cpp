@@ -144,12 +144,9 @@ u256 TransactionBase::rawV() const
 }
 
 
-//HC:  _priv为发送者的私钥
 void TransactionBase::sign(Secret const& _priv)
 {
-    //HC: sha3(WithoutSignature) 用来对交易数据进行hash运算，要区分EIP155
-	//HC: 非EIP155对六项数据做hash，否则要对九项数据做hash
-    auto sig = dev::sign(_priv, sha3(WithoutSignature));
+    	    auto sig = dev::sign(_priv, sha3(WithoutSignature));
     SignatureStruct sigStruct = *(SignatureStruct const*)&sig;
     if (sigStruct.isValid())
         m_vrs = sigStruct;
@@ -163,8 +160,7 @@ void TransactionBase::streamRLP(RLPStream& _s, IncludeSignature _sig, bool _forE
     _s.appendList((_sig || _forEip155hash ? 3 : 0) + 6);
     _s << m_nonce << m_gasPrice << m_gas;
 
-	//HC: m_type为MessageCall表示非创建合约交易
-    if (m_type == MessageCall)
+	    if (m_type == MessageCall)
         _s << m_receiveAddress;
     else
         _s << "";

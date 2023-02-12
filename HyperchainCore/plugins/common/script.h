@@ -682,7 +682,7 @@ public:
         return n;
     }
 
-    //HC: see latest Bitcoin source code
+    //HCE: see latest Bitcoin source code
     bool IsPushOnly(const_iterator pc) const
     {
         while (pc < end())

@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2023 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -62,14 +62,14 @@ public:
         NodeManager *nodemgr = Singleton<NodeManager>::getInstance();
 
         if (!sp->GetHyperBlockHeaderHash(m_startHid, m_range, HeaderHashList)) {
-            //HC: I haven't the header hash.
+            //HCE: I haven't the header hash.
             DataBuffer<NoHeaderHashRspTask> msgbuf(std::move(to_string(m_startHid)));
             nodemgr->sendTo(_sentnodeid, msgbuf);
             g_daily_logger->info("GetHeaderHashRspTask, I haven't header hash: [{}], sentnodeid: [{}]", m_startHid, _sentnodeid.ToHexString());
             return;
         }
 
-        //HC: prepare to send the hyper block header to the request node
+        //HCE: prepare to send the hyper block header hash to the request node
         stringstream ssBuf;
         boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
         try {
@@ -130,7 +130,7 @@ public:
         string msgbuf(_payload, _payloadlen);
         string::size_type ns = msgbuf.find(":");
         if ((ns == string::npos) || (ns == 0)) {
-            //HC: Data format error.
+            //HCE: Data format error.
             return;
         }
 
@@ -179,7 +179,7 @@ public:
 
         string msgbuf;
         if (!sp->GetHeaderHashMTRootData(m_hid, msgbuf)) {
-            //HC: I haven't the headerhashMTRoot.
+            //HCE: I haven't the headerhashMTRoot.
             DataBuffer<NoHeaderHashMTRootRspTask> msgbuf(std::move(to_string(m_hid)));
             nodemgr->sendTo(_sentnodeid, msgbuf);
             g_daily_logger->info("GetHeaderHashMTRootRspTask, I haven't headerhashMTRoot: [{}], sentnodeid: [{}]", m_hid, _sentnodeid.ToHexString());

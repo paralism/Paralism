@@ -179,16 +179,13 @@ private:
     ///< the number of transaction hashes stored.
     LruCache<h256, bool> m_dropped;
 
-	//HC: 已经过校验的交易
-    PriorityQueue m_current;
+	    PriorityQueue m_current;
     std::unordered_map<h256, PriorityQueue::iterator> m_currentByHash;			///< Transaction hash to set ref
     std::unordered_map<Address, std::map<u256, PriorityQueue::iterator>> m_currentByAddressAndNonce; ///< Transactions grouped by account and nonce
 
-	//HC: 未来交易，nonce更小的交易本节点还不全
-    std::unordered_map<Address, std::map<u256, VerifiedTransaction>> m_future;	/// Future transactions
+	    std::unordered_map<Address, std::map<u256, VerifiedTransaction>> m_future;	/// Future transactions
 
-	//HC: 对外提供的回调接口，方便与其他模块交互
-    Signal<> m_onReady;															///< Called when a subsequent call to import transactions will return a non-empty container. Be nice and exit fast.
+	    Signal<> m_onReady;															///< Called when a subsequent call to import transactions will return a non-empty container. Be nice and exit fast.
     Signal<ImportResult, h256 const&, h512 const&> m_onImport;					///< Called for each import attempt. Arguments are result, transaction id an node id. Be nice and exit fast.
     Signal<h256 const&> m_onReplaced;											///< Called whan transction is dropped during a call to import() to make room for another transaction.
     unsigned m_limit;															///< Max number of pending transactions
@@ -207,7 +204,6 @@ private:
 }
 }
 
-//HC:
 inline std::ostream& operator<<(std::ostream& _out, dev::eth::TransactionQueue::Status const& _s)
 {
     _out << "current:" << _s.current

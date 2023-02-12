@@ -140,7 +140,7 @@ bool FillableSigningProvider::GetKey(const CKeyID &address, CKey_Secp256k1 &keyO
 bool FillableSigningProvider::AddCScript(const CScript& redeemScript)
 {
     if (redeemScript.size() > MAX_SCRIPT_ELEMENT_SIZE)
-        return false; //HC: error("FillableSigningProvider::AddCScript(): redeemScripts > %i bytes are invalid", MAX_SCRIPT_ELEMENT_SIZE);
+        return false; //HCE: error("FillableSigningProvider::AddCScript(): redeemScripts > %i bytes are invalid", MAX_SCRIPT_ELEMENT_SIZE);
 
     LOCK(cs_KeyStore);
     mapScripts[CScriptID(redeemScript)] = redeemScript;

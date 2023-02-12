@@ -4,10 +4,6 @@
 
 
 
-#include "node/Singleton.h"
-#include "HyperChain/HyperChainSpace.h"
-
-
 #include <libdevcore/Common.h>
 #include <libdevcore/Log.h>
 #include <libdevcore/RLP.h>
@@ -23,14 +19,6 @@ using namespace std;
 using namespace dev;
 using namespace dev::eth;
 
-
-//HC: convert h256 to T_SHA256
-T_SHA256 to_T_SHA256(const h256& uhash)
-{
-    unsigned char tmp[DEF_SHA256_LEN];
-    std::copy(uhash.begin(), uhash.end(), std::begin(tmp));
-    return T_SHA256(tmp);
-}
 
 
 BlockHeader::BlockHeader()
@@ -247,19 +235,21 @@ void BlockHeader::verify(Strictness _s, BlockHeader const& _parent, bytesConstRe
         if (m_number != _parent.m_number + 1)
             BOOST_THROW_EXCEPTION(InvalidNumber());
         
-        //HC: Check if previous hyper block is valid
         if (m_prevHID < _parent.m_prevHID)
             BOOST_THROW_EXCEPTION(InvalidNumber());
 
-        CHyperChainSpace* chainspace = Singleton<CHyperChainSpace, string>::getInstance();
-        if (chainspace && !chainspace->CheckHyperBlockHash(m_prevHID, to_T_SHA256(m_prevHyperBlockHash))) {
-            cout 
-                << "block is invalid " << m_number
-                << "block hash " << hash()
-                << " because hyperblock is invalid " << m_prevHID
-                << " " << m_prevHyperBlockHash << endl;
-            BOOST_THROW_EXCEPTION(InvalidNumber());
-        }
+        //HC: 对叔块无法适用，因此取消检查
+        //HCE: It cannot be applied to uncle block, so the check is canceled
+        //CHyperChainSpace* chainspace = Singleton<CHyperChainSpace, string>::getInstance();
+        //if (chainspace && !chainspace->CheckHyperBlockHash(m_prevHID, to_T_SHA256(m_prevHyperBlockHash))) {
+        //    //cout 
+        //    LOG(m_logger)
+        //        << "block is invalid " << m_number
+        //        << " block hash " << hash()
+        //        << " because Hyperblock is invalid " << m_prevHID
+        //        << " " << m_prevHyperBlockHash << endl;
+        //    BOOST_THROW_EXCEPTION(InvalidNumber());
+        //}
     }
 
     if (_block)

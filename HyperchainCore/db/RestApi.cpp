@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2023 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -79,11 +79,11 @@ bool _isstop = false;
 string tstringToUtf8(const utility::string_t& str)
 {
 #ifdef _UTF16_STRINGS
-    //HC: On Windows, all strings are wide
+    //HCE: On Windows, all strings are wide
     wstring_convert<codecvt_utf8<wchar_t> > strCnv;
     return strCnv.to_bytes(str);
 #else
-    //HC: On POSIX platforms, all strings are narrow
+    //HCE: On POSIX platforms, all strings are narrow
     return str;
 #endif
 }
@@ -91,11 +91,11 @@ string tstringToUtf8(const utility::string_t& str)
 utility::string_t stringToTstring(const string& str)
 {
 #ifdef _UTF16_STRINGS
-    //HC: On Windows, all strings are wide
+    //HCE: On Windows, all strings are wide
     std::wstring_convert<std::codecvt<wchar_t, char, std::mbstate_t>> strCnv;
     return strCnv.from_bytes(str);
 #else
-    //HC: On POSIX platforms, all strings are narrow
+    //HCE: On POSIX platforms, all strings are narrow
     return str;
 #endif
 }
@@ -271,7 +271,7 @@ void CommandHandler::handle_get(http_request message)
                     system_clock::time_point curr = system_clock::now();
                     seconds timespan = std::chrono::duration_cast<seconds>(curr - it->second);
                     if (timespan.count() < 30) {
-                        //HC: the same HID only sync once in 30 seconds
+                        //HCE: the same HID only sync once in 30 seconds
                         vRet = json::value::string(_XPLATSTR("downloading"));
                         goto REPLY;
                     }
@@ -914,7 +914,7 @@ void SubmitRegistrationEx(http_request &message)
                 if (std::regex_search(line, match_boundary, regex_boundary)) {
                     is_boundary_starting = true;
 
-                    //HC: extract data
+                    //HCE: extract data
                     if (!content.empty()) {
                         std::string action;
                         std::smatch match_action;
@@ -982,7 +982,7 @@ void RunJsScriptFromRequest(http_request& message, string &jssourcecode, string 
 
         if (!jssourcecode.empty() && jssourcecode.length() <= MAX_USER_DEFINED_DATA) {
             RestApi api;
-            //HC: call script and put the result into payload
+            //HCE: call script and put the result into payload
             string excp_desc;
 
             qjs::VM vm;
@@ -1006,7 +1006,7 @@ void RunJsScriptFromRequest(http_request& message, string &jssourcecode, string 
         else {
             throw runtime_error("try to submit empty data");
         }
-    }).wait();  //HC: must call wait
+    }).wait();  //HCE: must call wait
 }
 
 void SubmitScriptExecutedResult(http_request& message)
@@ -1066,13 +1066,13 @@ void CommandHandler::handle_post(http_request message)
     if (!path.empty() && path.size() == 1) {
 
         if (path[0] == _XPLATSTR("SubmitRegistrationEx")) {
-            //HC: Data include payload and smart contract script
+            //HCE: Data include payload and smart contract script
             SubmitRegistrationEx(message);
             return;
         }
         else if (path[0] == _XPLATSTR("SubmitScriptResult")) {
-            //HC: The script result executed puts into T_LOCALBLOCKBODY.payload
-            //HC: The script puts into T_LOCALBLOCKBODY.sScript
+            //HCE: The script result executed puts into T_LOCALBLOCKBODY.payload
+            //HCE: The script puts into T_LOCALBLOCKBODY.sScript
             SubmitScriptExecutedResult(message);
             return;
         }
@@ -1190,7 +1190,7 @@ void RestApi::blockHeadToJsonValue(const T_LOCALBLOCK& localblock, json::value& 
     val[_XPLATSTR("root_block_body_hash")] = json::value::string(stringToTstring(localblock.GetRootHash().toHexString()));
     val[_XPLATSTR("script_hash")] = json::value::string(stringToTstring(localblock.GetScriptHash().toHexString()));
 
-    //HC: 获取子块payload_size,block_size
+    //HCE: get localblock payload_size,block_size
     val[_XPLATSTR("payload_size")] = json::value::number(localblock.GetPayload().size());
     val[_XPLATSTR("block_size")] = json::value::number(localblock.GetSize());
 }
@@ -1231,6 +1231,7 @@ void RestApi::blockHeadToJsonValue(const T_HYPERBLOCK& hyperblock, size_t hyperB
         obj[i] = json::value::number(hyperblock.GetChildChainBlockCount(i));
     }
     val[_XPLATSTR("childchain_blockscount")] = obj;     //HC: 每条子链拥有的子块数
+                                                        //HCE: The number of localblocks owned by each childchain
 
     obj = json::value::array();
     const list<T_SHA256>& tailhashlist = hyperblock.GetChildTailHashList();
@@ -1239,6 +1240,7 @@ void RestApi::blockHeadToJsonValue(const T_HYPERBLOCK& hyperblock, size_t hyperB
         obj[i++] = json::value::string(stringToTstring(tailhash.toHexString()));
     }
     val[_XPLATSTR("tailblockshash")] = obj;       //HC: 每条子链尾块的Hash
+                                                  //HCE: The hash of each childchaintail block
 
     //val[_XPLATSTR("hyperBlockHashVersion")] = json::value::number(1);
     val[_XPLATSTR("hyperBlockSize")] = json::value::number(hyperBlockSize);
@@ -1259,7 +1261,7 @@ void RestApi::blockBodyToJsonValue(const T_HYPERBLOCK& hyperblock, json::value& 
 
         vObj[j++] = lObj;
     }
-    val[_XPLATSTR("local_blocks_header_hash")] = vObj;     //HC: 子块头hash
+    val[_XPLATSTR("local_blocks_header_hash")] = vObj;     //HCE: localblock header hash
 
     int k = 0;
     json::value obj = json::value::array();
@@ -1405,11 +1407,11 @@ json::value RestApi::getLocalchain(uint64_t hid, uint64_t chain_num)
     json::value LocalChain;
     int nRet = Singleton<DBmgr>::instance()->getLocalchain(hid, chain_num, blocks, chain_difficulty);
     if (nRet == 0) {
-        LocalChain[_XPLATSTR("chain_num")] = json::value::number(chain_num);	//HC: 子链号
-        LocalChain[_XPLATSTR("blocks")] = json::value::number(blocks);			//HC: 子链块数
-        LocalChain[_XPLATSTR("block_chain")] = json::value::string(_XPLATSTR("unknown")); //HC: 子链类型
-        LocalChain[_XPLATSTR("difficulty")] = json::value::number(chain_difficulty);	  //HC: 难度
-        LocalChain[_XPLATSTR("consensus")] = json::value::string(_XPLATSTR("buddy"));	  //HC: 共识算法
+        LocalChain[_XPLATSTR("chain_num")] = json::value::number(chain_num);	//HCE: subchain number
+        LocalChain[_XPLATSTR("blocks")] = json::value::number(blocks);			//HCE: Number of localblocks
+        LocalChain[_XPLATSTR("block_chain")] = json::value::string(_XPLATSTR("unknown")); //HCE: subchain type
+        LocalChain[_XPLATSTR("difficulty")] = json::value::number(chain_difficulty);	  //HCE: difficulty
+        LocalChain[_XPLATSTR("consensus")] = json::value::string(_XPLATSTR("buddy"));	  //HCE: Consensus algorithm
     }
 
     return LocalChain;
@@ -1453,7 +1455,7 @@ json::value RestApi::getOnchainState(const string& requestID)
         status = consensuseng->GetOnChainState(requestID, queuenum);
 
         if (status == ONCHAINSTATUS::unknown) {
-            //HC: query memory
+            //HCE: query memory
             if (consensuseng->CheckSearchOnChainedPool(requestID, addr)) {
                 status = ONCHAINSTATUS::failed;
                 if (addr.isValid()) {
@@ -1461,7 +1463,7 @@ json::value RestApi::getOnchainState(const string& requestID)
                 }
             }
             else {
-                //HC: query database
+                //HCE: query database
                 bool isfound = Singleton<DBmgr>::instance()->getOnChainStateFromRequestID(requestID, addr);
                 if (!isfound) {
                     status = ONCHAINSTATUS::nonexistent;
@@ -1533,7 +1535,7 @@ string RestApi::getOnchainState(const string& requestID, T_LOCALBLOCKADDRESS *pb
         return mapstatus[status];
     }
 
-    //HC: query memory
+    //HCE: query memory
     if (consensuseng->CheckSearchOnChainedPool(requestID, addr)) {
         status = ONCHAINSTATUS::failed;
         if (addr.isValid()) {
@@ -1542,7 +1544,7 @@ string RestApi::getOnchainState(const string& requestID, T_LOCALBLOCKADDRESS *pb
         return mapstatus[status];
     }
 
-    //HC: query database
+    //HCE: query database
     bool isfound = Singleton<DBmgr>::instance()->getOnChainStateFromRequestID(requestID, addr);
     if (!isfound) {
         status = ONCHAINSTATUS::nonexistent;
@@ -1563,7 +1565,7 @@ json::value RestApi::getBatchOnchainState(const string& batchID)
     json::value vHyperBlocks;
     ONCHAINSTATUS status = ONCHAINSTATUS::unknown;
 
-    //HC: query memory
+    //HCE: query memory
     CAutoMutexLock muxAuto(m_MuxBatchBufferList);
     for (auto it = m_BatchBufferList.begin(); it != m_BatchBufferList.end(); it++) {
         if (0 == batchID.compare((it->id).c_str())) {
@@ -1573,7 +1575,7 @@ json::value RestApi::getBatchOnchainState(const string& batchID)
     }
 
     if (status == ONCHAINSTATUS::unknown) {
-        //HC: query database
+        //HCE: query database
         bool isfound = Singleton<DBmgr>::instance()->getRequestID(batchID, requestID);
         if (!isfound) {
             status = ONCHAINSTATUS::nonexistent;
@@ -1586,6 +1588,7 @@ json::value RestApi::getBatchOnchainState(const string& batchID)
     }
 
     //HC: 根据requestID查询上链状态
+    //HCE: Query the chain status based on the requestID
     return getOnchainState(requestID);
 }
 
@@ -1602,6 +1605,7 @@ json::value RestApi::MakeBatchRegistration(string strdata)
     if (input == nullptr || input->full == true) {
         if (m_BatchBufferList.size() >= BATCH_BUFFER_MAXIMUM) {
             //HC: 缓冲区已满，无法接收上链请求
+            //HCE: The buffer is full and cannot receive the on-chain request
             valQueueID[_XPLATSTR("batchid")] = json::value::string(stringToTstring(""));
             valQueueID[_XPLATSTR("state")] = json::value::string(stringToTstring("failed"));
 
@@ -1639,6 +1643,7 @@ void RestApi::SubmitBatchRegistration()
         seconds timespan = std::chrono::duration_cast<seconds>(curr - it->ctime);
         if (!it->full && timespan.count() < 180) {
             //HC: 缓冲区未满且时间小于3分钟
+            //HCE: The buffer is not full and the time is less than 3 minutes
             return;
         }
 

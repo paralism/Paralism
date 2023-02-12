@@ -1051,7 +1051,7 @@ std::string format(const std::string &fmt, const Args&... args)
 
 } // namespace tinyformat
 
-//HC: strprintf already defined
+//HCE: strprintf already defined
 #define strprintf_tfm tfm::format
 
 #endif // TINYFORMAT_H_INCLUDED

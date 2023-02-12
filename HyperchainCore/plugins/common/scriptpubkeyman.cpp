@@ -55,7 +55,7 @@ bool LegacyScriptPubKeyMan::GetPubKey(const CKeyID& address, CPubKey& vchPubKeyO
 
 }
 
-//HC: see reference to Bitcoin: LegacyScriptPubKeyMan::ImportScripts(const std::set<CScript> scripts, int64_t timestamp)
+//HCE: see reference to Bitcoin: LegacyScriptPubKeyMan::ImportScripts(const std::set<CScript> scripts, int64_t timestamp)
 void LegacyScriptPubKeyMan::ImportScripts(const CPubKey& pubKey, const CKey& key)
 {
     //CPubKey new_key = CPubKey::NewPubKeyCompressed(key.GetPubKey());
@@ -87,7 +87,7 @@ bool LegacyScriptPubKeyMan::GetNewDestination(const OutputType type,
     vecPubKey.clear();
     vecPubKey.insert(vecPubKey.end(), new_key.begin(), new_key.end());
 
-    //HC: By default, only compressed public key has been put into wallet.
+    //HCE: By default, only compressed public key has been put into wallet.
     if (!HaveKey(new_key.GetID())) {
         CPubKey another_key = CPubKey::NewPubKey(vctKey, !fcompressed);
         CKey keyOut;
@@ -268,7 +268,7 @@ namespace {
         }
         }
 
-        //HC: watch not support
+        //HCE: watch not support
         //if (ret == IsMineResult::NO && keystore.HaveWatchOnly(scriptPubKey)) {
         //    ret = std::max(ret, IsMineResult::WATCH_ONLY);
         //}
@@ -329,7 +329,7 @@ bool LegacyScriptPubKeyMan::SignTransaction(CMutableTransaction& tx, const std::
 
 bool LegacyScriptPubKeyMan::GetKeyOrigin(const CKeyID& keyID, KeyOriginInfo& info) const
 {
-    //HC: we use a simple way, to bitcoin use creation time of the key as fingerprint, see LegacyScriptPubKeyMan::GenerateNewKey
+    //HCE: we use a simple way, to bitcoin use creation time of the key as fingerprint, see LegacyScriptPubKeyMan::GenerateNewKey
     std::copy(keyID.begin(), keyID.begin() + 4, info.fingerprint);
     return true;
 
@@ -353,10 +353,10 @@ bool LegacyScriptPubKeyMan::GetKeyOrigin(const CKeyID& keyID, KeyOriginInfo& inf
 
 bool LegacyScriptPubKeyMan::GetKey(const CKeyID& address, CKey_Secp256k1& keyOut) const
 {
-    //HC: for old version, format of keys in the wallet is type of CKey
-    //HC: but to witness functionality, it is CKey_Secp256k1,
-    //HC: so here we need convert key object from type CKey into CKey_Secp256k1
-    //HC: In fact, class 'CKey_Secp256k1' is taken from the 'CKey' of latest source code of Bitcoin
+    //HCE: for old version, format of keys in the wallet is type of CKey
+    //HCE: but to witness functionality, it is CKey_Secp256k1,
+    //HCE: so here we need convert key object from type CKey into CKey_Secp256k1
+    //HCE: In fact, class 'CKey_Secp256k1' is taken from the 'CKey' of latest source code of Bitcoin
     CBitcoinAddress bitcoinaddr;
     bitcoinaddr.SetHash160(address);
     CKey key;

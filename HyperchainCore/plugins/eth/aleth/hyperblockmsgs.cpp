@@ -21,7 +21,35 @@ extern dev::WebThreeDirect *g_ptrWeb3;
 extern Logger g_logger;
 
 extern bool SwitchChainTo(const BlockHeader& pindexBlock);
-extern void LatestBlockIndexOnChained(BlockHeader& onchainedblkheader);
+extern bool LatestBlockIndexOnChained(const BlockHeader& header, BlockHeader& onchainedblkheader);
+
+string ToString(ImportResult IR)
+{
+    switch (IR)
+    {
+    case ImportResult::Success:
+        return "Success";
+    case ImportResult::Malformed:
+        return "Malformed";
+    case ImportResult::BadChain:
+        return "BadChain";
+    case ImportResult::FutureTimeKnown:
+        return "FutureTimeKnown";
+    case ImportResult::AlreadyInChain:
+        return "AlreadyInChain";
+    case ImportResult::AlreadyKnown:
+        return "AlreadyKnown";
+    case ImportResult::FutureTimeUnknown:
+        return "FuturenTimeUnknown";
+    case ImportResult::UnknownParent:
+        return "UnknownParent";
+    case ImportResult::OverbidGasPrice:
+        return "OverbidGasPrice";
+    case ImportResult::ZeroSignature:
+        return "ZeroSignature";
+    }
+    return "Unknown";
+}
 
 bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, const T_SHA256& hhash, bool isLatest)
 {
@@ -42,13 +70,20 @@ bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, const T_SHA256& hhash, bool isLa
         vecBlockAddr.push_back(btriaddr);
     }
 
+    bool isNeedSync = false;
     for (size_t i = 0; i < vecBlock.size(); i++) {
 
         bytes blk = CryptoEthCurrency::ExtractBlock(string(vecBlock[i].begin(), vecBlock[i].end()));
-        if (cli->injectBlock(blk) == ImportResult::Success) {
-            BlockHeader header(blk);
+        BlockHeader header(blk);
+        ImportResult ret = cli->injectBlock(blk);
+        if (ret == ImportResult::Success) {
             LOG(g_logger) << StringFormat("AcceptBlocks() : %d(%s) is accepted\n\n", header.number(), header.hash().hex());
+        } else {
+            if (ret == ImportResult::UnknownParent)
+                isNeedSync = true;
+            LOG(g_logger) << StringFormat("AcceptBlocks() : %d(%s) is rejected for %s\n\n", header.number(), header.hash().hex(), ToString(ret));
         }
+
         //if (ProcessBlockWithTriaddr(nullptr, &vecBlock[i], &vecBlockAddr[i])) {
         //    uint256 hash = vecBlock[i].GetHash();
         //    TRACE_FL("AcceptBlocks() : (%s) %s is accepted\n\n", vecPA[i].addr.tostring().c_str(),
@@ -58,7 +93,10 @@ bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, const T_SHA256& hhash, bool isLa
         //}
     }
 
-    //HC: cannot use ethereum block in latest hyper block as unique standard of choosing best chain
+    if (isNeedSync) {
+        cli->SyncfromPeers();
+    }
+
     return true;
 }
 
@@ -80,13 +118,14 @@ bool ProcessChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t&
         hid, thhash.toHexString(), isLatest);
 
     defer{
-        //HC: reset work block, avoid to stop mining
-        if (isLatest)
+        if (isLatest) {
+            //HC: 最新超块改变，必须更新working block
+            //HCE: In case the latest Hyperblock changes, working block must be updated.
+            cli->completeSync();
             cli->resetWorking();
+        }
     };
 
-
-    //HC: Called by consensus MQ service, switching in case cannot retrieve the cs_main
     //FIBER_SWITCH_CRITICAL_BLOCK_T_MAIN(50)
     {
         LatestHyperBlock::CompareAndUpdate(hid, thhash, isLatest);
@@ -98,23 +137,31 @@ bool ProcessChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t&
             vector<T_PAYLOADADDR>& vecPA = mapPayload[meApp];
             AcceptBlocks(vecPA, thhash, isLatest);
 
-            //HC: 检查链头是否正确，如果不对，需要切换
-            BlockHeader onchainedheader;
-            LatestBlockIndexOnChained(onchainedheader);
             BlockHeader pindexBest = bc.info();
+
+            BlockHeader onchainedheader;
+            if (!LatestBlockIndexOnChained(pindexBest, onchainedheader)) {
+                cli->suspendSealing();
+                LOG(g_logger) << StringFormat("ProcessChainCb: Failed to LatestBlockIndexOnChained %d and suspend sealing", pindexBest.number());
+
+                return false;
+            }
+            cli->resumeSealing();
 
             if (onchainedheader != pindexBest) {
                 SwitchChainTo(onchainedheader);
                 LOG(g_logger) << StringFormat("ProcessChainCb: SwitchChainTo %d(%s) because hyper block has changed",
                     onchainedheader.number(), onchainedheader.hash().hex());
             }
+            else {
+                LOG(g_logger) << StringFormat("ProcessChainCb: best block is ok! %d(%s) ",
+                    onchainedheader.number(), onchainedheader.hash().hex());
+            }
 
             return true;
         }
 
-        //HC: 超块里无最新以太坊子块，但是最新超块发生了变化，因子链与超块链的锁定关系，分析是否子链要回退
         if (isLatest) {
-            //HC: 链切换过程中，需要回退到分叉超块
             BlockHeader pStart = bc.info();
             while (pStart && pStart.prevHID() >= hidFork) {
                 pStart = bc.pprev(pStart);
@@ -129,8 +176,6 @@ bool ProcessChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t&
                 return true;
             }
 
-            //HC: Forward to block matched
-            //HC: Sometimes ethereum has already done mining on base of hid, so continue forwarding to latest ethereum block
             h256 hhash(thhash.toHexString());
             BlockHeader pEnd = pStart;
             while (pEnd && pEnd.prevHID() == hid && pEnd.prevHyperBlkHash() == hhash) {
@@ -143,6 +188,7 @@ bool ProcessChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t&
                     SwitchChainTo(spprev);
                 }
             }
+            cli->resumeSealing();
         }
     }
 

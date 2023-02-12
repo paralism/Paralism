@@ -31,19 +31,25 @@ extern thread_local std::shared_ptr<qjs::Context> tls_VMContext_Exec;
 
 namespace qjs {
 
+    //HCE: Javascript virtual machine, which compiles and executes JS code
     class VM
     {
     public:
         VM();
 
-        static qjs::Context * getCtx() {
+        static qjs::Context* getCtx() {
             return tls_VMContext.get();
         }
 
-        static qjs::Context * getCtxExec() {
+        static qjs::Context* getCtxExec() {
             return tls_VMContext_Exec.get();
         }
 
+        //HCE: compile JS source code to JS byte code
+        //HCE: @para js_sourcecode String of JS source code
+        //HCE: @para js_bytecode String of JS byte code
+        //HCE: @para excp_desc String of exception
+        //HCE: @returns True if success
         bool compileModule(const string& js_sourcecode, string& js_bytecode, string& excp_desc);
         bool compile(const string& js_sourcecode, string& js_bytecode, string& excp_desc, unsigned int compile_flags = 0);
 
@@ -67,6 +73,9 @@ namespace qjs {
         template<typename T>
         static void executeIsolated(std::shared_ptr<qjs::Context>& spctx, const string& js_bytecode, T& result)
         {
+            //HCE: init environment
+            //HCE: @para spctx Pointer to Context
+            //HCE: @returns void
             initEnv(spctx);
 
             string_view code(js_bytecode);
@@ -80,4 +89,4 @@ namespace qjs {
     };
 
 
-} // namespace qjs
+} //HCE: namespace qjs

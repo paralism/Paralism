@@ -155,7 +155,7 @@ class CInv
             READWRITE(type);
             READWRITE(hash);
 
-            //HC:
+            //HCE:
             if (type == 3 || type == 4) { //MSG_BLOCKEX MSG_BLOCKEX_R
                 READWRITE(height);
             }
@@ -178,7 +178,7 @@ class CInv
     public:
         int type;
         uint256 hash;
-        int height = 0; //HC:
+        int height = 0; //HCE:
 };
 
 #endif // __INCLUDED_PROTOCOL_H__

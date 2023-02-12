@@ -109,7 +109,7 @@ bool GetParaBlockHashByHeader(const unsigned char* blockheaderdata, int blockhea
 //        if (sess.second.status == MiningSession::MS::closed) {
 //            return sess.first;
 //        }
-//        //HC: only one session can run at the same time, so close the other sessions
+//        //HCE: only one session can run at the same time, so close the other sessions
 //        mapSession[sess.first].status = MiningSession::MS::closing;
 //    }
 //
@@ -137,7 +137,7 @@ bool GetParaBlockHashByHeader(const unsigned char* blockheaderdata, int blockhea
 //    //bool (*CBFnStopMining)(void*),
 //    //void* param,
 //    int timeout,
-//    unsigned char nonce[8], //HC: if found, return mining result
+//    unsigned char nonce[8], //HCE: if found, return mining result
 //    unsigned char mixhash[32])
 //{
 //    std::unique_lock<std::mutex> uguard(mutx_mining);
@@ -150,7 +150,7 @@ bool GetParaBlockHashByHeader(const unsigned char* blockheaderdata, int blockhea
 //
 //    if (session.status != MiningSession::MS::opened) {
 //        uguard.unlock();
-//        return false; //HC: firstly you should open the session by calling LightNodeOpenMiningSession
+//        return false; //HCE: firstly you should open the session by calling LightNodeOpenMiningSession
 //    }
 //    uguard.unlock();
 //
@@ -172,7 +172,7 @@ bool GetParaBlockHashByHeader(const unsigned char* blockheaderdata, int blockhea
 //    int64 nStart = GetTime();
 //    progpow::search_result searchresult = progpow::search_light(epoch_ctx, blockheight, header_hash, target, start_nonce, nMaxTries,
 //        [&nStart, timeout, &session]() {
-//            //HC: Return true means stop mining.
+//            //HCE: Return true means stop mining.
 //            //if (isstopmining)
 //            //    return true;
 //            if (GetTime() - nStart >= timeout) {

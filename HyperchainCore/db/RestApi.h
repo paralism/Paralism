@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2023 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -92,8 +92,8 @@ public:
     json::value getLocalblockHead(uint64_t hid, uint16 id, uint16 chain_num);
     json::value getLocalblockBody(uint64_t hid, uint16 id, uint16 chain_num);
 
-    json::value getHyperblocks(uint64_t nStartId, uint64_t nNum); //HC: include localblocks
-    json::value getHyperblockInfo(uint64_t hid);                  //HC: not include localblocks
+    json::value getHyperblocks(uint64_t nStartId, uint64_t nNum); //HCE: include localblocks
+    json::value getHyperblockInfo(uint64_t hid);                  //HCE: not include localblocks
     json::value getHyperblockHead(uint64_t hid);
     json::value getHyperblockBody(uint64_t hid);
 

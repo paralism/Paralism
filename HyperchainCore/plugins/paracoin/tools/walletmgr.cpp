@@ -49,7 +49,7 @@ public:
         try {
             for (;;) {
                 int nCount = 0;
-                //HC: A time of transaction operation, we only delete 10000 for Berkeley db lock limit which can also set by dbenv
+                //HCE: A time of transaction operation, we only delete 10000 for Berkeley db lock limit which can also set by dbenv
                 deleteTx(progress, nCount, 10000);
                 nTotalCount += nCount;
                 if (nCount < 10000) {
@@ -234,7 +234,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("name"), nextT);
-            msgstatus = strprintf("name : %s", nextT.c_str());  //HC: status message
+            msgstatus = strprintf("name : %s", nextT.c_str());  //HCE: status message
             return ssNxtKey;
         };
 
@@ -257,7 +257,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("key"), nextT);
-            msgstatus = "key : ******";  //HC: status message
+            msgstatus = "key : ******";  //HCE: status message
             return ssNxtKey;
         };
 
@@ -281,7 +281,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("wkey"), nextT);
-            msgstatus = "wallet key : ******";  //HC: status message
+            msgstatus = "wallet key : ******";  //HCE: status message
             return ssNxtKey;
         };
 
@@ -295,9 +295,9 @@ private:
         return true;
     }
 
-    //HC: Encrypt bitcoin's key pair using vMasterkey
-    //HC: vMasterkey is plain text, kMasterKey contains cipher text
-    //HC: crypter.Encrypt(vMasterKey, kMasterKey.vchCryptedKey), see CWallet::EncryptWallet(const string& strWalletPassphrase)
+    //HCE: Encrypt bitcoin's key pair using vMasterkey
+    //HCE: vMasterkey is plain text, kMasterKey contains cipher text
+    //HCE: crypter.Encrypt(vMasterKey, kMasterKey.vchCryptedKey), see CWallet::EncryptWallet(const string& strWalletPassphrase)
     bool BulkImpWalletMKey(CWallet* pwallet)
     {
         std::function<bool(CDataStream&, CDataStream&, unsigned int&)> fn = [pwallet](CDataStream& ssKeySecond,
@@ -319,7 +319,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("mkey"), nextT);
-            msgstatus = "mkey : ******";  //HC: status message
+            msgstatus = "mkey : ******";  //HCE: status message
             return ssNxtKey;
         };
 
@@ -331,7 +331,7 @@ private:
         return true;
     }
 
-    //HC: crypt keys
+    //HCE: crypt keys
     bool BulkImpWalletCKey(CWallet* pwallet)
     {
         std::function<bool(CDataStream&, CDataStream&, std::vector<unsigned char>&)> fn =
@@ -342,7 +342,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("ckey"), nextT);
-            msgstatus = "ckey : ******";  //HC: status message
+            msgstatus = "ckey : ******";  //HCE: status message
             return ssNxtKey;
         };
 
@@ -361,7 +361,7 @@ private:
         std::function<bool(CDataStream&, CDataStream&, string&)> fn = [this, pDstWalletdb](CDataStream& ssKeySecond,
             CDataStream& ssValue, string& strKey) ->bool {
 
-            //HC: read all unused key pairs
+            //HCE: read all unused key pairs
             ssKeySecond >> strKey;
 
             // Options
@@ -388,7 +388,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("setting"), nextT);
-            msgstatus = "setting : ******";  //HC: status message
+            msgstatus = "setting : ******";  //HCE: status message
             return ssNxtKey;
         };
 
@@ -577,6 +577,6 @@ int main(int argc, char* argv[])
         }
     }
 
-    DBFlush(true); //HC: remove archive log
+    DBFlush(true); //HCE: remove archive log
     return 0;
 }

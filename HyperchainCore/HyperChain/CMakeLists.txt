@@ -1,4 +1,4 @@
-#Copyright 2016-2022 hyperchain.net (Hyperchain)
+#Copyright 2016-2023 hyperchain.net (Hyperchain)
 #Distributed under the MIT software license, see the accompanying
 #file COPYING or https://opensource.org/licenses/MIT.
 
@@ -84,6 +84,8 @@ list(FILTER main_SRC EXCLUDE REGEX ".*main.cpp$")
 
 #HC: unix下全局变量模块间共享
 #HC: Windows下全局变量模块间隔离
+#HCE: Global variables are shared between modules under UNIX 
+#HCE: Global variables are isolated between modules under Windows
 if(NOT WIN32)
 list(FILTER main_SRC EXCLUDE REGEX "newLog.cpp")
 endif()

@@ -79,8 +79,7 @@ public:
 
     void onPeerTransactions(NodeID const& _peerID, RLP const& _r) override
     {
-		//HC: TransactionQueue是一个专门放pending交易的队列，也就是还没有正式进入区块链的“无主”交易的地方
-        unsigned itemCount = _r.itemCount();
+		        unsigned itemCount = _r.itemCount();
         LOG(m_logger) << "Transactions (" << dec << itemCount << " entries)";
         m_tq.enqueue(_r, _peerID);
     }
@@ -188,7 +187,6 @@ public:
         assert(step > 0 && "step must not be 0");
 
         h256 blockHash;
-		//HC: 判断_blockId参数是hash，还是区块号
         if (_blockId.size() == 32)  // block id is a hash
         {
             blockHash = _blockId.toHash<h256>();
@@ -572,6 +570,11 @@ void EthereumCapability::maintainBlockHashes(h256 const& _currentHash)
     m_latestBlockHashSent = _currentHash;
 }
 
+void EthereumCapability::SyncfromPeers()
+{
+    m_sync->SyncfromPeers();
+}
+
 bool EthereumCapability::isSyncing() const
 {
     return m_sync->isSyncing();
@@ -581,6 +584,12 @@ SyncStatus EthereumCapability::status() const
 {
     return m_sync->status();
 }
+
+SyncStatus EthereumCapability::statusNoLock() const
+{
+    return m_sync->statusNoLock();
+}
+
 
 void EthereumCapability::onTransactionImported(
     ImportResult _ir, h256 const& _h, h512 const& _nodeId)
@@ -682,11 +691,9 @@ bool EthereumCapability::interpretCapabilityPacket(
                 break;
             }
 
-			//HC: 获取区块头
             pair<bytes, unsigned> const rlpAndItemCount =
                 m_hostData->blockHeaders(blockId, numHeadersToSend, skip, reverse);
 
-			//HC: 应答发送给对方节点
             RLPStream s;
             m_host->prep(_peerID, name(), s, BlockHeadersPacket, rlpAndItemCount.second)
                 .appendRaw(rlpAndItemCount.first, rlpAndItemCount.second);
@@ -946,7 +953,6 @@ void EthereumCapability::removeSentTransactions(std::vector<h256> const& _txHash
     }
 }
 
-//HC: 选取一批节点，广播多个新的区块
 void EthereumCapability::propagateNewBlocks(std::shared_ptr<VerifiedBlocks const> const& _newBlocks)
 {
     // Safe to call isSyncing() from a non-network thread since the underlying variable is

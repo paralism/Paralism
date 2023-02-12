@@ -8,9 +8,7 @@
 #include <cpprest/containerstream.h>
 
 using namespace std;
-
-bool UpdateInfo::DownloadFromServer(string serverurl, string strFilename) {
-
+bool UpdateInfo::DownloadFromServer(string& serverurl, string& strFilename, boost::filesystem::path& pathDownload) {
     string urlFile = serverurl + strFilename;
 
     try
@@ -22,13 +20,13 @@ bool UpdateInfo::DownloadFromServer(string serverurl, string strFilename) {
         response.body().read_to_end(buffer).get();
         string& filedata = buffer.collection();
 
-        boost::filesystem::ofstream file;
-        file.open(strFilename, std::ios::out | std::ios::binary);
-        if (!file.good())
-            return false;
+        boost::filesystem::path pathFile = pathDownload / strFilename;
+        boost::filesystem::ofstream fout(pathFile, ios::binary);
+        if (!fout.is_open())
+            return "open file error!";
 
-        file.write(filedata.c_str(), filedata.size());
-        file.close();
+        fout.write(filedata.c_str(), filedata.size());
+        fout.close();
 
     }
     catch (std::exception& e)
@@ -41,9 +39,8 @@ bool UpdateInfo::DownloadFromServer(string serverurl, string strFilename) {
 
 }
 
-string UpdateInfo::FileDigest(const string& file) {
-
-    boost::filesystem::ifstream fin(file,ios::binary);
+string UpdateInfo::FileDigest(boost::filesystem::path& pathFile) {
+    boost::filesystem::ifstream fin(pathFile, ios::binary);
     if (!fin.is_open())
         return "open file error!";
 
@@ -63,11 +60,11 @@ string UpdateInfo::FileDigest(const string& file) {
 }
 
 bool UpdateInfo::GetUpdateInfo() {
-    boost::filesystem::current_path(pathFileDir);
-
     string serverurl(MYSERVER_URL);
-    if (DownloadFromServer(serverurl, "hcUpdate.ini")) {
-        boost::filesystem::ifstream fin("hcUpdate.ini");
+    string strUpdate = "hcUpdate.ini";
+    if (DownloadFromServer(serverurl, strUpdate, pathFileDir)) {
+        boost::filesystem::path pathFile = pathFileDir / "hcUpdate.ini";
+        boost::filesystem::ifstream fin(pathFile);
         if (!fin.is_open()) {
             cout << "open hcUpdate.ini error!" << endl;
             return false;
@@ -155,7 +152,7 @@ bool UpdateInfo::GetUpdateInfo() {
         return true;
     }
     else {
-        cout << "Downlosd hcUpdate.ini error! Check if download url is right and the file hcUpdate.ini exits" << endl;
+        cout << "Download hcUpdate.ini error! Check if download url is right and the file hcUpdate.ini exits" << endl;
         return false;
     }
 }
@@ -164,12 +161,13 @@ bool UpdateInfo::PreUpdate() {
     bool bdownload = true;
     string serverurl(MYSERVER_URL);
     string localmd5;
-    boost::filesystem::current_path(pathFileDir);
+    boost::filesystem::path pathFile;
 
     for (auto& file : preupdatefile) {
-        localmd5 = FileDigest(file.filename);
+        pathFile = pathFileDir / file.filename;
+        localmd5 = FileDigest(pathFile);
         if (localmd5 != file.filemd5) {
-            if (!DownloadFromServer(serverurl, file.filename)) {
+            if (!DownloadFromServer(serverurl, file.filename, pathFileDir)) {
                 cout << "download file " << file.filename << " failed!" << endl;
                 bdownload = false;
                 break;
@@ -181,17 +179,19 @@ bool UpdateInfo::PreUpdate() {
 
 bool UpdateInfo::CheckUpdate() {
     string localmd5;
-    boost::filesystem::current_path(pathFileDir);
+    boost::filesystem::path pathFile;
 
     for (auto& file : updatefile) {
-        localmd5 = UpdateInfo::FileDigest(file.filename);
+        pathFile = pathFileDir / file.filename;
+        localmd5 = FileDigest(pathFile);
         if (localmd5 != file.filemd5) {
             return true;
         }
     }
 
     for (auto& file : libfile) {
-        localmd5 = UpdateInfo::FileDigest("lib/" + file.filename);
+        pathFile = pathFileDir / "lib" / file.filename;
+        localmd5 = FileDigest(pathFile);
         if (localmd5 != file.filemd5) {
             return true;
         }
@@ -204,10 +204,9 @@ bool UpdateInfo::Updatefiles() {
     boost::filesystem::path pathTemp;
     pathTemp = pathFileDir / "updatetmp";
 
+    cout << "update dir: " << pathTemp << endl;
     if (!boost::filesystem::exists(pathTemp))
         boost::filesystem::create_directory(pathTemp);
-
-    boost::filesystem::current_path(pathTemp);
 
     bool bdownload = true;
     string serverurl(MYSERVER_URL);
@@ -218,27 +217,27 @@ bool UpdateInfo::Updatefiles() {
     boost::filesystem::path pathFile;
     for (auto& file : updatefile) {
         pathFile = pathFileDir / file.filename;
-        localmd5 = FileDigest(pathFile.string());
+        localmd5 = FileDigest(pathFile);
         if (localmd5 != file.filemd5) {
-            downloadfiles.push_back(file.filename);
-            if (!DownloadFromServer(serverurl, file.filename)) {
+            if (!DownloadFromServer(serverurl, file.filename, pathTemp)) {
                 cout << "download file " << file.filename << " failed!" << endl;
                 bdownload = false;
                 break;
             }
-        }
+            downloadfiles.push_back(file.filename);
+       }
     }
 
     for (auto& file : libfile) {
         pathFile = pathFileDir / "lib" / file.filename;
-        localmd5 = FileDigest(pathFile.string());
+        localmd5 = FileDigest(pathFile);
         if (localmd5 != file.filemd5) {
-            libfiles.push_back(file.filename);
-            if (!DownloadFromServer(serverurl, file.filename)) {
+            if (!DownloadFromServer(serverurl, file.filename, pathTemp)) {
                 cout << "download file " << file.filename << " failed!" << endl;
                 bdownload = false;
                 break;
             }
+            libfiles.push_back(file.filename);
         }
     }
 
@@ -250,22 +249,12 @@ bool UpdateInfo::Updatefiles() {
     }
 
     if (!libfiles.empty()) {
-        if (!boost::filesystem::is_directory(pathFileDir / "lib")) {
-            if (!boost::filesystem::create_directory(pathFileDir / "lib")) {
-                cout << "creat directory /lib error!" << endl;
-                bdownload = false;
-            }
-        }
-
-        if (bdownload) {
-            for (auto& file : libfiles) {
-                boost::filesystem::remove(pathFileDir / "lib" / file);
-                boost::filesystem::rename(pathTemp / "lib" / file, pathFileDir / "lib" / file);
-            }
+        for (auto& file : libfiles) {
+            boost::filesystem::remove(pathFileDir / "lib" / file);
+            boost::filesystem::rename(pathTemp / file, pathFileDir / "lib" / file);
         }
     }
 
-    boost::filesystem::current_path(pathFileDir);
     boost::filesystem::remove_all(pathTemp);
 
     return bdownload;

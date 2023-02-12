@@ -36,14 +36,22 @@ public:
     MsgDispatcher(const MsgDispatcher &) = delete;
     MsgDispatcher & operator=(const MsgDispatcher &) = delete;
 
+    //HCE: Add app to _mapAppTask 
     void register_app_task(TASKTYPE tt, const std::string &servicename);
+
+    //HCE: Remove app from _mapAppTask
     void unregister_app_task(TASKTYPE tt);
 
+    //HCE: Dispatch task to the node with ip and port
     void dispatch(const char *taskbuf, int len, const string& ip, uint32_t port);
 
+    //HCE: Dispatch task to the node with ip and port
     void dispatch_real(const char *taskbuf, int len, const string& ip, uint32_t port);
 
+    //HCE: Dispatch the received message 
     void msg_received(void *sock, zmsg *msg);
+
+    //HCE: Register the app task in received message
     void reg_received(void *sock, zmsg *msg);
 
     void stop()
@@ -68,8 +76,8 @@ private:
     const std::string UNREG = "unreg";
 
     zmq::context_t * m_context = nullptr;
-    zmq::socket_t * m_client = nullptr;     //HC: Socket to broker
-    int m_verbose;                          //HC: Print activity to stdout
+    zmq::socket_t * m_client = nullptr;     //HCE: Socket to broker
+    int m_verbose;                          //HCE: Print activity to stdout
     zmq::socket_t *m_dispatch_inner = nullptr;
     std::string m_dispatch_endpoint_i;
 

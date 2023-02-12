@@ -42,8 +42,7 @@ void MinerCLI::interpretOptions(variables_map const& _options)
     if (_options.count("mining-threads"))
         m_miningThreads = _options["mining-threads"].as<unsigned int>();
     else
-        m_miningThreads = 1; //HC: default 1 insteady of UINT_MAX;
-
+        m_miningThreads = 1; 
     if (_options.count("current-block"))
         m_currentBlock = _options["current-block"].as<unsigned int>();
     else

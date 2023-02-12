@@ -169,6 +169,9 @@ public:
     /// Is network working? there may not be any peers yet.
     bool isNetworkStarted() const override { return m_net.isStarted(); }
 
+    //HC:
+    p2p::Host& host() { return m_net; }
+
 private:
     std::string m_clientVersion;                    ///< Our end-application client's name/version.
 

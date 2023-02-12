@@ -123,7 +123,7 @@ public:
 
     virtual bool AddKeyPubKey(const CKey_Secp256k1& key, const CPubKey &pubkey);
     virtual bool AddKey(const CKey_Secp256k1 &key) {
-        //HC:
+        //HCE:
         return AddKeyPubKey(key, CPubKey(key.GetPubKey()));
     }
     virtual bool GetPubKey(const CKeyID &address, CPubKey& vchPubKeyOut) const override;

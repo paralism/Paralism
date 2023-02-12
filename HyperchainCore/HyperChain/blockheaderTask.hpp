@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2023 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -74,14 +74,14 @@ public:
         NodeManager *nodemgr = Singleton<NodeManager>::getInstance();
 
         if (!sp->GetHyperBlockHeader(m_startHid, m_range, hyperBlockHeaderList)) {
-            //HC: I haven't the hyper block header.
+            //HCE: I haven't the hyper block header.
             DataBuffer<NoBlockHeaderRspTask> msgbuf(std::move(to_string(m_startHid)));
             nodemgr->sendTo(_sentnodeid, msgbuf);
             g_daily_logger->info("GetBlockHeaderRspTask, I haven't hyper block header: [{}], sentnodeid: [{}]", m_startHid, _sentnodeid.ToHexString());
             return;
         }
 
-        //HC: prepare to send the hyper block header to the request node
+        //HCE: prepare to send the hyper block header to the request node
         stringstream ssBuf;
         boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
         try {
@@ -146,7 +146,7 @@ public:
         string msgbuf(_payload, _payloadlen);
         string::size_type ns = msgbuf.find(":");
         if ((ns == string::npos) || (ns == 0)) {
-            //HC: Data format error.
+            //HCE: Data format error.
             return;
         }
 

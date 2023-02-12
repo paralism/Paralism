@@ -74,7 +74,7 @@ extern bool ResolveBlock(CBlock& block, const char* payload, size_t payloadlen);
 
 CCriticalSection::~CCriticalSection()
 {
-    //HC: debug cs_db
+    //HCE: debug cs_db
     //int a = 0;
     //if (this == cs_db.get()) {
     //    a = 1;
@@ -487,7 +487,7 @@ bool CTxDB::LoadBlockIndex()
             pindexNew->pprev          = InsertBlockIndex(diskindex.hashPrev);
             pindexNew->pnext          = InsertBlockIndex(diskindex.hashNext);
             pindexNew->nHeight        = diskindex.nHeight;
-            //HC: add block address
+            //HCE: add block address
             pindexNew->triaddr        = diskindex.triaddr;
             pindexNew->nVersion       = diskindex.nVersion;
             pindexNew->hashMerkleRoot = diskindex.hashMerkleRoot;
@@ -510,7 +510,7 @@ bool CTxDB::LoadBlockIndex()
     pcursor->close();
 
     // Calculate bnChainWork
-    //HC:
+    //HCE:
     //vector<pair<int, CBlockIndex*> > vSortedByHeight;
     //vSortedByHeight.reserve(mapBlockIndex.size());
     //BOOST_FOREACH(const PAIRTYPE(uint256, CBlockIndex*) & item, mapBlockIndex)
@@ -526,7 +526,7 @@ bool CTxDB::LoadBlockIndex()
     //}
 
 
-    //HC: Read best chain from database
+    //HCE: Read best chain from database
     // Load hashBestChain pointer to end of best chain
     if (!ReadHashBestChain(hashBestChain))
     {
@@ -542,17 +542,17 @@ bool CTxDB::LoadBlockIndex()
 
     pindexBest = mapBlockIndex[hashBestChain];
 
-    //HC:
+    //HCE:
     //auto maxindex = std::max_element(mapBlockIndex.begin(), mapBlockIndex.end());
     CheckBestBlockIndex();
 
     // Load bnBestInvalidWork, OK if it doesn't exist
-    //HC:
+    //HCE:
     //ReadBestInvalidWork(bnBestInvalidWork);
 
     cout << "Ledger: verifying blocks in the best chain...\n";
 
-    //HC: Check about 20 blocks
+    //HCE: Check about 20 blocks
     int nCurrHeight = nBestHeight - 1;
     CBlockIndex *pindexFork = nullptr;
     CBlockIndex *pindex = pindexBest->pprev;
@@ -611,7 +611,7 @@ bool CTxDB::LoadBlockIndex()
 //CBlockDB
 //
 
-//HC: Load the blocks which waiting to do global buddy consensus
+//HCE: Load the blocks which waiting to do global buddy consensus
 bool CBlockDB::LoadBlockUnChained(CBlockBloomFilter &filterBlk)
 {
 
@@ -632,7 +632,7 @@ bool CBlockDB::LoadBlockUnChained(CBlockBloomFilter &filterBlk)
 }
 
 
-//HC: Load the blocks which waiting to do global buddy consensus
+//HCE: Load the blocks which waiting to do global buddy consensus
 bool CBlockDB::LoadBlockUnChained(const uint256& hash, std::function<bool(CDataStream&, CDataStream&)> f)
 {
     return Load("block",hash, f);
@@ -887,7 +887,7 @@ int CWalletDB::BulkLoadWalletUser(CWallet* pwallet)
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("name"), nextT);
-        msgstatus = strprintf("name : %s", nextT.c_str());  //HC: status message
+        msgstatus = strprintf("name : %s", nextT.c_str());  //HCE: status message
         return ssNxtKey;
     };
 
@@ -944,7 +944,7 @@ int CWalletDB::BulkLoadWalletTx(CWallet* pwallet, vector<uint256>& vWalletUpgrad
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("tx"), nextT);
-        msgstatus = strprintf("tx : %s", nextT.ToPreViewString().c_str());  //HC: status message
+        msgstatus = strprintf("tx : %s", nextT.ToPreViewString().c_str());  //HCE: status message
         return ssNxtKey;
     };
 
@@ -976,7 +976,7 @@ int CWalletDB::BulkLoadWalletAcentry(CWallet* pwallet)
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("acentry"), nextT);
-        msgstatus = strprintf("acentry : %s", nextT.c_str());  //HC: status message
+        msgstatus = strprintf("acentry : %s", nextT.c_str());  //HCE: status message
         return ssNxtKey;
     };
 
@@ -1011,7 +1011,7 @@ int CWalletDB::BulkLoadWalletCScript(CWallet* pwallet)
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("cscript"), nextT);
-            msgstatus = "cscript : ******";  //HC: status message
+            msgstatus = "cscript : ******";  //HCE: status message
             return ssNxtKey;
     };
 
@@ -1031,7 +1031,7 @@ int CWalletDB::BulkLoadWalletKey(CWallet* pwallet)
     std::function<bool(CDataStream&, CDataStream&, std::vector<unsigned char>&)> fn = [pwallet](CDataStream& ssKeySecond,
         CDataStream& ssValue, std::vector<unsigned char>& vchPubKey) ->bool {
 
-        //HC: read all used key pairs
+        //HCE: read all used key pairs
         ssKeySecond >> vchPubKey;
         CKey key;
         CPrivKey pkey;
@@ -1048,7 +1048,7 @@ int CWalletDB::BulkLoadWalletKey(CWallet* pwallet)
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("key"), nextT);
-        msgstatus = "key : ******";  //HC: status message
+        msgstatus = "key : ******";  //HCE: status message
         return ssNxtKey;
     };
 
@@ -1067,7 +1067,7 @@ int CWalletDB::BulkLoadWalletWKey(CWallet* pwallet)
     std::function<bool(CDataStream&, CDataStream&, std::vector<unsigned char>&)> fn = [pwallet](CDataStream& ssKeySecond,
         CDataStream& ssValue, std::vector<unsigned char>& vchPubKey) ->bool {
 
-        //HC: read all used key pairs
+        //HCE: read all used key pairs
         ssKeySecond >> vchPubKey;
         CKey key;
         CWalletKey wkey;
@@ -1083,7 +1083,7 @@ int CWalletDB::BulkLoadWalletWKey(CWallet* pwallet)
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("wkey"), nextT);
-        msgstatus = "wallet key : ******";  //HC: status message
+        msgstatus = "wallet key : ******";  //HCE: status message
         return ssNxtKey;
     };
 
@@ -1118,7 +1118,7 @@ int CWalletDB::BulkLoadWalletMKey(CWallet* pwallet)
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("mkey"), nextT);
-        msgstatus = "mkey : ******";  //HC: status message
+        msgstatus = "mkey : ******";  //HCE: status message
         return ssNxtKey;
     };
 
@@ -1148,7 +1148,7 @@ int CWalletDB::BulkLoadWalletCKey(CWallet* pwallet)
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("ckey"), nextT);
-        msgstatus = "ckey : ******";  //HC: status message
+        msgstatus = "ckey : ******";  //HCE: status message
         return ssNxtKey;
     };
 
@@ -1167,7 +1167,7 @@ int CWalletDB::BulkLoadWalletPool(CWallet* pwallet)
     std::function<bool(CDataStream&, CDataStream&, int64&)> fn = [pwallet](CDataStream& ssKeySecond,
         CDataStream& ssValue, int64& nIndex) ->bool {
 
-        //HC: read all unused key pairs
+        //HCE: read all unused key pairs
         ssKeySecond >> nIndex;
         pwallet->setKeyPool.insert(nIndex);
         return true;
@@ -1178,7 +1178,7 @@ int CWalletDB::BulkLoadWalletPool(CWallet* pwallet)
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("pool"), nextT);
-        msgstatus = "pool : ******";  //HC: status message
+        msgstatus = "pool : ******";  //HCE: status message
         return ssNxtKey;
     };
 
@@ -1195,7 +1195,7 @@ int CWalletDB::BulkLoadWalletSettings(CWallet* pwallet)
     std::function<bool(CDataStream&, CDataStream&, string&)> fn = [pwallet](CDataStream& ssKeySecond,
         CDataStream& ssValue, string& strKey) ->bool {
 
-        //HC: read all unused key pairs
+        //HCE: read all unused key pairs
         ssKeySecond >> strKey;
 
         // Options
@@ -1218,7 +1218,7 @@ int CWalletDB::BulkLoadWalletSettings(CWallet* pwallet)
 
         CDataStream ssNxtKey;
         ssNxtKey << make_pair(string("setting"), nextT);
-        msgstatus = "setting : ******";  //HC: status message
+        msgstatus = "setting : ******";  //HCE: status message
         return ssNxtKey;
     };
 
@@ -1236,7 +1236,7 @@ int CWalletDB::BulkLoadWallet(CWallet* pwallet, vector<uint256> &vWalletUpgrade,
 
     bool isLoadTxAndKey = !GetBoolArg("-noloadwallet");
     if (isLoadTxAndKey) {
-        //HC: load tx and keys
+        //HCE: load tx and keys
         BulkLoadWalletTx(pwallet, vWalletUpgrade);
         BulkLoadWalletAcentry(pwallet);
 
@@ -1261,18 +1261,18 @@ int CWalletDB::BulkLoadWallet(CWallet* pwallet, vector<uint256> &vWalletUpgrade,
     ReadDefaultKey(pwallet->vchDefaultKey);
     bool ret = ReadDefaultKeyType(pwallet->defaultType);
     if (!ret) {
-        //HC: version < v0.7.5 will return false
+        //HCE: version < v0.7.5 will return false
         pwallet->defaultType = OutputType::LEGACY;
     }
 
     BulkLoadWalletPool(pwallet);
 
     if (!isLoadTxAndKey) {
-        //HC: load a part of keys
+        //HCE: load a part of keys
         if (!pwallet->vchDefaultKey.empty()) {
             CDataStream ssKey;
             ssKey << make_pair(string("key"), pwallet->vchDefaultKey);
-            //HC: Load default key
+            //HCE: Load default key
             CPrivKey pkey;
             if (Read(ssKey, pkey)) {
                 CKey key;
@@ -1281,7 +1281,7 @@ int CWalletDB::BulkLoadWallet(CWallet* pwallet, vector<uint256> &vWalletUpgrade,
             }
         }
 
-        //HC: Load keys in KeyPool
+        //HCE: Load keys in KeyPool
         for (auto nIndex : pwallet->setKeyPool) {
             CKeyPool keypool;
             if (!ReadPool(nIndex, keypool))
@@ -1329,7 +1329,7 @@ int CWalletDB::LoadWallet(CWallet* pwallet)
     //// todo: shouldn't we catch exceptions and try to recover and continue?
     CRITICAL_BLOCK(pwallet->cs_wallet)
     {
-        //HC: bulk load
+        //HCE: bulk load
         int ret = BulkLoadWallet(pwallet, vWalletUpgrade, nFileVersion);
         if (ret != 0) {
             return ret;

@@ -231,7 +231,7 @@ using CBlockIndexSSP = std::shared_ptr<CBlockIndexSimplified>;
 class CBlockIndexSimplified : public std::enable_shared_from_this<CBlockIndexSimplified>
 {
 public:
-    uint256 hashBlock;  //HC: 块hash指针
+    uint256 hashBlock; 
     uint32_t nHeight = -1;
 
     BLOCKTRIPLEADDRESS addr;
@@ -265,8 +265,8 @@ public:
 //
 // Used to marshal pointers into hashes for db storage.
 //
-//HC: Change implement of CDiskBlockIndex in order to improve the performance for CBlockIndex serialize
-//HC: from CBlockIndex inherit child class to inner owner pointer
+//HCE: Change implement of CDiskBlockIndex in order to improve the performance for CBlockIndex serialize
+//HCE: from CBlockIndex inherit child class to inner owner pointer
 class CDiskBlockIndex
 {
 public:
@@ -398,7 +398,7 @@ public:
 
     void Set(CBlockIndexSP pindex);
 
-    //HC:
+    //HCE:
     void SetBrief(const CBlockIndexSP& pindex, const uint256& hashchk);
 
     int GetDistanceBack();
@@ -756,13 +756,15 @@ private:
 
     static void HandleBlock(const BLOCKTRIPLEADDRESS& addrIn, const CBlock& block);
 private:
-    //HC: The latest block is contained by latest hyper block
+    //HCE: The latest block is contained by latest hyper block
     static CBlockIndexSSP _pindexLatest;
     static CBlockDiskLocator _mapBlockAddressOnDisk;
 };
 
 
-
+//HCE:
+//HCE: @brief Conditions that need to be met for mining .
+//HCE:
 class MiningCondition
 {
 public:
@@ -781,7 +783,9 @@ public:
         _eStatusCode = miningstatuscode::SyncingChain;
     }
 
-
+    //HCE: Evaluate whether mining meets the criteria
+    //HCE: @param NeighborIsMust Whether to have neighbors or not
+    //HCE: @returns true if mining condition is met.
     bool EvaluateIsAllowed(bool NeighborIsMust = true);
 
     bool IsMining()
@@ -808,7 +812,7 @@ public:
     BackTrackingProgress GetBackTrackingProcess() const { return _backTrackingProgress; }
 
 private:
-    //HC: check if my local Para chain data is different from seed server
+    //HCE: check if my local Para chain data is different from seed server
     bool IsTooFar();
 
     string StatusCodeToReason()
@@ -911,7 +915,7 @@ public:
 
     void addServer(const string& ipaddr, int nPort);
 
-    //HC: update seed server check point
+    //HCE: update seed server check point
     void updateSSCheckPoint(const CAddress& netaddr, const ChkPoint& cp);
 
     bool isSeedServer(const CAddress& netaddr);
@@ -975,7 +979,7 @@ public:
     static int nBackBlockCount;
 
 private:
-    //HC: seed servers' check point
+    //HCE: seed servers' check point
     map<CAddress, SSState> _mapserver;
     CCriticalSection _cs_seedserver;
 };
@@ -999,7 +1003,7 @@ public:
 
     void clear();
 
-    //HC: how to clean the bit flag?
+    //HCE: how to clean the bit flag?
     bool erase(const uint256& hashBlock);
 
     const BLOCKTRIPLEADDRESS& operator[](const uint256& hashBlock);
@@ -1014,7 +1018,7 @@ private:
 
 };
 
-//HC: LRU policy
+//HCE: LRU policy
 //T is non-pointer type
 template<class Storage>
 class CCacheLocator
@@ -1061,7 +1065,7 @@ public:
             }
         }
 
-        //HC: Is it in storage?
+        //HCE: Is it in storage?
         Storage db;
         CBlockIndex blkindex;
         CDiskBlockIndex diskindex(&blkindex);
@@ -1081,9 +1085,9 @@ public:
         return insert(value, true);
     }
 
-    //HC: Notice!!! don't access first of returning value(type std::pair), which maybe has changed, else it will cause crash
-    //HC: Notice!!! don't access first of returning value(type std::pair), which maybe has changed, else it will cause crash
-    //HC: Notice!!! don't access first of returning value(type std::pair), which maybe has changed, else it will cause crash
+    //HCE: Notice!!! don't access first of returning value(type std::pair), which maybe has changed, else it will cause crash
+    //HCE: Notice!!! don't access first of returning value(type std::pair), which maybe has changed, else it will cause crash
+    //HCE: Notice!!! don't access first of returning value(type std::pair), which maybe has changed, else it will cause crash
     bool insert(const value_type& value, bool newstorageelem)
     {
         const key_type& hashT = value.first;
@@ -1093,7 +1097,7 @@ public:
         {
             if (newstorageelem) {
                 Storage db;
-                //HC: only for debug
+                //HCE: only for debug
                 if (db.GetPtr()->GetTxn() != NULL) {
                     cerr << "Debug: Error occured, here why not null\n";
                 }
@@ -1147,9 +1151,9 @@ public:
                 return t;
             }
 
-            //HC: put it into cache
+            //HCE: put it into cache
             db.GetPtr()->ConstructBlockIndex(hashT, diskindex);
-            //HC: must return a index in block index cache
+            //HCE: must return a index in block index cache
             return fromcache(hashT);
         }
         return t;
@@ -1171,9 +1175,9 @@ public:
                 return t;
             }
 
-            //HC: put it into cache
+            //HCE: put it into cache
             db.GetPtr()->ConstructBlockIndex(hashT, diskindex);
-            //HC: must return a index in block index cache
+            //HCE: must return a index in block index cache
             return fromcache(hashT);
         }
         return t;
@@ -1255,7 +1259,7 @@ public:
     MsgHandler& GetMsgHandler() { return _msghandler; }
     CBlockLocatorEx& GetMTC() { return _maintrunkchain; }
 
-    //HC: Notice: set and at the same time return hash of check point
+    //HCE: Notice: set and at the same time return hash of check point
     void MTC_Set(uint256& hashchk);
     void MTC_Save();
     bool MTC_Have(const CBlockIndexSP& pindex);

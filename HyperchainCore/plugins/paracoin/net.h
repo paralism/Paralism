@@ -57,7 +57,7 @@ extern int nConnectTimeout;
 using CBlockIndexSP = shared_ptr_proxy<CBlockIndex>;
 #endif
 
-//HC: Amule is 1300 for a slice
+//HCE: Amule is 1300 for a slice
 inline unsigned int ReceiveBufferSize() { return 1000 * GetArg("-maxreceivebuffer", 60 * 1000); }
 inline unsigned int SendBufferSize() { return 1000 * GetArg("-maxsendbuffer", 60 * 1000); }
 static const unsigned int PUBLISH_HOPS = 5;
@@ -82,8 +82,8 @@ enum
 {
     MSG_TX = 1,
     MSG_BLOCK,
-    MSG_BLOCKEX,    //HC: reply type of "fgetblocks"
-    MSG_BLOCKEX_R,  //HC: reply type of "rgetblocks"
+    MSG_BLOCKEX,    //HCE: reply type of "fgetblocks"
+    MSG_BLOCKEX_R,  //HCE: reply type of "rgetblocks"
 };
 
 class CRequestTracker
@@ -151,7 +151,7 @@ typedef struct ChkPoint
 
     IMPLEMENT_SERIALIZE
     (
-        //HC: we can use parameter:nVersion to distinguish any change of type define
+        //HCE: we can use parameter:nVersion to distinguish any change of type define
         if (!(nType & SER_GETHASH))
             READWRITE(nVersion);
 
@@ -215,7 +215,7 @@ public:
     int64 nLastRecv;
     int64 nLastSendEmpty;
     int64 nTimeConnected;
-    //HC: PushMessage(getchkblock) time
+    //HCE: PushMessage(getchkblock) time
     int64 nLastGetchkblk = 0;
     unsigned int nHeaderStart;
     unsigned int nMessageStart;
@@ -230,12 +230,21 @@ public:
     std::string nodeid;
 
     //HC: 节点评分,和发送流量控制，避免网速不匹配导致请求过多而浪费网络带宽
+    //HCE: Node scoring and sending traffic control to avoid wasting network bandwidth due to excessive requests due to network speed mismatches
     int nScore = 0;
     int64 tmLastReqBlk = 0;
-    int nMinInterval = 5;      //HC：块请求最小间隔
-    int64 nReqBlkInterval = 5; //HC: 块请求间隔，nScore越小， nReqblk 越大
 
-    deque<uint> deqNetPingCost;      //HC: 单位ms
+    //HC: 块请求最小间隔
+    //HCE: Block request minimum interval
+    int nMinInterval = 5;      
+
+    //HC: 块请求间隔，nScore越小， nReqblk 越大
+    //HCE: Block request interval, nScore is smaller, nReqblk is larger
+    int64 nReqBlkInterval = 5; 
+
+    //HC: 单位ms
+    //HCE: Unit is ms
+    deque<uint> deqNetPingCost;
     uint nAvgPingCost = 0xffffffff;
 
     void RecordSpeed(uint tmDiff)
@@ -258,7 +267,10 @@ public:
 
     vector<CInv> vfgetblocksInv;
     set<uint256> setfgetblocksInv;
-    time_t tmlastrecvfgetblock = 0; //HC: 最后一次收到块清单时间
+
+    //HC: 最后一次收到块清单时间
+    //HCE: The last time the block inventory was received
+    time_t tmlastrecvfgetblock = 0;
 
     CInv fgetInvContinue;
     time_t tmlastfget = 0;
@@ -303,18 +315,18 @@ public:
     std::vector<CInv> vInventoryToSend;
     CCriticalSection cs_inventory;
 
-    //HC: change multimap to map
+    //HCE: change multimap to map
     std::multimap<int64, CInv> mapAskFor;
     CCriticalSection cs_askfor;
 
     // publish and subscription
     std::vector<char> vfSubscribe;
 
-    //HC:
+    //HCE:
     std::map<uint256, std::tuple<int64, uint256>> mapBlockSent;
     std::list<decltype(mapBlockSent.begin())> listBlockSent;
 
-    //HC:
+    //HCE:
     ChkPoint chkpoint;
 
     int64 tmlastgotchkp = 0;
@@ -415,7 +427,7 @@ public:
 
     void AddInventoryKnown(const CInv& inv)
     {
-        //HC: do nothing
+        //HCE: do nothing
         return;
         CRITICAL_BLOCK(cs_inventory)
             setInventoryKnown.insert(inv);
@@ -425,7 +437,7 @@ public:
     {
         CRITICAL_BLOCK(cs_inventory)
         {
-            //HC: Don't put into setInventoryKnown
+            //HCE: Don't put into setInventoryKnown
             //if (!setInventoryKnown.count(inv))
             vInventoryToSend.push_back(inv);
         }

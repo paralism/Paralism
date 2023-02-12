@@ -29,7 +29,6 @@ string const c_timestamp = "timestamp";
 string const c_difficulty = "difficulty";
 string const c_extraData = "extraData";
 
-//HC:
 string const c_previousHID = "previousHID";
 string const c_previousHHash = "previousHHash";
 

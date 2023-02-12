@@ -189,8 +189,7 @@ static inline void evmc_release_result(struct evmc_result* result)
  */
 union evmc_result_optional_storage
 {
-    //HC: 32 bytes when compiling debug version
-#ifdef _DEBUG
+    #ifdef _DEBUG
     uint8_t bytes[32]; /**< 32 bytes of optional storage. */
 #else
     uint8_t bytes[24]; /**< 24 bytes of optional storage. */

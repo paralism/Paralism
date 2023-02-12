@@ -65,7 +65,7 @@ extern void FreeGlobalMemeory();
 extern void StartMQHandler();
 extern void StopMQHandler();
 
-//HC: SegWit
+//HCE: SegWit
 extern void SelectParams();
 extern void RandomInit();
 extern void ECC_Start();
@@ -168,7 +168,7 @@ void ShutdownExcludeRPCServer()
     delete pwalletMain;
     pwalletMain = nullptr;
 
-    //HC: CRITICAL_BLOCK(cs_vNodes)
+    //HCE: CRITICAL_BLOCK(cs_vNodes)
     //{
     vNodes.clear();
     //}
@@ -212,7 +212,7 @@ void Shutdown(void* parg)
         delete pwalletMain;
         //CreateThread(ExitTimeout, NULL);
 
-        //HC: It is very important to select a position to stop MQ
+        //HCE: It is very important to select a position to stop MQ
         StopMQHandler();
 
         FreeGlobalMemeory();
@@ -231,7 +231,7 @@ void HandleSIGTERM(int)
 
 bool LoadCryptoToken()
 {
-    //HC: which coin will be used?
+    //HCE: which coin will be used?
     CApplicationSettings appini;
     string defaultAppHash;
     appini.ReadDefaultApp(defaultAppHash);
@@ -251,7 +251,7 @@ bool LoadCryptoToken()
             tokenhash = defaultAppHash;
         }
         else {
-            //HC: use built-in token
+            //HCE: use built-in token
             tokenhash = g_cryptoToken.GetHashPrefixOfGenesis();
         }
 
@@ -261,7 +261,7 @@ bool LoadCryptoToken()
         appini.WriteDefaultApp(tokenhash);
     }
 
-    //HC: load token
+    //HCE: load token
     bool isSysToken = true;
     if (g_cryptoToken.GetHashPrefixOfGenesis() != tokenhash) {
         isSysToken = false;
@@ -274,7 +274,7 @@ bool LoadCryptoToken()
 
     hashGenesisBlock = g_cryptoToken.GetHashGenesisBlock();
 
-    //HC: change data directory
+    //HCE: change data directory
     string strLedgerDir = CreateChildDir(g_cryptoToken.GetTokenConfigPath());
     strlcpy(pszSetDataDir, strLedgerDir.c_str(), sizeof(pszSetDataDir));
 
@@ -392,7 +392,7 @@ bool AppInit2(int argc, char* argv[])
     if (mapArgs.count("-model") && mapArgs["-model"] == "informal")
         pro_ver = ProtocolVer::NET::INFORMAL_NET;
 
-    //HC: which token will be used?
+    //HCE: which token will be used?
     LoadCryptoToken();
 
     if (!fDebug && !pszSetDataDir[0])
@@ -444,7 +444,7 @@ bool AppInit2(int argc, char* argv[])
         strErrors += _("Error loading addr.dat      \n");
     TRACE_FL(" addresses   %15" PRI64d " ms\n", GetTimeMillis() - nStart);
 
-    //HC:
+    //HCE:
     INFO_FL("Loading blocks will to do global buddy consensus...\n");
     LoadBlockUnChained();
 
@@ -467,7 +467,7 @@ bool AppInit2(int argc, char* argv[])
     }
     int nLoadWalletRet = pwalletMain->LoadWallet(fFirstRun);
 
-    //HC: import key into wallet
+    //HCE: import key into wallet
     if (GetBoolArg("-importkey") && g_cryptoToken.IsSysToken()) {
         CKey key;
         if (ReadKeyFromFile(key)) {
@@ -500,7 +500,7 @@ bool AppInit2(int argc, char* argv[])
         }
     }
 
-    //HC: import genesis transactions.
+    //HCE: import genesis transactions.
     if (GetBoolArg("-scangenesis") || pindexBest == pindexGenesisBlock) {
         pwalletMain->ScanForWalletTransactions(pindexBest, true);
     }
@@ -538,7 +538,7 @@ bool AppInit2(int argc, char* argv[])
 
     //// debug print
     TRACE_FL("mapBlockIndex.size() = %d\n", mapBlockIndex.size());
-    //HC:
+    //HCE:
     //TRACE_FL("nBestHeight = %d\n", nBestHeight);
     TRACE_FL("setKeyPool.size() = %d\n", pwalletMain->setKeyPool.size());
     TRACE_FL("mapWallet.size() = %d\n", pwalletMain->mapWallet.size());
@@ -552,7 +552,7 @@ bool AppInit2(int argc, char* argv[])
     // Add wallet transactions that aren't already in a block to mapTransactions
     pwalletMain->ReacceptWalletTransactions();
 
-    //HC: Set public key index
+    //HCE: Set public key index
     g_cryptoToken.SearchPublicKeyIdx();
     g_PBFT.Init();
 
@@ -610,7 +610,7 @@ bool AppInit2(int argc, char* argv[])
                 AddAddress(addr);
         }
     }
-    //HC: remove dns seed
+    //HCE: remove dns seed
     //if (GetBoolArg("-nodnsseed"))
     //    printf("DNS seeding disabled\n");
     //else
@@ -640,7 +640,7 @@ bool AppInit2(int argc, char* argv[])
 
     RandAddSeedPerfmon();
 
-    //HC: Register ledger callbacks,for example when a new block become onchained,one of callbacks is called.
+    //HCE: Register ledger callbacks,for example when a new block become onchained,one of callbacks is called.
     ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::getInstance();
     if (consensuseng) {
         CONSENSUSNOTIFY ledgerGenesisCallback =

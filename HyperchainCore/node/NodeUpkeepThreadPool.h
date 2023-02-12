@@ -30,6 +30,7 @@ using namespace std;
 using std::chrono::system_clock;
 
 //HC: 节点维护线程池
+//HCE: Node upkeep thread pool
 class NodeUPKeepThreadPool
 {
 public:
@@ -38,33 +39,55 @@ public:
 
     void start();
     void stop();
+
+    //HCE: Add a node id to pinglist
+    //HCE: @para nodeid Node id
     void AddToPingList(const CUInt128 nodeid);
-    void AddToPingList(vector<CUInt128>& vecNewNode);//HC：K桶里被挤走的节点进入Ping列表
+
+    //HCE: Add a vector of node id to pinglist
+    //HCE: @para vecNewNode Node id vector
+    void AddToPingList(vector<CUInt128>& vecNewNode);   //HC：K桶里被挤走的节点进入Ping列表
+                                                        //HCE: Put nodes not in KBucket into ping list
+    //HCE: Remove a node id from pinglist
+    //HCE: @para nodeid Node id
     void RemoveNodeFromPingList(const CUInt128& nodeid);
 
+    //HCE: Ping to nodes in nodelist
     void NodePing();
+
     void NodeFind();
 
-	//HC: 外网节点定期广播邻居节点信息
+	//HC: 定期广播邻居节点信息
+    //HCE: Broadcast neighbor nodes infomation regularly
     void BroadcastNeighbor();
 
 private:
 
+    //HCE: Init pulllist,put the nodes in _nodemap into pulllist first
     void InitPullList();
+
+    //HCE: Prepare pulllist
     void PreparePullList();
 
     std::set<CUInt128>& getPingNodeSet();
     std::set<CUInt128>& getAddNodeSet();
 
+    //HCE: Prepare ping node set
     void PreparePingSet();
+
+    //HCE: Start ping task using ping list
     void DoPing();
+
+    //HCE: Start NodePing after nDelaySecond 
     void EmitPingSignal(int nDelaySecond);
 
+    //HCE: Update broadcast node list.Remove the nodes that do not update in time out of active node list
     void UpdateBroadcastMap();
 
     std::list<CUInt128> m_lstPullNode;
 
     //HC: 一个集合用于ping，一个集合添加节点，到ping的时候切换
+    //HCE: a set to ping, a set to add nodes, and switch when ping start
     bool                m_pingSecSet;
     std::set<CUInt128> m_setPingNode1;
     std::set<CUInt128> m_setPingNode2;

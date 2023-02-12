@@ -87,8 +87,7 @@ Json::Value toJson(dev::eth::BlockHeader const& _bi, SealEngineFace* _sealer)
         res["logsBloom"] = toJS(_bi.logBloom());
         res["timestamp"] = toJS(_bi.timestamp());
 
-        //HC:
-        res["prevHID"] = toJS(_bi.prevHID());
+                res["prevHID"] = toJS(_bi.prevHID());
         res["prevHyperBlockHash"] = toJS(_bi.prevHyperBlkHash());
 
         // TODO: remove once JSONRPC spec is updated to use "author" over "miner".

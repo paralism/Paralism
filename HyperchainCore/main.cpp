@@ -93,7 +93,8 @@ using namespace boost::program_options;
 #include <client/linux/handler/exception_handler.h>
 #endif
 
-
+//HCE: Get the directoty of the hyper chain data
+//HCE: @returns The directoty string 
 string GetHyperChainDataDir()
 {
     boost::filesystem::path pathDataDir;
@@ -122,6 +123,8 @@ string GetHyperChainDataDir()
     return pathDataDir.string();
 }
 
+//HCE: Create a child branch of the hyper chain data directory
+//HCE: @returns The child directoty string 
 string CreateChildDir(const string& childdir)
 {
     string log_path = GetHyperChainDataDir();
@@ -133,11 +136,15 @@ string CreateChildDir(const string& childdir)
     return logpath.string();
 }
 
+//HCE: Create a log branch of the hyper chain data directory
+//HCE: @returns The log directoty string 
 static std::string make_log_path()
 {
     return CreateChildDir("hyperchain_logs");
 }
 
+//HCE: Create a db branch of the hyper chain data directory
+//HCE: @returns The db directoty string 
 static std::string make_db_path()
 {
     return CreateChildDir("hp");
@@ -146,6 +153,8 @@ static std::string make_db_path()
 extern NodeType g_nodetype;
 string g_localip;
 
+//HCE: Check if local time is close to ntp time enough
+//HCE: @returns True if it is  
 bool CheckLocalTime()
 {
     bool Flag = false;
@@ -200,10 +209,12 @@ bool CheckLocalTime()
             }
 
             //HC: 时间误差为10秒(含)内
+            //HCE: time error must be equal or less than 10 seconds
             if (delay <= 10)
                 return true;
 
             //HC: 设置系统时间为网络时间
+            //HCE: set system time to ntp time
             cout << "System time has big difference with ntpserver and will stop only if set time to ntpserver time!" << endl;
             cout << "Do you want to set time to ntpserver time?(y/n, default:n)?";
 
@@ -243,6 +254,7 @@ bool CheckLocalTime()
             }
 
             //HC: 没有设置或没有成功
+            //HCE: failed to set time
             char ntpstamp[32] = { 0 };
             strftime(ntpstamp, 32, "%Y-%m-%d %H:%M:%S", std::localtime(&tt));
 
@@ -348,6 +360,7 @@ bool GetLocalHostInfo()
 
 }
 
+//HCE: Generate node list
 void GenerateNodeslist()
 {
     size_t found = g_localip.find_last_of('.');
@@ -364,7 +377,7 @@ void GenerateNodeslist()
     int myip = std::stoi(g_localip.substr(found + 1));
 
     for (int i = 1; i < 255; i++) {
-        //HC: for example: 10.0.0.1-10.0.0.254
+        //HCE: for example: 10.0.0.1-10.0.0.254
         if (i == myip)
             continue;
 
@@ -386,6 +399,11 @@ void GenerateNodeslist()
     }
 }
 
+//HCE: Parse a net address to ip string and port integer
+//HCE: @para netaddress Net address string
+//HCE: @para ip IP string
+//HCE: @para port Net port integer
+//HCE: @returns void
 void parseNetAddress(const string &netaddress, string &ip, int &port)
 {
     size_t found = netaddress.find_first_of(':');
@@ -431,13 +449,16 @@ void parseNetAddress(const string &netaddress, string &ip, int &port)
 
 static char vNodeID[] = "0123456789abcdef";
 
+//HCE: Add seed servers to NodeManager::seedServer
+//HCE: @para seedservers Vector of the seed server string
+//HCE: @returns void
 void makeSeedServer(const vector<string> & seedservers)
 {
     NodeManager *nodemgr = Singleton<NodeManager>::instance();
     int i = 0;
     for (auto &ss : seedservers) {
         if (i > 15) {
-            //HC: at mostly 16 seed servers
+            //HCE: at mostly 16 seed servers
             break;
         }
         string nodeid(CUInt128::value * 2, vNodeID[i++]);
@@ -451,6 +472,11 @@ void makeSeedServer(const vector<string> & seedservers)
     }
 }
 
+//HCE: Generate node id if it is a new node
+//HCE: @para vm Map<string, string>,contains my udpip and port
+//HCE: @para udpip Udp ip contained in vm
+//HCE: @para udpport Udp port contained in vm
+//HCE: @returns void
 void initNode(const map<string, string>& vm, string& udpip, int& udpport)
 {
     NodeManager *nodemgr = Singleton<NodeManager>::getInstance();
@@ -507,12 +533,12 @@ public:
         std::string dlog = logpath + "/hyperchain.log";
         std::string flog = logpath + "/hyperchain_basic.log";
         std::string rlog = logpath + "/hyperchain_rotating.log";
-        spdlog::set_level(spdlog::level::err); //HC: Set specific logger's log level
+        spdlog::set_level(spdlog::level::err); //HCE: Set specific logger's log level
         spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] [thread %t] %v");
         g_daily_logger = spdlog::daily_logger_mt("daily_logger", dlog.c_str(), 0, 30);
         g_daily_logger->set_level(spdlog::level::info);
         g_basic_logger = spdlog::basic_logger_mt("file_logger", flog.c_str());
-        //HC: Create a file rotating logger with 100M size max and 3 rotated files.
+        //HCE: Create a file rotating logger with 100M size max and 3 rotated files.
         g_rotating_logger = spdlog::rotating_logger_mt("rotating_logger", rlog.c_str(), 1048576 * 100, 3);
         g_console_logger = spdlog::stdout_color_mt("console");
         g_console_logger->set_level(spdlog::level::err);
@@ -538,6 +564,8 @@ extern int g_argc;
 extern char **g_argv;
 bool g_isChild = false;
 
+//HCE: stop all applications and services in the program
+//HCE: @returns void
 void stopAll()
 {
     if (g_appPlugin) {
@@ -598,6 +626,7 @@ void stopAll()
     }
 }
 
+//HCE: When exception occurs,stop all and reboot
 #ifdef WIN32
 bool dumpCallback(const wchar_t* dump_path,
     const wchar_t* minidump_id,
@@ -678,6 +707,7 @@ bool dumpCallback(const google_breakpad::MinidumpDescriptor& descriptor, void* c
 
 #endif
 
+//HCE: stop ConsoleCommandHandler
 void signalHandler(int sig)
 {
     ConsoleCommandHandler* console =
@@ -687,6 +717,8 @@ void signalHandler(int sig)
     }
 }
 
+//HCE: Get command line string
+//HCE: @returns command line string
 string getMyCommandLine(int argc, char *argv[])
 {
     string commandline;
@@ -697,6 +729,7 @@ string getMyCommandLine(int argc, char *argv[])
     return commandline;
 }
 
+//HCE: Parse parameters from args infomation
 void ParseParameters(int argc, char* argv[])
 {
     mapHCArgs.clear();
@@ -723,6 +756,7 @@ void ParseParameters(int argc, char* argv[])
     }
 }
 
+//HCE: @bref The class CloneArgs is used to clone args infomation
 class CloneArgs
 {
 public:
@@ -782,12 +816,14 @@ inline const char* _(const char* psz)
 static bool foreground = true;
 static google_breakpad::ExceptionHandler* exceptionhandler = nullptr;
 
-//every 13 hours to check if there is update;
-void checkupdate()
+//HCE: Every 13 hours to check if HC program has update
+//HCE: @para pathHC The path HC program locates
+//HCE: @returns void
+void checkupdate(boost::filesystem::path pathHC)
 {
     while (true) {
-        //Check if needs to update
-        UpdateInfo updateinfo;
+        //HCE: Check if HC needs to update
+        UpdateInfo updateinfo(pathHC);
         string localmd5;
 
         if (updateinfo.GetUpdateInfo()) {
@@ -816,17 +852,13 @@ void checkupdate()
     }
 }
 
+//HCE: main program entry
 int main(int argc, char *argv[])
 {
     SoftwareInfo();
 
     if (!CheckLocalTime())
         return 0;
-
-    //boost::filesystem::path pathHC(argv[0]);
-    //pathHC = pathHC.branch_path() / ".";
-    //pathHC = boost::filesystem::system_complete(pathHC);
-    //boost::filesystem::current_path(pathHC);
 
     ParseParameters(argc, argv);
     ProgramConfigFile::LoadSettings();
@@ -848,7 +880,7 @@ int main(int argc, char *argv[])
         "  -model=<type>   \t\t   " + _("which network node will be connected to, type can be sandbox, informal or formal (default: sandbox)\n") +
         "  -datadir=<dir>   \t\t  " + _("Specify data directory\n") +
         "  -conf[=file]     \t\t  " + _("Specify configuration file (default: <datadir>/<model>/hc.cfg)\n") +
-        //HC: Paracoin and Ledger parameter
+        //HCE: Paracoin and Ledger parameter
         "  -with=<app>      \t\t  " + _("Start with application, for example:-with=ledger, -with=paracoin\n") +
         //"  -pid=<file>      \t\t  " + _("Specify pid file (default: bitcoind.pid)\n") +
         //"  -gen             \t\t  " + _("Generate coins\n") +
@@ -894,7 +926,7 @@ int main(int argc, char *argv[])
         "  -rpcsslciphers=<ciphers>               \t  " + _("Acceptable ciphers (default: TLSv1+HIGH:!SSLv2:!aNULL:!eNULL:!AH:!3DES:@STRENGTH)\n");
 #endif
 
-    // Remove tabs
+    //HCE: Remove tabs
     strUsage.erase(std::remove(strUsage.begin(), strUsage.end(), '\t'), strUsage.end());
 
     if (mapHCArgs.size() == 0 || mapHCArgs.count("-?") || mapHCArgs.count("--help")) {
@@ -981,7 +1013,7 @@ int main(int argc, char *argv[])
 #endif
 
     if (mapHCArgs.count("-connect")) {
-        //HC: run as client and connect to server
+        //HCE: run as client and connect to server
         string strServer = mapHCArgs.at(string("-connect"));
 
         int port = 8115;
@@ -1093,7 +1125,7 @@ int main(int argc, char *argv[])
         cout << "NodeManager MQID: " << Singleton<NodeManager>::getInstance()->MQID() << endl << endl;
     }
     else {
-        //HC: application RPC query client
+        //HCE: application RPC query client
         g_appPlugin->StartAllApp();
     }
 
@@ -1103,7 +1135,11 @@ int main(int argc, char *argv[])
         netserver.start(port);
     }
 
-    std::thread thrCheck(checkupdate);
+    boost::filesystem::path pathHC(argv[0]);
+    pathHC = pathHC.branch_path() / ".";
+    pathHC = boost::filesystem::system_complete(pathHC);
+
+    std::thread thrCheck(checkupdate, pathHC);
     thrCheck.detach();
 
     ConsoleCommandHandler *console =
@@ -1117,8 +1153,10 @@ int main(int argc, char *argv[])
 
     stopAll();
 
-    if (console->_bUpdate)
+    if (console->_bUpdate) {
+        boost::filesystem::current_path(pathHC);
         execlp("./Autoupdate", "Autoupdate", (char*)0);
+    }
 
     return 0;
 }

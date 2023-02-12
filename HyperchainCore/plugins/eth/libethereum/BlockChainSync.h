@@ -41,6 +41,9 @@ public:
     /// Restart sync
     void restartSync();
 
+    //HC: 
+    void SyncfromPeers();
+
     /// Called after all blocks have been downloaded
     /// Public only for test mode
     void completeSync();
@@ -67,11 +70,12 @@ public:
 
     /// @returns Synchonization status
     SyncStatus status() const;
+    SyncStatus statusNoLock() const; //HC:
 
     static char const* stateName(SyncState _s) { return s_stateNames[static_cast<int>(_s)]; }
 
 private:
-    /// Resume downloading after witing state
+    /// Resume downloading after writing state
     void continueSync();
 
     /// Enter waiting state

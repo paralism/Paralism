@@ -15,6 +15,9 @@
 #include <libdevcore/TrieHash.h>
 #include <libethcore/Exceptions.h>
 #include <libethcore/SealEngine.h>
+
+#include <libethereum/hyperchaininfo.h>
+
 #include <libevm/VMFactory.h>
 #include <boost/filesystem.hpp>
 #include <ctime>
@@ -212,6 +215,14 @@ bool Block::sync(BlockChain const& _bc, h256 const& _block, BlockHeader const& _
     {
         // No change since last sync.
         // Carry on as we were.
+        // 
+        //HCE: Check if Hyperblock has changed
+        h256 hhash;
+        uint32_t hid = LatestHyperBlock::GetHID(&hhash);
+        if (hid != m_currentBlock.prevHID() || hhash != m_currentBlock.prevHyperBlkHash()) {
+            resetCurrent();
+            ret = true;
+        }
     }
     else
     {
@@ -285,6 +296,13 @@ pair<TransactionReceipts, bool> Block::sync(BlockChain const& _bc, TransactionQu
     Transactions transactions = _tq.topTransactions(c_maxSyncTransactions, m_transactionSet);
     ret.second = (transactions.size() == c_maxSyncTransactions);  // say there's more to the caller
                                                                   // if we hit the limit
+
+    //if (_bc.currentHash() != m_currentBlock.parentHash()) {
+    //    BlockHeader h = BlockHeader(_bc.headerData(), BlockDataType::HeaderData);
+    //    LOG(m_logger) << "Block::sync:\n"
+    //        << h << "\n"
+    //        << m_currentBlock;
+    //}
 
     assert(_bc.currentHash() == m_currentBlock.parentHash());
     auto deadline =  chrono::steady_clock::now() + chrono::milliseconds(msTimeout);
@@ -658,8 +676,6 @@ void Block::applyRewards(vector<BlockHeader> const& _uncleBlockHeaders, u256 con
     m_state.addBalance(m_currentBlock.author(), r);
 }
 
-//HC: https://www.jianshu.com/p/d0a38627ea36
-//HC: 这段代码判断如果当前块高度为1920000时，遍历所有的DAO账号，将所有余额转到recipient中，recipient就是那个退款合约账户
 void Block::performIrregularModifications()
 {
     u256 const& daoHardfork = m_sealEngine->chainParams().daoHardforkBlock;

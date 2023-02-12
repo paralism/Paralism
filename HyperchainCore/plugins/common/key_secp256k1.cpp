@@ -3,8 +3,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-//HC: This file is token from key.cpp of Bitcoin
-//HC: Rename CKey to CKey_Secp256k1
+//HCE: This file is token from key.cpp of Bitcoin
+//HCE: Rename CKey to CKey_Secp256k1
 
 #include <key_secp256k1.h>
 

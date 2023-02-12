@@ -29,6 +29,7 @@ using namespace std;
 
 
 //HC: 握手响应任务
+//HCE: handshake task
 class PingPongTask : public ITask, public std::integral_constant<TASKTYPE, TASKTYPE::PING_PONG> {
 public:
     using ITask::ITask;
@@ -39,7 +40,8 @@ public:
     void execRespond() override;
 
 private:
-    vector<CUInt128> _vNodes; //HC: 发送对象
+    vector<CUInt128> _vNodes;   //HC: 发送对象
+                                //HCE: Send node
 };
 
 class PingPongRspTask : public ITask, public std::integral_constant<TASKTYPE, TASKTYPE::PING_PONG_RSP>
@@ -54,5 +56,6 @@ public:
 
 private:
     CUInt128 _fromNodeId;
-    string _msg; //HC:  请求握手者的节点信息
+    string _msg;    //HC:  请求握手者的节点信息
+                    //HCE: Handshake node infomation 
 };

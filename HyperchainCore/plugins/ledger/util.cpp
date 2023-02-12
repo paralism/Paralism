@@ -478,7 +478,7 @@ void PrintException(std::exception* pex, const char* pszThread)
     printf("\n\n************************\n%s\n", pszMessage);
     fprintf(stderr, "\n\n************************\n%s\n", pszMessage);
     strMiscWarning = pszMessage;
-    //HC:
+    //HCE:
     //throw;
 }
 

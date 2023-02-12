@@ -66,6 +66,9 @@ namespace pod = boost::program_options::detail;
 
 std::string g_strSysStartTm = time2string(time(nullptr));
 
+//HCE: Get file name from full path
+//HCE: @para fullpath Full path string
+//HCE: @returns File name string
 string FileNameFromFullPath(const string &fullpath)
 {
     size_t s = fullpath.find_last_of("/\\");
@@ -75,6 +78,9 @@ string FileNameFromFullPath(const string &fullpath)
     return fullpath;
 }
 
+//HCE: Trim whitespaces(" \t\f\v\n\r") in a string
+//HCE: @para str String to trim
+//HCE: @returns void
 void trim(string &str)
 {
     std::string whitespaces(" \t\f\v\n\r");
@@ -92,7 +98,6 @@ void trim(string &str)
     if (found != std::string::npos)
         str.erase(0, found);
 }
-
 
 string ProgramConfigFile::GetCfgFile(const string& cfgfile)
 {
@@ -128,7 +133,7 @@ void ProgramConfigFile::LoadSettings(const string& scfgfile)
 
     try {
         for (pod::config_file_iterator it(streamConfig, setOptions), end; it != end; ++it) {
-            // Don't overwrite existing settings so command line settings override hc.conf
+            //HCE: Don't overwrite existing settings so command line settings override hc.conf
             string strKey = string("-") + it->string_key;
             if (mapHCArgs.count(strKey) == 0)
                 mapHCArgs[strKey] = it->value[0];
@@ -229,11 +234,11 @@ int SocketClientStreamBuf::FlushBuffer()
                 { static_cast<void*>(*m_client), 0, ZMQ_POLLIN, 0 } };
             zmq::poll(items, 1, 100);
 
-            //HC: If we got a reply, process it
+            //HCE: If we got a reply, process it
             if (items[0].revents & ZMQ_POLLIN) {
                 zmsg* recv_msg = new zmsg(*m_client);
 
-                //HC: Don't try to handle errors, just assert noisily
+                //HCE: Don't try to handle errors, just assert noisily
                 assert(recv_msg->parts() >= 1);
 
                 std::string header = recv_msg->pop_front();
@@ -249,7 +254,7 @@ int SocketClientStreamBuf::FlushBuffer()
                     return 0;
                 }
 
-                //HC: Reconnect, and resend message
+                //HCE: Reconnect, and resend message
                 if (retries > max_retries && reconn < max_reconn) {
                     connect_to();
                     reconn++;
@@ -480,7 +485,7 @@ void ConsoleCommandHandler::showUsages()
     _ostream << "   local(l):                       show local data information" << endl;
     _ostream << "   down(d):                        download specified hyper blocks from HyperChain-Space to local" << endl;
     _ostream << "                                       d <nodeid> <hid> [blockcount] " << endl;
-    _ostream << "   search(se):                     search detail information for a number of specified hyper blocks,show child chains with 'v'" << endl;
+    _ostream << "   search(se):                     search detail information for a number of specified hyper blocks,show subchains with 'v'" << endl;
     _ostream << "                                       se [hid] [v], se [from hid1] [to hid2] [v], se -1 v" << endl;
     _ostream << "   submit(sm):                     submit data onto the chain: submit <data>" << endl;
     _ostream << "   query(qr):                      query status of the submitted data on the chain: query <requestid>" << endl;
@@ -508,12 +513,16 @@ void ConsoleCommandHandler::showUsages()
 
 bool ConsoleCommandHandler::UpdateProgram()
 {
-    //Check if needs to update
-    UpdateInfo updateinfo;
+    //HC:Get hc.exe path
+    boost::filesystem::path pathHC(g_argv[0]);
+    pathHC = pathHC.branch_path() / ".";
+    pathHC = boost::filesystem::system_complete(pathHC);
+
+    //HC:Check if needs to update
+    UpdateInfo updateinfo(pathHC);
 
     string localmd5;
     bool bCheckUpdate = false;
-
 
     if (updateinfo.GetUpdateInfo()) {
         if (updateinfo.CheckUpdate())
@@ -566,7 +575,7 @@ void ConsoleCommandHandler::exit()
     cin >> std::noskipws >> c_action;
 
     //if (cin.rdbuf()->in_avail() > 0) {
-    //HC: on Linux, have no any effect for calling cin.rdbuf()->in_avail
+    //HCE: on Linux, have no any effect for calling cin.rdbuf()->in_avail
     //if (cin.rdbuf()->sgetc() != streambuf::traits_type::eof()) {
     if (c_action != '\n') {
         cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
@@ -652,7 +661,7 @@ void ConsoleCommandHandler::run_as_client()
             continue;
         }
         else if (command == "clh") {
-            //clear the history of commands
+            //HCE: clear the history of commands
             lineedit.clearhistories();
             continue;
         }
@@ -717,7 +726,7 @@ void ConsoleCommandHandler::run(role r)
             continue;
         }
         else if (command == "clh") {
-            //clear the history of commands
+            //HCE: clear the history of commands
             lineedit.clearhistories();
             continue;
         }
@@ -741,7 +750,7 @@ void ConsoleCommandHandler::run(role r)
 void ConsoleCommandHandler::stop()
 {
     _isRunning = false;
-    //HC: make getline return
+    //HCE: make getline return
     _istream.rdbuf()->sputn("xstop\n", 6);
 }
 
@@ -861,7 +870,7 @@ void ConsoleCommandHandler::downloadHyperBlock(const list<string> &commlist)
     std::advance(iterCurrPos, 1);
     string strnodeid = *iterCurrPos;
 
-    //Test strnode id
+    //HCE: Test strnode id
     CUInt128 test(strnodeid);
 
     std::advance(iterCurrPos, 1);
@@ -928,12 +937,12 @@ void ConsoleCommandHandler::showHyperBlock(uint64 hid, bool isShowDetails)
         _ostream << "PreHyper Block Hash:   " << h.GetPreHash().toHexString() << endl;
         _ostream << "PreHyper Block Header Hash:   " << h.GetPreHeaderHash().toHexString() << endl;
         _ostream << "Hyper Block Weight:    " << h.GetWeight() << endl;
-        _ostream << "Child Chains count:    " << h.GetChildChainsCount() << endl;
-        _ostream << "Child blocks count:    " << h.GetChildBlockCount() << endl;
+        _ostream << "subchains count:    " << h.GetChildChainsCount() << endl;
+        _ostream << "subblocks count:    " << h.GetChildBlockCount() << endl;
 
         int nChainID = 1;
         for (auto& chain : h.GetChildChains()) {
-            _ostream << StringFormat("\tChild Chain %d:\t", nChainID++);
+            _ostream << StringFormat("\tsubchain %d:\t", nChainID++);
             for (auto& l : chain) {
                 _ostream << l.GetAppType().tohexstring();
                 break;
@@ -948,7 +957,7 @@ void ConsoleCommandHandler::showHyperBlock(uint64 hid, bool isShowDetails)
             for (auto& chain : h.GetChildChains()) {
                 _ostream << StringFormat("*********************** The %d Chain Details *****************************\n\n", nChainID++);
                 for (auto& l : chain) {
-                    _ostream << "Child Block Id:    " << l.GetID() << endl;
+                    _ostream << "subblock Id:    " << l.GetID() << endl;
                     _ostream << "Version:           " << l.GetVersion().tostring() << endl;
                     _ostream << "Application Type:  " << l.GetAppType().tohexstring() << endl;
                     _ostream << "Chain number:      " << l.GetChainNum() << endl;
@@ -1004,7 +1013,7 @@ void ConsoleCommandHandler::searchLocalHyperBlock(const list<string> &commlist)
             }
         }
 
-        //HC: support <0 value
+        //HCE: support <0 value
         if (nblocknum < 0) {
             nblocknum = nCurrHeight + nblocknum;
         }
@@ -1085,7 +1094,7 @@ void ConsoleCommandHandler::resolveAppData(const list<string> &paralist)
     }
 
     if (paralist.size() == 3) {
-        //HC: query address by height
+        //HCE: query address by height
         int32 height = std::stoi(*(++para));
         f->appResolveHeight(height, info);
         _ostream << StringFormat("%s\n", info.c_str());
@@ -1097,7 +1106,7 @@ void ConsoleCommandHandler::resolveAppData(const list<string> &paralist)
         return;
     }
 
-    //HC: Resolve payload into application block
+    //HCE: Resolve payload into application block
     int64 hID = std::stol(*(++para));
     int16 chainID = std::stoi(*(++para));
     int16 localID = std::stoi(*(++para));
@@ -1448,7 +1457,7 @@ void ConsoleCommandHandler::switchRemoteServer(const list<string>& cmdlist)
         goto usage;
     }
 
-    //HC: a new remote server
+    //HCE: a new remote server
     ipaddr = ccmd;
     port = std::atoi((++childcmd)->c_str());
 
@@ -1579,7 +1588,7 @@ void ConsoleCommandHandler::handleVM(const list<string>& vmcmdlist)
         }
 
         if (vm.execute(data.jsbytecode, result, excp)) {
-            //HC: Result of Smart Contract
+            //HCE: Result of Smart Contract
             _ostream << StringFormat("%s\n", result.c_str());
         }
         else {

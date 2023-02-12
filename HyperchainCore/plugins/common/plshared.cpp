@@ -44,16 +44,16 @@ Array toArray(const list<string>& cmdlist)
     return arr;
 }
 
-//HC: ASN.1 DER format
+//HCE: ASN.1 DER format
 std::string PrKey2WIF(const CPrivKey& prikey, bool isCompressed)
 {
     std::vector<unsigned char> ret;
     auto pos = prikey.begin();
     std::advance(pos, 9);
 
-    //HC: 0x80 is a prefix, in newer Bitcoin, different network environment has different prefix
-    //HC: in the further, maybe will be replaced by base58Prefixes[SECRET_KEY]
-    ret.push_back(0x80);  //HC: version number
+    //HCE: 0x80 is a prefix, in newer Bitcoin, different network environment has different prefix
+    //HCE: in the further, maybe will be replaced by base58Prefixes[SECRET_KEY]
+    ret.push_back(0x80);  //HCE: version number
     std::copy(pos, pos + 32, std::back_inserter(ret));
 
     if (isCompressed) {
@@ -65,8 +65,8 @@ std::string PrKey2WIF(const CPrivKey& prikey, bool isCompressed)
 
 bool WIF2PrKey(const string& strprivkey, bool isCompressed, std::vector<unsigned char>& vchPriKey)
 {
-    //HC: WIF compressed, begin with K or L
-    //HC: remove 5|4 bytes of tail: ( 01 (flag for compressed) + 4bytes(hash(hash(Private key)) prefix) )
+    //HCE: WIF compressed, begin with K or L
+    //HCE: remove 5|4 bytes of tail: ( 01 (flag for compressed) + 4bytes(hash(hash(Private key)) prefix) )
     if (!DecodeBase58Check(strprivkey, vchPriKey))
         return false;
 
@@ -82,8 +82,8 @@ bool WIF2PrKey(const string& strprivkey, bool isCompressed, std::vector<unsigned
 }
 
 
-//HC: if form of strprivkey is 'WIF', public key will be uncompressed, address uncompressed
-//HC: otherwise all are compressed form.
+//HCE: if form of strprivkey is 'WIF', public key will be uncompressed, address uncompressed
+//HCE: otherwise all are compressed form.
 int impwalletkey(const string& strprivkey, const string& strlabel, string& msg)
 {
     CKey keyPair;
@@ -329,7 +329,7 @@ Value setdefaultkey(const Array& params, bool fHelp)
         }
 
         std::vector<unsigned char> vchPubKey;
-        //HC: important note: don't use keyPair.GetPubKey()
+        //HCE: important note: don't use keyPair.GetPubKey()
         if (!pwalletMain->GetPubKey(bitaddr, vchPubKey)) {
             ret.push_back(error);
             return ret;

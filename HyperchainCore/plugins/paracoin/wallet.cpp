@@ -57,7 +57,7 @@ bool CWallet::LoadKey(const vector<unsigned char>& vchPubKey, const CKey& key)
     return CCryptoKeyStore::AddKey(vchPubKey, key);
 }
 
-//HC: see reference to Bitcoin: RPCHelpMan dumpprivkey()
+//HCE: see reference to Bitcoin: RPCHelpMan dumpprivkey()
 CBitcoinAddress CWallet::GetKeyFromDestination(const CTxDestination& address, CKey& keyOut, string& error) const
 {
     CBitcoinAddress legacyaddress;
@@ -95,7 +95,7 @@ bool CWallet::AddKey(const vector<unsigned char>& vchPubKey, const CKey& key)
     if (!CCryptoKeyStore::AddKey(vchPubKey, key))
         return false;
 
-    //HC: At the same time, import SegWit script
+    //HCE: At the same time, import SegWit script
     ImportScripts(vchPubKey, key);
 
     if (!fFileBacked)
@@ -219,7 +219,7 @@ bool CWallet::EncryptWallet(const string& strWalletPassphrase)
 
     CCrypter crypter;
     int64 nStartTime = GetTimeMillis();
-    //HC: Compute Key and IV by password，Key and IV is used by encryption or decryption
+    //HCE: Compute Key and IV by password，Key and IV is used by encryption or decryption
     crypter.SetKeyFromPassphrase(strWalletPassphrase, kMasterKey.vchSalt, 25000, kMasterKey.nDerivationMethod);
     kMasterKey.nDeriveIterations = 2500000 / ((double)(GetTimeMillis() - nStartTime));
 
@@ -246,7 +246,7 @@ bool CWallet::EncryptWallet(const string& strWalletPassphrase)
             pwalletdbEncryption->TxnBegin();
             pwalletdbEncryption->WriteMasterKey(nMasterKeyMaxID, kMasterKey);
         }
-        //HC: Encrypt bitcoin's key pair using vMasterkey
+        //HCE: Encrypt bitcoin's key pair using vMasterkey
         if (!EncryptKeys(vMasterKey))
         {
             if (fFileBacked)
@@ -341,7 +341,7 @@ bool CWallet::AddToWallet(const CWalletTx& wtxIn)
                 return false;
 
         // If default receiving address gets used, replace it with a new one
-        //HC: To make use of default key continuously, comment the following code,
+        //HCE: To make use of default key continuously, comment the following code,
         //CScript scriptDefaultKey;
         //scriptDefaultKey.SetBitcoinAddress(vchDefaultKey);
         //BOOST_FOREACH(const CTxOut& txout, wtx.vout)
@@ -422,6 +422,7 @@ bool CWallet::IsMine(const CTxIn& txin) const
 }
 
 //HC: 从前一笔交易的输出中提取可用额度
+//HCE: Extracts the available credits from the output of the previous transaction 
 int64 CWallet::GetDebit(const CTxIn& txin) const
 {
     CRITICAL_BLOCK(cs_wallet)
@@ -522,7 +523,7 @@ void CWalletTx::GetAmounts(int64& nGeneratedImmature, int64& nGeneratedMature, l
 
     if (IsCoinBase())
     {
-        //HC: for CoinBase, it is possible have two txouts because light nodes take part in mining
+        //HCE: for CoinBase, it is possible have two txouts because light nodes take part in mining
         int n = vout.size();
         for (int i = 0; i < n; ++i) {
             if (pwallet->IsMine(vout[i])) {
@@ -555,7 +556,7 @@ void CWalletTx::GetReceiveOrSentForBalance(list<DestReceived>& listReceived, int
     int i = 0;
     BOOST_FOREACH(const CTxOut & txout, vout)
     {
-        //HC: check if every txout has spent
+        //HCE: check if every txout has spent
         if (IsSpent(i++)) {
             continue;
         }
@@ -584,7 +585,7 @@ void CWalletTx::GetAmountsForBalance(list<DestReceived>& listReceived, int64& nF
 
     if (IsCoinBase())
     {
-        //HC: for CoinBase, it is possible have two txouts because light nodes take part in mining
+        //HCE: for CoinBase, it is possible have two txouts because light nodes take part in mining
         int n = vout.size();
         for (int i = 0; i < n; ++i) {
             if (IsSpent(i)) {
@@ -964,7 +965,7 @@ bool CWallet::SelectCoinsMinConf(int64 nTargetValue, int nConfMine, int nConfThe
                 if (n <= 0)
                     continue;
 
-                //HC: select coins matches specified addresses
+                //HCE: select coins matches specified addresses
                 CTxDestination addrRet;
                 if (fromaddrs.size() > 0) {
                     if (!ExtractDestination(pcoin->vout[i].scriptPubKey, addrRet))
@@ -1093,7 +1094,7 @@ bool CWallet::SelectCoinsMinConf(int64 nTargetValue, int nConfMine, int nConfThe
     return true;
 }
 
-//HC: if bfromaddr is true, only select coin which belong to fromAddr
+//HCE: if bfromaddr is true, only select coin which belong to fromAddr
 bool CWallet::SelectCoins(int64 nTargetValue, set<pair<const CWalletTx*, unsigned int> >& setCoinsRet, int64& nValueRet,
    const list<CTxDestination> &fromaddrs) const
 {
@@ -1135,7 +1136,7 @@ bool CWallet::CreateTransaction(const vector<pair<CScript, int64> >& vecSend, CW
 
     wtxNew.pwallet = this;
 
-    //HC:
+    //HCE:
     bool bfromaddr = false;
     list<CTxDestination> fromaddrs;
     if (!wtxNew.strFromAccount.empty()) {
@@ -1210,14 +1211,14 @@ bool CWallet::CreateTransaction(const vector<pair<CScript, int64> >& vecSend, CW
 
                     // Fill a vout to ourself, using same address type as the payment
                     CScript scriptChange;
-                    //HC: SegWit
+                    //HCE: SegWit
                     if (fromaddrs.size() > 0) {
                         scriptChange = GetScriptForDestination(*fromaddrs.begin());
                     } else if (fsendvalid) {
-                        //HC: Specify sender's first address as address of change txn
+                        //HCE: Specify sender's first address as address of change txn
                         scriptChange = GetScriptForDestination(sender_address);
                     } else {
-                        //HC: In fact, this case has never occurred.
+                        //HCE: In fact, this case has never occurred.
                         bool fcompressed = (change_type == OutputType::LEGACY ? false : true);
 
                         CPubKey new_key = CPubKey::NewPubKey(vchPubKey, fcompressed);
@@ -1279,7 +1280,7 @@ bool CWallet::CreateTransaction(const vector<pair<CScript, int64> >& vecSend, CW
     return true;
 }
 
-//HC: witness support, more see bitcoin source code: CWallet::SignTransaction
+//HCE: witness support, more see bitcoin source code: CWallet::SignTransaction
 bool CWallet::SignTransaction(CMutableTransaction& tx, set<pair<const CWalletTx*, unsigned int>>& setCoins)
 {
     // Build coins map
@@ -1289,7 +1290,7 @@ bool CWallet::SignTransaction(CMutableTransaction& tx, set<pair<const CWalletTx*
         tx.vin.push_back(CTxIn(prevout));
 
         const CWalletTx *wtx = coin.first;
-        //HC:
+        //HCE:
         //coins[prevout] = Coin(wtx->vout[input.prevout.n], wtx->m_confirm.block_height, wtx->IsCoinBase());
         coins[prevout] = Coin(wtx->vout[prevout.n], wtx->GetDepthInMainChain(), wtx->IsCoinBase());
     }
@@ -1298,7 +1299,7 @@ bool CWallet::SignTransaction(CMutableTransaction& tx, set<pair<const CWalletTx*
     return SignTransaction(tx, coins, SIGHASH_ALL, input_errors);
 }
 
-//HC: witness support, more see bitcoin source code: CWallet::SignTransaction
+//HCE: witness support, more see bitcoin source code: CWallet::SignTransaction
 bool CWallet::SignTransaction(CMutableTransaction& tx, const std::map<COutPoint, Coin>& coins, int sighash, std::map<int, std::string>& input_errors)
 {
     // Try to sign with all ScriptPubKeyMans
@@ -1310,7 +1311,7 @@ bool CWallet::SignTransaction(CMutableTransaction& tx, const std::map<COutPoint,
     //    }
     //}
     //
-    //HC: use LegacyScriptPubKeyMan class
+    //HCE: use LegacyScriptPubKeyMan class
     LegacyScriptPubKeyMan man(this);
     if (man.SignTransaction(tx, coins, sighash, input_errors)) {
         return true;
@@ -1359,7 +1360,7 @@ bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey)
                 coin.pwallet = this;
                 coin.MarkSpent(txin.prevout.n);
                 coin.WriteToDisk();
-                //HC: UI
+                //HCE: UI
                 //vWalletUpdated.push_back(coin.GetHash());
             }
         }
@@ -1371,8 +1372,8 @@ bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey)
         if (!wtxNew.AcceptToMemoryPool())
         {
             // This must not fail. The transaction has already been signed and recorded.
-            //HC: why not remove the tx in BitCoin version?
-            //HC: Unmark old coins as spent
+            //HCE: why not remove the tx in BitCoin version?
+            //HCE: Unmark old coins as spent
             BOOST_FOREACH(const CTxIn & txin, wtxNew.vin)
             {
                 CWalletTx& coin = mapWallet[txin.prevout.hash];
@@ -1664,7 +1665,7 @@ void CWallet::ReturnKey(int64 nIndex)
     TRACE_FL("keypool return %" PRI64d "\n", nIndex);
 }
 
-//HC: note: by GetNewDestination to get new key
+//HCE: note: by GetNewDestination to get new key
 bool CWallet::GetKeyFromPool(vector<unsigned char>& result, bool fAllowReuse)
 {
     int64 nIndex = 0;
@@ -1689,7 +1690,7 @@ bool CWallet::GetKeyFromPool(vector<unsigned char>& result, bool fAllowReuse)
     return true;
 }
 
-//HC: SegWit
+//HCE: SegWit
 
 LegacyScriptPubKeyMan* CWallet::GetLegacyScriptPubKeyMan() const
 {

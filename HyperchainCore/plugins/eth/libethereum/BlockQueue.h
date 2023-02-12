@@ -45,6 +45,7 @@ enum class QueueStatus
 };
 
 std::ostream& operator<< (std::ostream& os, QueueStatus const& obj);
+std::ostream& operator<< (std::ostream& os, BlockQueueStatus const& obj);
 
 template<class T>
 class SizedBlockQueue
@@ -96,8 +97,7 @@ public:
     template<class Pred>
     std::vector<T> removeIf(Pred _pred)
     {
-        //HC: cannot use remove_if because the content of the element will be removed have overwritten 
-        //auto removedBegin = std::remove_if(m_queue.begin(), m_queue.end(), _pred);
+                //auto removedBegin = std::remove_if(m_queue.begin(), m_queue.end(), _pred);
         auto first = m_queue.begin();
         auto last = m_queue.end();
         first = std::find_if(first, last, _pred);
@@ -257,8 +257,7 @@ public:
 
     /// Get some infomration on the current status.
     BlockQueueStatus status() const;
-    //HC:
-    BlockQueueStatus status(size_t& readySet) const;
+        BlockQueueStatus status(size_t& readySet) const;
 
     /// Get some infomration on the given block's status regarding us.
     QueueStatus blockStatus(h256 const& _h) const;

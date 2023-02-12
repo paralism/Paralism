@@ -29,19 +29,40 @@ DEALINGS IN THE SOFTWARE.
 class HCMQClient
 {
 public:
+    //HCE: Constructor and destructor function
     HCMQClient(int socktype = ZMQ_DEALER);
     virtual ~HCMQClient();
 
     HCMQClient(const HCMQClient &) = delete;
     HCMQClient & operator=(const HCMQClient &) = delete;
 
+    //HCE: Synchronize to send the service to client.If we got a reply, process it
+    //HCE: @para servicename Service name char buffer
+    //HCE: @para request Pointer to zmsg
     zmsg* synccall(const char *servicename, zmsg *request);
+
+    //HCE: Send the service to client.
+    //HCE: @para servicename Service name char buffer
+    //HCE: @para request Pointer to zmsg
     void rsynccall(const char *servicename, zmsg *request);
+
+    //HCE: Send the service to client.If we got a reply, process it
+    //HCE: @para servicename Service name char buffer
+    //HCE: @para request Pointer to zmsg
     void* cocall(const char *servicename, zmsg *request);
 
 protected:
+    //HCE: Reset client and connect to HC_BROKER
     void connect_to_broker();
+
+    //HCE: Send the service to the worker
+    //HCE: @para service Service name string
+    //HCE: @para request Pointer to zmsg
     zmsg* send(std::string service, zmsg *request);
+
+    //HCE: Send the service to client.
+    //HCE: @para servicename Service name char buffer
+    //HCE: @para request Pointer to zmsg
     void rsyncsend(std::string service, zmsg *request);
 
 protected:

@@ -165,7 +165,8 @@ endif()
 
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin COMPONENT ${CORECOMPONET})
 
-
+#HC: Aleth http service
+install(DIRECTORY dependencies/release/scripts/ DESTINATION bin/scripts COMPONENT ${CORECOMPONET})
 if(WIN32)
 	install(DIRECTORY dependencies/release/win32/core/ DESTINATION bin COMPONENT ${CORECOMPONET})
 	

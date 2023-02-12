@@ -26,8 +26,7 @@ Ethash::Ethash()
     m_farm.setSealers(sealers);
     m_farm.onSolutionFound([=](EthashProofOfWork::Solution const& sol)
     {
-        //HC: try_lock_for, fixed the dead lock issue, see Ethash::generateSeal
-        std::unique_lock<std::shared_timed_mutex> l(m_submitLock, chrono::milliseconds(200));
+                std::unique_lock<std::shared_timed_mutex> l(m_submitLock, chrono::milliseconds(200));
         if (!l) {
             cout << "Ethash warning: cannot get the lock for the found solution\n";
             return false;
@@ -165,12 +164,10 @@ bool Ethash::verifySeal(BlockHeader const& _blockHeader) const
 void Ethash::generateSeal(BlockHeader const& _bi)
 {
     //Guard l(m_submitLock);
-    //HC:
-    std::unique_lock<std::shared_timed_mutex> l(m_submitLock);
+        std::unique_lock<std::shared_timed_mutex> l(m_submitLock);
     m_sealing = _bi;
 
-    //HC: 设置工件包，开始挖矿（GenericMiner::setWork --> EthashCPUMiner::kickOff）
-    m_farm.setWork(m_sealing);
+        m_farm.setWork(m_sealing);
 
     m_farm.start(m_sealer);
     m_farm.setWork(m_sealing);

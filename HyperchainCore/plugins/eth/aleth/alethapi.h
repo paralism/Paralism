@@ -41,6 +41,5 @@ extern "C" BOOST_SYMBOL_EXPORT void UnregisterTask(void* objFac);
 
 void issuecoin();
 
-//HC: Callback from HyperChain's global consensus, put the ethereum chain to hyper chain's consensus layer.
 bool PutChainCb();
 

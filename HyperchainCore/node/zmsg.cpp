@@ -81,7 +81,7 @@ int zmsg::send(zmq::socket_t & socket)
             while (!g_sys_interrupted) {
                 auto rc = socket.send(message, flags);
                 if (!rc.has_value()) {
-                    //HC: EAGAIN 9976
+                    //HCE: EAGAIN 9976
                     continue;
                 }
                 if (rc.value() != data.size()) {

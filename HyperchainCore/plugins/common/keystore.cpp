@@ -34,11 +34,11 @@ std::vector<unsigned char> CKeyStore::GenerateNewKey()
     CKey key;
     key.MakeNewKey();
 
-    //HC: the default public key is uncompressed,
-    //HC: therefore for supporting SegWit, please use compressed key
+    //HCE: the default public key is uncompressed,
+    //HCE: therefore for supporting SegWit, please use compressed key
     std::vector<unsigned char> vch = key.GetPubKey();
 
-    //HC: compressed key
+    //HCE: compressed key
     //CPubKey publickey = CPubKey::NewPubKey(vch, true);
     //std::vector<unsigned char> vch_short;
     //vch_short.insert(vch_short.end(), publickey.begin(), publickey.end());
@@ -56,16 +56,16 @@ bool CKeyStore::GetPubKey(const CBitcoinAddress &address, std::vector<unsigned c
         return false;
     vchPubKeyOut = key.GetPubKey();
 
-    //HC: check if hash of public key is equal
+    //HCE: check if hash of public key is equal
     CPubKey pubkey = CPubKey::NewPubKey(vchPubKeyOut, true);
     CBitcoinAddress addressOut(pubkey.GetID());
     if (addressOut == address) {
-        //HC: compressed public key
+        //HCE: compressed public key
         vchPubKeyOut = vector<unsigned char>(pubkey.begin(), pubkey.end());
         return true;
     }
 
-    //HC: uncompressed public key
+    //HCE: uncompressed public key
     return true;
 }
 
@@ -132,7 +132,7 @@ bool CCryptoKeyStore::AddKey(const vector<unsigned char>& vchPubKey, const CKey&
             return false;
 
         std::vector<unsigned char> vchCryptedSecret;
-        //HC: To public key, cannot extract from key for two kinds of situation
+        //HCE: To public key, cannot extract from key for two kinds of situation
         //std::vector<unsigned char> vchPubKey = key.GetPubKey();
         if (!EncryptSecret(vMasterKey, key.GetSecret(), Hash(vchPubKey.begin(), vchPubKey.end()), vchCryptedSecret))
             return false;

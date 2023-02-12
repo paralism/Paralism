@@ -129,7 +129,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("name"), nextT);
-            msgstatus = strprintf("name : %s", nextT.c_str());  //HC: status message
+            msgstatus = strprintf("name : %s", nextT.c_str());  //HCE: status message
             return ssNxtKey;
         };
 
@@ -152,7 +152,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("key"), nextT);
-            msgstatus = "key : ******";  //HC: status message
+            msgstatus = "key : ******";  //HCE: status message
             return ssNxtKey;
         };
 
@@ -176,7 +176,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("wkey"), nextT);
-            msgstatus = "wallet key : ******";  //HC: status message
+            msgstatus = "wallet key : ******";  //HCE: status message
             return ssNxtKey;
         };
 
@@ -190,9 +190,9 @@ private:
         return true;
     }
 
-    //HC: Encrypt bitcoin's key pair using vMasterkey
-    //HC: vMasterkey is plain text, kMasterKey contains cipher text
-    //HC: crypter.Encrypt(vMasterKey, kMasterKey.vchCryptedKey), see CWallet::EncryptWallet(const string& strWalletPassphrase)
+    //HCE: Encrypt bitcoin's key pair using vMasterkey
+    //HCE: vMasterkey is plain text, kMasterKey contains cipher text
+    //HCE: crypter.Encrypt(vMasterKey, kMasterKey.vchCryptedKey), see CWallet::EncryptWallet(const string& strWalletPassphrase)
     bool BulkImpWalletMKey(CWallet* pwallet)
     {
         std::function<bool(CDataStream&, CDataStream&, unsigned int&)> fn = [pwallet](CDataStream& ssKeySecond,
@@ -214,7 +214,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("mkey"), nextT);
-            msgstatus = "mkey : ******";  //HC: status message
+            msgstatus = "mkey : ******";  //HCE: status message
             return ssNxtKey;
         };
 
@@ -226,7 +226,7 @@ private:
         return true;
     }
 
-    //HC: crypt keys
+    //HCE: crypt keys
     bool BulkImpWalletCKey(CWallet* pwallet)
     {
         std::function<bool(CDataStream&, CDataStream&, std::vector<unsigned char>&)> fn =
@@ -237,7 +237,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("ckey"), nextT);
-            msgstatus = "ckey : ******";  //HC: status message
+            msgstatus = "ckey : ******";  //HCE: status message
             return ssNxtKey;
         };
 
@@ -256,7 +256,7 @@ private:
         std::function<bool(CDataStream&, CDataStream&, string&)> fn = [this, pDstWalletdb](CDataStream& ssKeySecond,
             CDataStream& ssValue, string& strKey) ->bool {
 
-            //HC: read all unused key pairs
+            //HCE: read all unused key pairs
             ssKeySecond >> strKey;
 
             // Options
@@ -283,7 +283,7 @@ private:
 
             CDataStream ssNxtKey;
             ssNxtKey << make_pair(string("setting"), nextT);
-            msgstatus = "setting : ******";  //HC: status message
+            msgstatus = "setting : ******";  //HCE: status message
             return ssNxtKey;
         };
 
@@ -309,12 +309,12 @@ public:
         std::string dlog = logpath + "/stat_hyperchain.log";
         std::string flog = logpath + "/stat_hyperchain_basic.log";
         std::string rlog = logpath + "/stat_hyperchain_rotating.log";
-        spdlog::set_level(spdlog::level::err); //HC: Set specific logger's log level
+        spdlog::set_level(spdlog::level::err); //HCE: Set specific logger's log level
         spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] [thread %t] %v");
         g_daily_logger = spdlog::daily_logger_mt("stat_daily_logger", dlog.c_str(), 0, 30);
         g_daily_logger->set_level(spdlog::level::info);
         g_basic_logger = spdlog::basic_logger_mt("stat_file_logger", flog.c_str());
-        //HC: Create a file rotating logger with 100M size max and 3 rotated files.
+        //HCE: Create a file rotating logger with 100M size max and 3 rotated files.
         g_rotating_logger = spdlog::rotating_logger_mt("stat_rotating_logger", rlog.c_str(), 1048576 * 100, 3);
         g_console_logger = spdlog::stdout_color_mt("stat_console");
         g_console_logger->set_level(spdlog::level::err);
@@ -363,7 +363,7 @@ int ParseTx(const string& dbpath, uint32_t genesisHID, uint16_t genesisChainNum,
         _db->close();
     };
 
-    //HC: load block triple address index
+    //HCE: load block triple address index
     vector<T_PAYLOADADDR> vecPA;
     T_SHA256 thhash;
 
@@ -390,13 +390,13 @@ int ParseTx(const string& dbpath, uint32_t genesisHID, uint16_t genesisChainNum,
         vecPA.clear();
         if (hyperchainspace->GetLocalBlocksByHIDDirectly(*iter, app, thhash, vecPA)) {
 
-            //HC: Check if the local block have already scanned.
+            //HCE: Check if the local block have already scanned.
             if (g_setLocalBlockScanned.count(thhash)) {
                 continue;
             }
             g_setLocalBlockScanned.insert(thhash);
 
-            //HC: scan the Para transactions in local block
+            //HCE: scan the Para transactions in local block
             auto pa = vecPA.rbegin();
             for (; pa != vecPA.rend(); ++pa) {
                 CBlock block;
@@ -429,7 +429,7 @@ int ParseTx(const string& dbpath, uint32_t genesisHID, uint16_t genesisChainNum,
     return 0;
 }
 
-//HC: after sorting, identify txs whether is in my wallet
+//HCE: after sorting, identify txs whether is in my wallet
 void IdentifyMyTrans(const string& txfilename, const string& resultfile)
 {
     typedef struct
@@ -634,7 +634,7 @@ int main(int argc, char* argv[])
     //    R"(E:\workspace\git\buildwin64\bin\Debug\paralism_sort.tx)"
     //);
 
-    //HC: -datadir=E:\workspace\git\buildwin64\bin\Debug\xx  -model=informal
+    //HCE: -datadir=E:\workspace\git\buildwin64\bin\Debug\xx  -model=informal
     string strDataDir = GetDataDir();
     cout <<
         strprintf("This program parse address of txs whether they is in wallet for Paracoin\n"
@@ -688,7 +688,7 @@ int main(int argc, char* argv[])
         ofs << ToHexString(elm.first) << " : " << elm.second << endl;
     }
     cout << StringFormat("%d output results have already put into file: paralism.tx\n", g_mapWallet.size());
-    //HC: check if pubkey is 125 or 69
+    //HCE: check if pubkey is 125 or 69
     /* const valtype& vchPubKey = item.second;
      vector<unsigned char> vchPubKeyFound;
      if (!keystore.GetPubKey(Hash160(vchPubKey), vchPubKeyFound))

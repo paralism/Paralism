@@ -58,9 +58,9 @@ static const int64 MIN_RELAY_TX_FEE = 10000;
 static const int64 MAX_MONEY = 210000000 * COIN;
 inline bool MoneyRange(int64 nValue) { return (nValue >= 0 && nValue <= MAX_MONEY); }
 
-static const int COINBASE_MATURITY = 1500; //HC: 20 is for debug; //HC: Bitcoin is 120
+static const int COINBASE_MATURITY = 1500; //HCE: 20 is for debug; //HCE: Bitcoin is 120
 
-//HC: for SPV server
+//HCE: for SPV server
 static const int BLOCK_MATURITY = 30;
 
 /**
@@ -96,10 +96,21 @@ class CDiskTxPos
 {
 public:
     //unsigned int nFile;
-    //unsigned int nBlockPos;       //HC: 块距离文件头的offset
-    unsigned int nTxPos = 0;        //HC: 原表示交易所在文件距离文件头的offset，现表示交易所在账本块的偏移
-    uint32_t nHeightBlk = 0;        //HC: 所属块高度, 辅助信息
-    uint256 hashBlk;                //HC: 所属Para块Hash
+    //HC: 块距离文件头的offset
+    //HCE: the block offset in the file
+    //unsigned int nBlockPos;
+
+    //HC: 原表示交易所在文件距离文件头的offset，现表示交易所在账本块的偏移
+    //HCE: Originally indicates the offset of tx in the file from the file header, now indicates the offset of tx of the ledger block
+    unsigned int nTxPos = 0;
+
+    //HC: 所属块高度, 辅助信息
+    //HCE: The block height, auxiliary information
+    uint32_t nHeightBlk = 0;        
+    
+    //HC: 所属Para块Hash
+    //HCE: Hash of the Para block
+    uint256 hashBlk;                
 
     CDiskTxPos()
     {
@@ -277,11 +288,11 @@ public:
     IMPLEMENT_SERIALIZE
     (
         READWRITE(prevout);
-    READWRITE(scriptSig);
-    READWRITE(nSequence);
+        READWRITE(scriptSig);
+        READWRITE(nSequence);
     )
 
-        bool IsFinal() const
+    bool IsFinal() const
     {
         return (nSequence == UINT_MAX);
     }
@@ -343,10 +354,10 @@ public:
     IMPLEMENT_SERIALIZE
     (
         READWRITE(nValue);
-    READWRITE(scriptPubKey);
+        READWRITE(scriptPubKey);
     )
 
-        void SetNull()
+    void SetNull()
     {
         nValue = -1;
         scriptPubKey.clear();
@@ -385,7 +396,7 @@ public:
         string witnessdetails = " ";
 
         if (scriptPubKey.IsPayToScriptHash()) {
-            //HC: p2pkh, legacy tx format
+            //HCE: p2pkh, legacy tx format
             witnessdetails = "PayToScriptHash";
         } else if (scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram)) {
             witnessdetails = "WitnessProgram";
@@ -405,7 +416,7 @@ public:
 
 
 static const int TX_VERSION_V1 = 0x1;
-static const int TX_VERSION_V2 = 0x2; //HC: start to support segwit
+static const int TX_VERSION_V2 = 0x2; //HCE: start to support segwit
 
 /**
  * Basic transaction serialization format:
@@ -613,6 +624,13 @@ public:
     //HC:若nLockTime < 500000000, 则nLockTime代表区块数，该交易只能被打包进高度大于等于nLockTime的区块；
     //HC:若nLockTime>500000000，则nLockTime代表unix时间戳，该交易只能等到当前时间大于等于nLockTime才能被打包进区块
 
+    //HCE: nLockTime should be understood as the duration or number of blocks that lock the transaction, and
+    //HCE: if all input to the CTxIn nSequence field of the transaction is the maximum value (0xffffffff) of the uint32_t, the logical check of this field is ignored
+
+    //HCE: When nSequence < 0xffffffff and nLockTime == 0, the transaction can be packaged immediately
+    //HCE: When nSequence < 0xffffffff, and nLockTime! = 0:
+    //HCE: If nLockTime < 500000000, nLockTime represents the number of blocks, and the transaction can only be packed into blocks with a height greater than or equal to nLockTime;
+    //HCE: If nLockTime > 500000000, nLockTime represents the unix timestamp, and the transaction can only be packed into a block until the current time is greater than or equal to nLockTime
     bool IsFinal(int nBlockHeight = 0, int64 nBlockTime = 0) const
     {
         // Time based nLockTime implemented in 0.1.6
@@ -808,11 +826,15 @@ public:
 public:
     bool RemoveFromMemoryPool();
 
-    string m_strRunTimeErr; //HC: error reason when tx cannot AcceptToMemoryPool
+    string m_strRunTimeErr; //HCE: error reason when tx cannot AcceptToMemoryPool
 };
 
-//HC: for witness
-/** A mutable version of CTransaction. */
+//HCE:
+//HCE: A mutable version of CTransaction
+//HCE: Variable transaction class, the content is similar to CTransaction. 
+//HCE: It's just that transactions can be modified directly, and transactions propagated in the broadcast and packaged into blocks are CTransaction types
+//HCE: The class is mainly used for segregated witness
+//HCE:
 struct CMutableTransaction
 {
     std::vector<CTxIn> vin;
@@ -968,13 +990,16 @@ public:
     int GetDepthInMainChain() const;
 };
 
+//HCE:
+//HCE: Position of a block on the Hyperchain.
+//HCE:
 class BLOCKTRIPLEADDRESS
 {
 public:
-    uint32 hid = 0;            //HC: hyper block id
+    uint32 hid = 0;            //HCE: hyper block id
     uint16 chainnum = 0;
     uint16 id = 0;
-    uint256 hhash;             //HC: hyper block hash
+    uint256 hhash;             //HCE: hyper block hash
 
 public:
     BLOCKTRIPLEADDRESS() {}
@@ -1093,7 +1118,7 @@ class CBlock
 public:
     // header
     int nVersion;
-    uint256 hashPrevBlock; //HC: hashPrevBlock is previous HyperBlock's largest ledger child block which is different from BitCoin.
+    uint256 hashPrevBlock; //HCE: hashPrevBlock is previous HyperBlock's largest ledger subblock which is different from BitCoin.
     uint256 hashMerkleRoot;
 
     uint32_t nHeight;
@@ -1102,14 +1127,15 @@ public:
     uint32_t nBits;
     uint64 nNonce;
 
-    uint32_t nPrevHID;
-    uint256 hashPrevHyperBlock;
-    uint256 hashExternData = 0;         //HC: = hash256(ownerNodeID + ...)
+    uint32_t nPrevHID;              //HCE: Previous Hyperblock ID
+    uint256 hashPrevHyperBlock;     //HCE: Previous Hyperblock hash
+
+    uint256 hashExternData = 0;         //HCE: = hash256(ownerNodeID + ...)
 
     // network and disk
     std::vector<CTransaction> vtx;
 
-    //HC: Notice:The position of member nSolution must put after member vtx.
+    //HCE: Notice:The position of member nSolution must put after member vtx.
     std::vector<unsigned char> nSolution;  // Equihash solution.
 
     // memory only
@@ -1162,29 +1188,29 @@ public:
     (
         READWRITE(this->nVersion);
     if (fRead && this->nVersion == 40000) {
-        //HC: IMPLEMENT_SERIALIZE parameter has the same name with CBlock::nVersion, cause a error
-        //HC: in the storage nVersion=40000, but in the memory is 1
+        //HCE: IMPLEMENT_SERIALIZE parameter has the same name with CBlock::nVersion, cause a error
+        //HCE: in the storage nVersion=40000, but in the memory is 1
         const_cast<CBlock*>(this)->nVersion = 1;
     }
     READWRITE(hashPrevBlock);
     READWRITE(hashMerkleRoot);
-    READWRITE(nHeight);                     //HC: offset 68
+    READWRITE(nHeight);                     //HCE: offset 68
 
     for (size_t i = 0; i < (sizeof(nReserved) / sizeof(nReserved[0])); i++) {
         READWRITE(nReserved[i]);
     }
 
-    READWRITE(nTime);                       //HC: offset 100
+    READWRITE(nTime);                       //HCE: offset 100
     READWRITE(nBits);
-    READWRITE(nNonce);                      //HC: offset 108
+    READWRITE(nNonce);                      //HCE: offset 108
 
-    READWRITE(nPrevHID);                    //HC: offset 116
+    READWRITE(nPrevHID);                    //HCE: offset 116
     READWRITE(hashPrevHyperBlock);
     READWRITE(hashExternData);
 
     // ConnectBlock depends on vtx being last so it can calculate offset
     if (!(nType & (SER_GETHASH | SER_BLOCKHEADERONLY)))
-        READWRITE(vtx);                     //HC: offset 184
+        READWRITE(vtx);                     //HCE: offset 184
     else if (fRead)
         const_cast<CBlock*>(this)->vtx.clear();
 
@@ -1221,6 +1247,8 @@ public:
     }
 
     void SetHyperBlockInfo();
+
+    std::optional<CDiskTxPos> GetDiskTxPos(int nTx);
 
     uint256 GetHash() const;
 
@@ -1316,7 +1344,7 @@ public:
         return true;
     }
 
-    //HC:
+    //HCE:
     //bool ReadFromDisk(unsigned int nFile, unsigned int nBlockPos, bool fReadTransactions=true)
     //{
     //    SetNull();
@@ -1354,7 +1382,7 @@ public:
             return false;
         }
 
-        //HC: Read data from chain space
+        //HCE: Read data from chain space
         CHyperChainSpace *hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
 
         string payload;
@@ -1365,7 +1393,7 @@ public:
 
         try {
             CAutoBuffer autobuff(std::move(payload));
-            //HC: if do like the following, how to pass CheckProofOfWork?
+            //HCE: if do like the following, how to pass CheckProofOfWork?
             //if (!fReadTransactions)
             //    autobuff.nType |= SER_BLOCKHEADERONLY;
 
@@ -1405,7 +1433,7 @@ public:
             nTime, nBits, nNonce,
             vtx.size());
 
-        //HC: skip txs
+        //HCE: skip txs
         //for (int i = 0; i < vtx.size(); i++) {
         //    strResult += "\t";
         //    strResult += vtx[i].ToString();
@@ -1431,14 +1459,17 @@ public:
     bool ReadFromDisk(const CBlockIndexSimplified* pindex);
     bool SetBestChain(CTxDB_Wrapper& txdb, CBlockIndexSP pindexNew);
 
-    //HC:
+    //HCE:
     bool AddToBlockIndex(const BLOCKTRIPLEADDRESS& addrIn);
     static bool UpdateToBlockIndex(CBlockIndexSP pIndex, const BLOCKTRIPLEADDRESS& blktriaddr);
 
     bool IsMine() const;
 
-    //HC: return value: 0 ok,  -1 hyper block is different, -2 no found hyper block
+    //HCE: Check if the forward Hyperblock of the transaction is legitimate
+    //HCE: @param pfrom Node which block come from.
+    //HCE: @returns 0 ok,  -1 Hyperblock is different, -2 no found Hyperblock.
     int CheckHyperBlockConsistence(CNode* pfrom) const;
+
     bool CheckExternalData() const;
     bool IsLastestHyperBlockMatched() const;
     bool CheckBlock() const;
@@ -1486,15 +1517,26 @@ private:
 class CBlockIndex : public std::enable_shared_from_this<CBlockIndex>
 {
 public:
-    uint256 hashBlock = 0;  //HC: 块hash指针，节约空间，more see CBlock::AddToBlockIndex
+    //HC: 块hash指针，节约空间，more see CBlock::AddToBlockIndex
+    //HCE: Block hash pointers to save space, more see CBlock::AddToBlockIndex
+    uint256 hashBlock = 0;      
     uint256 hashPrev = 0;
     uint256 hashNext = 0;
-    //unsigned int nFile;     //HC: unused (To bitcoin:存储本区块的数据的文件，比如第100个区块，其区块文件存储在blk100.data中)
-    //unsigned int nBlockPos; //HC: unused
-    int nHeight;
-    CBigNum bnChainWork;                    //HC: 从创始区块到本区块的累积工作量
 
-    BLOCKTRIPLEADDRESS triaddr;                //HC: 子块逻辑地址, 带所在超块hash， Add in VERSION >= 50000
+    //HC: unused (To bitcoin:存储本区块的数据的文件，比如第100个区块，其区块文件存储在blk100.data中)
+    //HCE: unused (To bitcoin: The file that stores the data of this block, such as block 100, whose block file is stored in blk100.data)
+    //unsigned int nFile;     
+
+    //unsigned int nBlockPos; //HCE: unused
+    int nHeight;
+
+    //HC: 从创始区块到本区块的累积工作量
+    //HCE: The cumulative proof of work from the genesis block to this block
+    CBigNum bnChainWork;                    
+
+    //HC: 子块逻辑地址, 带所在超块hash， Add in VERSION >= 50000
+    //HCE: The logical address of the subblock, with the hash of the Hyperblock, Add in VERSION >= 50000
+    BLOCKTRIPLEADDRESS triaddr;
 
     // block header
     int nVersion;
@@ -1509,7 +1551,7 @@ public:
     uint32 nPrevHID;
     uint256 hashPrevHyperBlock;
 
-    uint256 hashExternData = 0;             //HC: =hash256(nOwerNode)
+    uint256 hashExternData = 0;             //HCE: =hash256(nOwerNode)
     CUInt128 ownerNodeID = CUInt128(true);
 
     CBlockIndex()
@@ -1813,7 +1855,7 @@ public:
 
     void clear();
 
-    //HC: how to clean the bit flag?
+    //HCE: how to clean the bit flag?
     bool erase(const uint256& hashBlock);
 
     CBlock operator[](const uint256& hashBlock);
@@ -1868,27 +1910,31 @@ public:
     )
 };
 
-//HC: Para best chain info
+//HCE: Para best chain info
 class CBlockLocatorEx
 {
 public:
     static const int nHeightSpan;
     static const int nHeightSpanTail;
 
-    //HC: when pindexBest->nHeight = 5230, then:
-    //HC: hashLatestInvHave is the hash of block 5000
-    //HC: hashvHaveLInner is the hash of block 4900
-    //HC: | Block | <--......---> | Block |  <----------------......---------------->  | Block |  <-----> | Block | <--------------------> | Block |
-    //HC:     0                   Height: 2500                                       Height: 4900         Height: 5000                    Height: 5230
+    //HCE: when pindexBest->nHeight = 5230, then:
+    //HCE: hashLatestInvHave is the hash of block 5000
+    //HCE: hashvHaveLInner is the hash of block 4900
+    //HCE: | Block | <--......---> | Block |  <----------------......---------------->  | Block |  <-----> | Block | <--------------------> | Block |
+    //HCE:     0                   Height: 2500                                       Height: 4900         Height: 5000                    Height: 5230
 
 
-    uint256 hashvHaveLInner;       //HC: vHave中最后一个块倒数nHeightSpanTail的那个块hash
+    //HC: vHave中最后一个块倒数nHeightSpanTail的那个块hash
+    //HCE: Hash of the last block in vHave counts down nHeightSpanTail
+    uint256 hashvHaveLInner;       
     std::vector<uint256> vHave;
-    std::vector<uint256> vHaveTail; //HC: between vHave[x-1] and vHave[x]
+    std::vector<uint256> vHaveTail; //HCE: between vHave[x-1] and vHave[x]
     uint256 hashEnd;
     int nHeighEnd = 0;
 
-    uint256 hashLatestInvHave;    //vHave 最后一个元素的hash值，用来辅助更新hashvHaveLInner
+    //HC: vHave 最后一个元素的hash值，用来辅助更新hashvHaveLInner
+    //HCE: The hash value of the last element of vHave, which is used to help update hashvHaveLInner
+    uint256 hashLatestInvHave;    
 
     CBlockLocatorEx()
     {
@@ -1991,14 +2037,14 @@ public:
             int idx_middle = (nHeighEnd - (idx * nHeightSpan)) / nHeightSpanTail;
             vHaveTail.resize(idx_middle);
 
-            //HC: fill middle index
+            //HCE: fill middle index
             int nHeightStop = idx * nHeightSpan + nHeightSpanTail;
             while (pindex && idx_middle) {
                 if (pindex->nHeight % nHeightSpanTail == 0) {
                     auto hash = pindex->GetBlockHash();
 
                     if (hash == vHaveTail[idx_middle - 1]) {
-                        //HC: left data is same
+                        //HCE: left data is same
                         updateLInnerHash(pindex);
                         return;
                     }
@@ -2025,7 +2071,7 @@ public:
                 auto hash = pindex->GetBlockHash();
 
                 if (hash == vHave[idx]) {
-                    //HC: left data is same
+                    //HCE: left data is same
                     updateLInnerHash(pindex);
                     break;
                 }
@@ -2123,7 +2169,7 @@ public:
         }
 
         if (incr.nvHaveStartIdx == -1) {
-            //HC: different entirely
+            //HCE: different entirely
             incr.nvHaveStartIdx = 0;
             incr.vHave = vHave;
         }
@@ -2140,7 +2186,7 @@ public:
         }
 
         if (incr.nvHaveTailStartIdx == -1) {
-            //HC: different entirely
+            //HCE: different entirely
             incr.nvHaveTailStartIdx = 0;
             incr.vHaveTail = vHaveTail;
         }
@@ -2193,15 +2239,25 @@ private:
 
 //////////////////////////////////////////////////////////////////////////
 //HC: v0.7.2 2021年7月14日前版本
+//HCE: v0.7.2 Versions prior to July 14, 2021
 
 class CDiskTxPosV72
 {
 public:
     T_LOCALBLOCKADDRESS addr;
+
     //unsigned int nFile;
-    //unsigned int nBlockPos;       //HC: 块距离文件头的offset
-    unsigned int nTxPos = 0;        //HC: 原表示交易所在文件距离文件头的offset，现表示交易所在账本块的偏移
-    uint32_t nHeight = 0;           //HC: 所属块高度
+    //HC: 块距离文件头的offset
+    //HCE: the block offset in the file
+    //unsigned int nBlockPos;
+
+    //HC: 原表示交易所在文件距离文件头的offset，现表示交易所在账本块的偏移
+    //HCE: Originally indicates the offset of tx in the file from the file header, now indicates the offset of tx of the ledger block
+    unsigned int nTxPos = 0;
+
+    //HC: 所属块高度, 辅助信息
+    //HCE: The block height, auxiliary information
+    uint32_t nHeight = 0;
 
     CDiskTxPosV72()
     {
@@ -2217,7 +2273,7 @@ public:
 
     IMPLEMENT_SERIALIZE(
 
-        uint32_t* hid = (uint32_t*)(&addr.hid);
+    uint32_t* hid = (uint32_t*)(&addr.hid);
     READWRITE(*hid);
 
     READWRITE(addr.chainnum);
@@ -2228,7 +2284,7 @@ public:
     //READWRITE(FLATDATA(*this));
     )
 
-        void SetNull() { nTxPos = 0; nHeight = 0; }
+    void SetNull() { nTxPos = 0; nHeight = 0; }
     bool IsNull() const { return (nTxPos == 0); }
 
     friend bool operator<(const CDiskTxPosV72& a, const CDiskTxPosV72& b)
@@ -2301,14 +2357,21 @@ public:
 class CBlockIndexV72
 {
 public:
-    uint256 hashBlock = 0;  //HC: 块hash指针，节约空间，more see CBlock::AddToBlockIndex
+    uint256 hashBlock = 0;
     uint256 hashPrev = 0;
     uint256 hashNext = 0;
-    //unsigned int nFile;     //HC: unused (To bitcoin:存储本区块的数据的文件，比如第100个区块，其区块文件存储在blk100.data中)
-    //unsigned int nBlockPos; //HC: unused
+    //unsigned int nFile;     //HCE: unused 
+    //unsigned int nBlockPos; //HCE: unused
     int nHeight;
-    CBigNum bnChainWork;                    //HC: 从创始区块到本区块的累积工作量
-    T_LOCALBLOCKADDRESS addr;               //HC: 子块逻辑地址  区别在这里
+
+
+    //HC: 从创始区块到本区块的累积工作量
+    //HCE: The cumulative proof of work from the genesis block to this block
+    CBigNum bnChainWork;                    
+
+    //HC: 子块逻辑地址, 区别在这里 
+    //HCE: The logical address of the subblock, Here's the difference
+    T_LOCALBLOCKADDRESS addr;
 
     // block header
     int nVersion;
@@ -2323,7 +2386,7 @@ public:
     uint32 nPrevHID;
     uint256 hashPrevHyperBlock;
 
-    uint256 hashExternData = 0;             //HC: =hash256(nOwerNode)
+    uint256 hashExternData = 0;             //HCE: =hash256(nOwerNode)
     CUInt128 ownerNodeID = CUInt128(true);
 };
 
@@ -2412,7 +2475,7 @@ public:
             string strType;
             ssKey >> strType;
             if (strType == "blockindex") {
-                //HC: 50000 is a key, which it is not read hhash
+                //HEC: 50000 is a key, which it is not read hhash
                 uint256 blkhash;
                 ssKey >> blkhash;
 
@@ -2436,7 +2499,7 @@ public:
         return true;
     }
 
-    //HC: c++ style version
+    //HCE: c++ style version
     bool bulkUpdate_cpp()
     {
         Dbt key, data;
@@ -2448,7 +2511,7 @@ public:
 
         char* key_buf, * data_buf;
 
-        //HC: why size need to + 8 and +4, see DB_MULTIPLE_WRITE_NEXT
+        //HCE: why size need to + 8 and +4, see DB_MULTIPLE_WRITE_NEXT
         const int suffix = 8;
         int KEY_T_SIZE = 0;
         for (auto& ssKey : m_keybuf) {
@@ -2483,7 +2546,7 @@ public:
          * Dbt. With DB_MULTIPLE_KEY, all key/data pairs are constructed in the
          * key Dbt. We use DB_MULTIPLE mode when there are duplicate records.
          */
-         //HC: Here use DB_MULTIPLE mode to handle any case
+        //HCE: Here use DB_MULTIPLE mode to handle any case
         flag = DB_MULTIPLE;
         ptrk = new DbMultipleDataBuilder(key);
         ptrd = new DbMultipleDataBuilder(data);
@@ -2629,7 +2692,7 @@ public:
         //::Serialize(s, VARINT(code));
         READWRITE(code);
         //::Serialize(s, Using<TxOutCompression>(out));
-        //HC: not compression
+        //HCE: not compression
         READWRITE(out);
     }
 

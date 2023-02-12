@@ -56,7 +56,7 @@ static const int64 MIN_TX_FEE = 50000;
 static const int64 MIN_RELAY_TX_FEE = 10000;
 static const int64 MAX_MONEY = 92200000000 * COIN; //15500000000 * COIN;
 inline bool MoneyRange(int64 nValue) { return (nValue >= 0 && nValue <= MAX_MONEY); }
-//HC:
+//HCE:
 static const int COINBASE_MATURITY = 10;// 100;
 /**
  * A flag that is ORed into the protocol version to designate that a transaction
@@ -86,14 +86,30 @@ extern bool CheckProofOfWork(uint256 hash, unsigned int nBits);
 struct deserialize_type {};
 constexpr deserialize_type deserialize{};
 
+//HCE:
+//HCE: @brief Position, height, hash of a transaction block
+//HCE:
 class CDiskTxPos
 {
 public:
     //unsigned int nFile;
-    //unsigned int nBlockPos;       //HC: 块距离文件头的offset
-    unsigned int nTxPos = 0;        //HC: 原表示交易所在文件距离文件头的offset，现表示交易所在账本块的偏移
-    uint32_t nHeightBlk = 0;        //HC: 所属块高度, 辅助信息
-    uint256 hashBlk;                //HC: 所属Para块Hash
+
+    //HC: 块距离文件头的offset
+    //HCE: the block offset in the file
+    //unsigned int nBlockPos;
+
+    //HC: 原表示交易所在文件距离文件头的offset，现表示交易所在账本块的偏移
+    //HCE: Originally indicates the offset of tx in the file from the file header, now indicates the offset of tx of the ledger block
+    unsigned int nTxPos = 0;
+
+    //HC: 所属块高度, 辅助信息
+    //HCE: The block height, auxiliary information
+    uint32_t nHeightBlk = 0;
+
+    //HC: 所属Para块Hash
+    //HCE: Hash of the Para block
+    uint256 hashBlk;
+
 
     CDiskTxPos()
     {
@@ -379,7 +395,7 @@ public:
         string witnessdetails = " ";
 
         if (scriptPubKey.IsPayToScriptHash()) {
-            //HC: p2pkh, legacy tx format
+            //HCE: p2pkh, legacy tx format
             witnessdetails = "PayToScriptHash";
         }
         else if (scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram)) {
@@ -400,7 +416,7 @@ public:
 
 
 static const int TX_VERSION_V1 = 0x1;
-static const int TX_VERSION_V2 = 0x2; //HC: start to support segwit
+static const int TX_VERSION_V2 = 0x2; //HCE: start to support segregated witness 
 
 /**
  * Basic transaction serialization format:
@@ -609,6 +625,14 @@ public:
     //HC:若nLockTime < 500000000, 则nLockTime代表区块数，该交易只能被打包进高度大于等于nLockTime的区块；
     //HC:若nLockTime>500000000，则nLockTime代表unix时间戳，该交易只能等到当前时间大于等于nLockTime才能被打包进区块
 
+    //HCE: nLockTime should be understood as the duration or number of blocks that lock the transaction, and
+    //HCE: if all input to the CTxIn nSequence field of the transaction is the maximum value (0xffffffff) of the uint32_t, the logical check of this field is ignored
+
+    //HCE: When nSequence < 0xffffffff and nLockTime == 0, the transaction can be packaged immediately
+    //HCE: When nSequence < 0xffffffff, and nLockTime! = 0:
+    //HCE: If nLockTime < 500000000, nLockTime represents the number of blocks, and the transaction can only be packed into blocks with a height greater than or equal to nLockTime;
+    //HCE: If nLockTime > 500000000, nLockTime represents the unix timestamp, and the transaction can only be packed into a block until the current time is greater than or equal to nLockTime
+
     bool IsFinal(int nBlockHeight = 0, int64 nBlockTime = 0) const
     {
         // Time based nLockTime implemented in 0.1.6
@@ -758,7 +782,7 @@ public:
     //    return true;
     //}
 
-    //HC:
+    //HCE:
 
     friend bool operator==(const CTransaction& a, const CTransaction& b)
     {
@@ -808,8 +832,12 @@ public:
     bool RemoveFromMemoryPool();
 };
 
-//HC: for witness
-/** A mutable version of CTransaction. */
+//HCE:
+//HCE: A mutable version of CTransaction
+//HCE: Variable transaction class, the content is similar to CTransaction. 
+//HCE: It's just that transactions can be modified directly, and transactions propagated in the broadcast and packaged into blocks are CTransaction types
+//HCE: The class is mainly used for segregated witness
+//HCE:
 struct CMutableTransaction
 {
     std::vector<CTxIn> vin;
@@ -901,7 +929,7 @@ public:
     )
 
 
-        int SetMerkleBranch(const CBlock* pblock = NULL);
+    int SetMerkleBranch(const CBlock* pblock = NULL);
     int GetDepthInMainChain(int& nHeightRet) const;
     int GetDepthInMainChain() const { int nHeight; return GetDepthInMainChain(nHeight); }
     bool IsInMainChain() const { return GetDepthInMainChain() > 0; }
@@ -968,13 +996,16 @@ public:
 };
 
 
+//HCE:
+//HCE: Position of a block on the Hyperchain.
+//HCE:
 class BLOCKTRIPLEADDRESS
 {
 public:
-    uint32 hid = 0;            //HC: hyper block id
-    uint16 chainnum = 0;
-    uint16 id = 0;
-    uint256 hhash;             //HC: hyper block hash
+    uint32 hid = 0;            //HCE: Hyperblock ID
+    uint16 chainnum = 0;       //HCE: Subchain ID
+    uint16 id = 0;             //HCE: Subblock ID
+    uint256 hhash;             //HCE: Hyperblock hash
 
 public:
     BLOCKTRIPLEADDRESS() {}
@@ -1100,14 +1131,14 @@ class CBlock
 public:
     // header
     int nVersion;
-    uint256 hashPrevBlock; //HC: hashPrevBlock is previous HyperBlock's largest ledger child block which is different from BitCoin.
+    uint256 hashPrevBlock; //HCE: hashPrevBlock is previous HyperBlock's largest ledger subblock which is different from BitCoin.
     uint256 hashMerkleRoot;
     uint32_t nHeight = 0;
 
     unsigned int nTime = 0;
 
-    uint32 nPrevHID;
-    uint256 hashPrevHyperBlock;
+    uint32_t nPrevHID;              //HCE: Previous Hyperblock ID
+    uint256 hashPrevHyperBlock;     //HCE: Previous Hyperblock hash
 
     // network and disk
     std::vector<CTransaction> vtx;
@@ -1160,7 +1191,11 @@ public:
         return (nTime == 0);
     }
 
+    //HCE: Check if the forward Hyperblock of the transaction is legitimate
+    //HCE: @param pfrom Node which block come from.
+    //HCE: @returns 0 ok,  -1 Hyperblock is different, -2 no found Hyperblock.
     int CheckHyperBlockConsistence(CNode* pfrom) const;
+
     void SetHyperBlockInfo();
 
     uint256 GetHash() const
@@ -1259,7 +1294,7 @@ public:
         return true;
     }
 
-    //HC:
+    //HCE:
     //bool ReadFromDisk(unsigned int nFile, unsigned int nBlockPos, bool fReadTransactions=true)
     //{
     //    SetNull();
@@ -1295,7 +1330,7 @@ public:
             return false;
         }
 
-        //HC: Read data from chain space
+        //HCE: Read data from chain space
         CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
 
         string payload;
@@ -1335,7 +1370,7 @@ public:
             nTime,
             vtx.size());
 
-        //HC: skip txs
+        //HCE: skip txs
         //for (int i = 0; i < vtx.size(); i++) {
         //    strResult += "\t";
         //    strResult += vtx[i].ToString();
@@ -1375,7 +1410,7 @@ public:
     bool SetBestChain(CTxDB_Wrapper& txdb, CBlockIndex* pindexNew);
 
 
-    //HC:
+    //HCE:
     //bool AddToBlockIndex(unsigned int nFile, unsigned int nBlockPos);
     //bool AddToBlockIndex(const T_LOCALBLOCKADDRESS& addr);
     bool UpdateToBlockIndex(CBlockIndex* pIndex, const BLOCKTRIPLEADDRESS& blktriaddr);
@@ -1410,13 +1445,20 @@ private:
 class CBlockIndex
 {
 public:
-    const uint256* phashBlock;  //HC: 块hash指针，节约空间，more see CBlock::AddToBlockIndex
+    //HC: 块hash指针，节约空间，more see CBlock::AddToBlockIndex
+    //HCE: Block hash pointers to save space, more see CBlock::AddToBlockIndex
+    const uint256* phashBlock;
     CBlockIndex* pprev;
     CBlockIndex* pnext;
-    //unsigned int nFile;     //HC: unused (To bitcoin:存储本区块的数据的文件，比如第100个区块，其区块文件存储在blk100.data中)
-    //unsigned int nBlockPos; //HC: unused
 
-    BLOCKTRIPLEADDRESS triaddr; //HC: 子块逻辑地址
+    //HC: unused (To bitcoin:存储本区块的数据的文件，比如第100个区块，其区块文件存储在blk100.data中)
+    //HCE: unused (To bitcoin: The file that stores the data of this block, such as block 100, whose block file is stored in blk100.data)
+    //unsigned int nFile;     
+    //unsigned int nBlockPos; //HCE: unused
+
+    //HC: 子块逻辑地址, 带所在超块hash， Add in VERSION >= 50000
+    //HCE: The logical address of the subblock, with the hash of the Hyperblock, Add in VERSION >= 50000
+    BLOCKTRIPLEADDRESS triaddr; //HCE: 子块逻辑地址
 
     // block header
     int nVersion;
@@ -1470,9 +1512,12 @@ public:
         hashPrevHyperBlock = block.hashPrevHyperBlock;
     }
 
+    //HC: 该区块的高度，从创世区块0开始算起
+    //HCE: The height of the block is calculated from genesis block 0
     inline int64 Height() const {
         return nHeight;
-    };                             //HC: 该区块的高度，从创世区块0开始算起
+    };                             
+
     CBlock GetBlockHeader() const
     {
         CBlock block;
@@ -1700,7 +1745,7 @@ public:
         //::Serialize(s, VARINT(code));
         READWRITE(code);
         //::Serialize(s, Using<TxOutCompression>(out));
-        //HC: not compression
+        //HCE: not compression
         READWRITE(out);
     }
 

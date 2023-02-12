@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2023 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -45,12 +45,14 @@ DEALINGS IN THE SOFTWARE.
 using namespace std;
 
 
-
-//HC: 单条局部块链定义
+//HCE: Single local chain definition
+//HC: 单条局部链定义
 //HC: uint64:	local block id 局部块id
 typedef map<uint64, T_LOCALBLOCK> LocalBlockDB;
 
 
+
+//HCE:Multiple local chain definitions
 //HC: 并行局部链定义
 //HC: uint64: local chain num 局部链号
 
@@ -69,14 +71,14 @@ struct HyperBlockDB
 };
 
 
-//HC: 超块链定义
+//HCE: Hyperchain definition
 
 typedef map<uint64, HyperBlockDB> HyperchainDB;
 
 class CHyperchainDB
 {
 public:
-    //HC: 功能函数
+    //HCE: Functional functions
     static int cleanTmp(HyperchainDB &hyperchainDB);
 
 public:
@@ -84,17 +86,21 @@ public:
     ~CHyperchainDB();
 public:
     //HC: 保存一条块信息到数据库
+    //HCE: Save a piece of block information to the database
     static int saveHyperBlockToDB(const T_HYPERBLOCK& hyperblock);
 
     //HC: 保存多条块信息到数据库
+    //HCE: Save multiple pieces of block information to the database
     static int saveHyperBlocksToDB(const vector<T_HYPERBLOCK> &vHyperblock);
 
     //HC: 从本地数据库读取块信息
+    //HCE: Read block information from the local database
     static bool getHyperBlock(T_HYPERBLOCK &h, uint64 hid);
     static bool getHyperBlock(T_HYPERBLOCK &h, const T_SHA256 &hhash);
     static bool getHyperBlockbyHeaderHash(T_HYPERBLOCK &h, uint64 hid, const T_SHA256 &headerhash);
 
     //HC: 获取最新块号
+    //HCE: Get the latest block number
     static uint64 GetLatestHyperBlockNo();
 
 private:

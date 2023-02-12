@@ -262,7 +262,7 @@ Value getblockhash(const Array& params, bool fHelp)
         //height = params[nIdx].get_array()[0].get_int();
     }
 
-    //HC: make calling mapBlockIndex::pprev rapidly: avoid db open and close repeatedly
+    //HCE: make calling mapBlockIndex::pprev rapidly: avoid db open and close repeatedly
     CTxDB_Wrapper txdb;
 
     uint256 hashbegin;
@@ -315,7 +315,7 @@ Object get_a_rawtransaction(const Array& params)
     int verbosity = 0;
     if (params.size() > 1) {
         if (params[1].type() == str_type)
-            verbosity = std::atoi(params[1].get_str().c_str()); //HC: for command line
+            verbosity = std::atoi(params[1].get_str().c_str()); //HCE: for command line
         else
             verbosity = params[1].get_int();
     }
@@ -360,7 +360,7 @@ Object get_a_rawtransaction(const Array& params)
     throw JSONRPCError(-6, "Failed to get raw transaction");
 }
 
-//HC: This interface has two kinds usage
+//HCE: This interface has two kinds usage
 Value getrawtransaction(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() == 0)
@@ -441,10 +441,10 @@ Value sendrawtransaction(const Array& params, bool fHelp)
     CTransaction tx;
     ssTx >> tx;
 
-    //HC: FeeRate, maybe use in the future
+    //HCE: FeeRate, maybe use in the future
     //int64 nAmount = AmountFromValue(params[1]);
 
-    //HC: Broadcast
+    //HCE: Broadcast
     if (!ProcessReceivedTx(nullptr, tx)) {
         throw JSONRPCError(-1, tx.m_strRunTimeErr);
     }
@@ -504,10 +504,10 @@ double GetDifficulty()
     int nShift = (pindexBest->nBits >> 24) & 0xff;
 
     double dDiff =
-        //HC: Here, bitcoin code is: (double)0x0000ffff / (double)(pindexBest->nBits & 0x00ffffff);
+        //HCE: Here, bitcoin code is: (double)0x0000ffff / (double)(pindexBest->nBits & 0x00ffffff);
         (double)0x00000fff / (double)(pindexBest->nBits & 0x00ffffff);
 
-    //HC: while (nShift < 29), why 29? because block.nBits = 0x1d00ffff; 0x1d = 29
+    //HCE: while (nShift < 29), why 29? because block.nBits = 0x1d00ffff; 0x1d = 29
     while (nShift < 32)
     {
         dDiff *= 256.0;
@@ -650,7 +650,7 @@ Value getnewaddress(const Array& params, bool fHelp)
     return EncodeDestination(dest);
 }
 
-//HC:
+//HCE:
 CTxDestination GetAccountAddress(string strAccount, bool bForceNew = false)
 {
     CWalletDB_Wrapper walletdb(pwalletMain->strWalletFile);
@@ -735,13 +735,13 @@ Value setaccount(const Array& params, bool fHelp)
     string strAccount;
     if (params.size() > 1)
         strAccount = AccountFromValue(params[1]);
-    //HC: '*' reserves as a global account which represents all accounts.
+    //HCE: '*' reserves as a global account which represents all accounts.
     if (strAccount == "*") {
         throw JSONRPCError(-5, "Invalid account name");
     }
 
     // Detect when changing the account of an address that is the 'unused current key' of another account:
-    //HC: do nothing
+    //HCE: do nothing
     //if (pwalletMain->mapAddressBook.count(address))
     //{
     //    string strOldAccount = pwalletMain->mapAddressBook[address];
@@ -1447,7 +1447,7 @@ void ListTransactionsDetails(const CWalletTx& wtx, const string& strAccount, int
             opcodetype opcode;
             vector<unsigned char> vchPushValue;
 
-            //HC: To coinbase, cannot get address because only contains signature in scriptSig
+            //HCE: To coinbase, cannot get address because only contains signature in scriptSig
             if (txin.scriptSig.GetOp(pc, opcode, vchPushValue)) {
                 if (txin.scriptSig.GetOp(pc, opcode, vchPushValue)) {
                     //public key
@@ -1475,7 +1475,7 @@ void ListTransactionsDetails(const CWalletTx& wtx, const string& strAccount, int
     entryvin.push_back(Pair("vin", detailsvin));
     ret.push_back(entryvin);
 
-    //HC: vout
+    //HCE: vout
     int64_t n = 0;
     Array detailsvout;
     for (auto& txout: wtx.vout) {
@@ -1513,7 +1513,7 @@ void ListTransactionsDetails(const CWalletTx& wtx, const string& strAccount, int
         detailssummary.push_back(entry);
     }
 
-    //HC: It seems that Sent and received has errors, so skip
+    //HCE: It seems that Sent and received has errors, so skip
     return;
 
     // Sent
@@ -1691,7 +1691,7 @@ Value listaccounts(const Array& params, bool fHelp)
     map<string, Balances> mapAccountBalances;
     mapAccountBalances["*"] = Balances();
     BOOST_FOREACH(const PAIRTYPE(CTxDestination, string)& entry, pwalletMain->mapAddressBook) {
-        //HC: for SegWit, here cannot know if the address belongs to me or not
+        //HCE: for SegWit, here cannot know if the address belongs to me or not
         //if (pwalletMain->HaveKey(entry.first)) // This address belongs to me
             mapAccountBalances[entry.second] = Balances();
     }
@@ -1707,8 +1707,8 @@ Value listaccounts(const Array& params, bool fHelp)
         int64 nFee;
         list<CWalletTx::DestReceived> listReceived;
         wtx.GetAmountsForBalance(listReceived, nFee, nMinDepth);
-        //HC: '*' means all accounts.
-        //HC: for computing balances, because statistics out value of tx, so skip nFee
+        //HCE: '*' means all accounts.
+        //HCE: for computing balances, because statistics out value of tx, so skip nFee
         //mapAccountBalances["*"] -= nFee;
 
         for (const auto& r : listReceived) {
@@ -2092,7 +2092,7 @@ Value validateaddress(const Array& params, bool fHelp)
         // version of the address:
         string currentAddress = params[0].get_str();   // address.ToString();
         ret.push_back(Pair("address", currentAddress));
-        //HC: address have three types, so cannot know
+        //HCE: address have three types, so cannot know
         //ret.push_back(Pair("ismine", (pwalletMain->HaveKey(address) > 0)));
         if (pwalletMain->mapAddressBook.count(address))
             ret.push_back(Pair("account", pwalletMain->mapAddressBook[address]));
@@ -2102,7 +2102,7 @@ Value validateaddress(const Array& params, bool fHelp)
 
 extern void ChangeCoinbaseIfExist(CBlock* pblock, unsigned int nExtraNonce);
 extern MiningCondition g_miningCond;
-//HC: Change implementation into progpow algorithm
+//HCE: Change implementation into progpow algorithm
 Value getwork(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() == 0)
@@ -2170,7 +2170,7 @@ Value getwork(const Array& params, bool fHelp)
         // Update nTime
         pblock->nTime = max(pindexPrev->GetMedianTimePast() + 1, GetAdjustedTime());
 
-        //HC: avoid coinbase conflict
+        //HCE: avoid coinbase conflict
         // Update nExtraNonce
         unsigned int nExtraNonce = 0;
         ChangeCoinbaseIfExist(pblock, nExtraNonce);
@@ -2242,7 +2242,7 @@ pair<string, rpcfn_type> pCallTable[] =
     make_pair("stop",                   &stop),
     make_pair("getblockcount",          &getblockcount),
 
-    //HC: new commands for spv
+    //HCE: new commands for spv
     make_pair("getblockhash",           &getblockhash),
     make_pair("getblock",               &getblock),
     make_pair("getrawmempool",          &getrawmempool),
@@ -2658,7 +2658,7 @@ private:
 
 void ThreadRPCServer(void* parg)
 {
-    //HC:
+    //HCE:
     //IMPLEMENT_RANDOMIZE_STACK(ThreadRPCServer(parg));
     fRPCServerRunning = true;
     try
@@ -2751,10 +2751,10 @@ void ThreadRPCServer2(void* parg)
         throw runtime_error("-rpcssl=1, but ledger compiled without full openssl libraries.");
 #endif
 
-    //HC: Add a job to start accepting connections.
+    //HCE: Add a job to start accepting connections.
     StartAccept(acceptor);
 
-    //HC: Process event loop.
+    //HCE: Process event loop.
     io_service.run();
 }
 
@@ -2787,12 +2787,12 @@ Object CombineFromArr(const Array & requests)
         Array params;
         if (valParams.type() == array_type) {
             params = valParams.get_array();
-            params.push_back(id); //HC: last params is id
+            params.push_back(id); //HCE: last params is id
             parasIn.push_back(params);
         }
         else if (valParams.type() == null_type) {
             params = Array();
-            params.push_back(id); //HC: last params is id
+            params.push_back(id); //HCE: last params is id
             parasIn.push_back(params);
         }
         else
@@ -2914,7 +2914,7 @@ void HandleReadHttpBody(boost::shared_ptr<asio::ip::tcp::socket> socket,
             if (reqType == array_type) {
                 Array arrResult;
                 Array arrReq = valRequest.get_array();
-                //HC: Combine multiple methods into single
+                //HCE: Combine multiple methods into single
                 request = std::move(CombineFromArr(arrReq));
                 isarry = true;
             } else {
@@ -3004,7 +3004,7 @@ void HandleReadHttpHeader(boost::shared_ptr<asio::ip::tcp::socket> socket,
         //    return;
         //}
 
-        //HC: don't HTTPAuthorized
+        //HCE: don't HTTPAuthorized
         // Check authorization
         //if (mapHeaders.count("authorization") == 0)
         //{
@@ -3029,7 +3029,7 @@ void HandleAccept(const system::error_code& error,
     boost::shared_ptr< asio::ip::tcp::socket > socket,
     asio::ip::tcp::acceptor& acceptor)
 {
-    //HC: If there was an error, then do not add any more jobs to the service.
+    //HCE: If there was an error, then do not add any more jobs to the service.
     if (error) {
         printf("Error accepting connection: %s", error.message().c_str());
         return;
@@ -3092,14 +3092,14 @@ void HandleAccept(const system::error_code& error,
 
     } while (false);
 
-    //HC: Done using socket, ready for another connection
+    //HCE: Done using socket, ready for another connection
     StartAccept(acceptor);
 
 }
 
 void StartRPCServer()
 {
-    //HC: only one, else the second time bind will be failure
+    //HCE: only one, else the second time bind will be failure
     int n = 1;//std::thread::hardware_concurrency();
     for (int i = 0; i < n; i++) {
         std::shared_ptr<boost::asio::io_service> io(new boost::asio::io_service());
@@ -3309,7 +3309,7 @@ Value issuecoin(const Array& params, bool fHelp)
     Array arr;
     arr.push_back(gid);
 
-    //HC: Mining operator run quickly, so return requestid directly, 'gid2rid' is unnecessary to RPC client side.
+    //HCE: Mining operator run quickly, so return requestid directly, 'gid2rid' is unnecessary to RPC client side.
     return gid2rid(arr, false);
 }
 
@@ -3388,7 +3388,7 @@ Value commitcoin(const Array& params, bool fHelp)
     }
 
     string requestid;
-    //HC: before call consensus layer function, unlock critical to avoid dead lock
+    //HCE: before call consensus layer function, unlock critical to avoid dead lock
     UNCRITICAL_BLOCK(pwalletMain->cs_wallet)
     {
         UNCRITICAL_BLOCK_T_MAIN(cs_main)
@@ -3457,7 +3457,7 @@ Value querygenesisblock(const Array& params, bool fHelp)
     string uuid = params[0].get_str();
     string requestid = CryptoCurrency::GetRequestID(uuid);
 
-    //HC: query database
+    //HCE: query database
     T_LOCALBLOCKADDRESS addr;
     if (!requestid.empty())
     {

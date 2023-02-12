@@ -84,7 +84,7 @@ void LatestLedgerBlock::Load()
 
     LoadLatestBlock(maxhidInDB);
 
-    //HC: load block triple address index
+    //HCE: load block triple address index
     btadb.LoadBlockTripleAddress();
 
     btadb.Close();
@@ -126,8 +126,10 @@ void LatestLedgerBlock::CompareAndUpdate(const vector<BLOCKTRIPLEADDRESS>& vecAd
 
     for (size_t i = 0; i < len; i++) {
         uint256 hashBlock = vecBlockIn[i].GetHash();
-        //HC: insert or update
-        //HC: ¼´Ê¹hashBlockÒÑ¾­´æÔÚmapÖÐ£¬Ò²ÓÐ¿ÉÄÜtriaddressÐèÒª¸üÐÂ£¬Ò²¾ÍÊÇËµÍêÈ«ÓÐÈçÏÂÇé¿ö·¢Éú£º¶þ¸ö²»Í¬³¬¿é °üº¬ÏàÍ¬para¿é
+        //HCE: insert or update
+        //HC: å³ä½¿hashBlockå·²ç»å­˜åœ¨mapä¸­ï¼Œä¹Ÿæœ‰å¯èƒ½triaddresséœ€è¦æ›´æ–°ï¼Œä¹Ÿå°±æ˜¯è¯´å®Œå…¨æœ‰å¦‚ä¸‹æƒ…å†µå‘ç”Ÿï¼šäºŒä¸ªä¸åŒè¶…å— åŒ…å«ç›¸åŒledgerå—
+        //HCE: Even if the hashBlock already exists in the map, 
+        //HCE: it is possible that the triaddress needs to be updated, which means that it happens that two different Hyperblock contain the same ledger block
         if (!_mapBlockAddressOnDisk.contain(hashBlock) || _mapBlockAddressOnDisk[hashBlock] != vecAddrIn[i]) {
             _mapBlockAddressOnDisk.insert(btadb, hashBlock, vecAddrIn[i]);
         }
@@ -152,11 +154,13 @@ void LatestLedgerBlock::CompareAndUpdate(const vector<BLOCKTRIPLEADDRESS>& vecAd
         for (size_t i = 0; i < len; i++) {
             const uint256& hashPrev = vecBlockIn[i].hashPrevBlock;
             if ( _pindexLatest->GetBlockHash() == hashPrev) {
-                //HC: »ØËÝÁ´ÑÓÉì
+                //HC: å›žæº¯é“¾å»¶ä¼¸
+                //HCE: Extend traceback chain
                 SetBestIndex(AddBlockIndex(vecAddrIn[i], vecBlockIn[i]));
             }
             else {
-                //HC: ÐÂ»ØËÝÁ´³öÏÖ£¬½¨Á¢²¢ÇÒ½øÐÐÁ´ÇÐ»»
+                //HC: æ–°å›žæº¯é“¾å‡ºçŽ°ï¼Œå»ºç«‹å¹¶ä¸”è¿›è¡Œé“¾åˆ‡æ¢
+                //HCE: A new traceback chain appears, establish and do a chain switch
                 _pindexLatestRoot = InsertBlockIndex(hashPrev);
                 SetBestIndex(AddBlockIndex(vecAddrIn[i], vecBlockIn[i]));
             }
@@ -184,7 +188,7 @@ void LatestLedgerBlock::AddBlockTripleAddress(const uint256& hastblock, const BL
     _mapBlockAddressOnDisk.insertBloomFilter(hastblock);
 }
 
-//HC: try switch to _indexLatest
+//HCE: try switch to _indexLatest
 void LatestLedgerBlock::Switch()
 {
     if (!_pindexLatest || !_pindexLatestRoot) {
@@ -194,9 +198,9 @@ void LatestLedgerBlock::Switch()
     int64 nStartTime = GetTime();
     int nCount = 0;
 
-    //HC: The following four local variants are very important
-    //HC: make sure db is opened during dealing with every block
-    //HC: and db close will be done only at the latest block, so improve the performance for switching
+    //HCE: The following four local variants are very important
+    //HCE: make sure db is opened during dealing with every block
+    //HCE: and db close will be done only at the latest block, so improve the performance for switching
     CTxDB_Wrapper txdb;
     CWalletDB_Wrapper walletdb(pwalletMain->strWalletFile);
     CBlockDB_Wrapper blkdb;
@@ -225,7 +229,7 @@ void LatestLedgerBlock::Switch()
                     return;
                 }
                 else {
-                    //HC: remove block from orphan block disk cache
+                    //HCE: remove block from orphan block disk cache
                     db.EraseBlock(hash);
                 }
             }
@@ -253,15 +257,15 @@ void LatestLedgerBlock::Switch()
             block.UpdateToBlockIndex(pIndex->addr);
         }
 
-        //HC: avoid no response for a long time
+        //HCE: avoid no response for a long time
         if (GetTime() - nStartTime > 200 || nCount++ > 600 || !pIndex->pnext) {
-            //HC: Force to switch best chain to pIndexPool
+            //HCE: Force to switch best chain to pIndexPool
             if (mapBlockIndex.count(hash)) {
                 CTxDB_Wrapper txdb;
                 block.SetBestChain(txdb, pIndexPool);
             }
             else {
-                //HC: To be done
+                //HCE: To be done
                 //block.AddToBlockIndex(pIndex->addr);
             }
             _pindexLatestRoot = pIndex;
@@ -293,7 +297,7 @@ bool LatestLedgerBlock::IsLackingBlock(std::function<void(const BackTrackingProg
         progress.nBackTrackingBlockHeight = GetBackSearchHeight();
         progress.strBackTrackingBlockHash = GetBackSearchHash().ToPreViewString().c_str();
 
-        //HC: Update backtracking progress
+        //HCE: Update backtracking progress
         notiprogress(progress);
 
         if (mapBlockIndex.count(hashPrev)) {
@@ -304,20 +308,20 @@ bool LatestLedgerBlock::IsLackingBlock(std::function<void(const BackTrackingProg
                     continue;
                 }
                 else {
-                    //HC: Para chain is ready, it is time to switch to best chain.
+                    //HCE: Para chain is ready, it is time to switch to best chain.
                     _pindexLatestRoot->addr = mapBlockIndex[hashPrev]->triaddr;
                     return false;
                 }
             }
 
-            //HC: Cannot reach _pindexLatest from _pindexLatestRoot, so backtracking again
+            //HCE: Cannot reach _pindexLatest from _pindexLatestRoot, so backtracking again
              LogRequest("Warning: Cannot reach _pindexLatest from _pindexLatestRoot, so backtracking again !!!");
 
             _pindexLatestRoot = _pindexLatest;
             return true;
         }
 
-        //HC: rapidly backtracking
+        //HCE: rapidly backtracking
         if (_mapBlockIndexLatest.count(hashPrev)) {
             CBlockIndexSimplified * pindex = _mapBlockIndexLatest[hashPrev];
             if (pindex->pprev && pindex->pprev->pprev) {
@@ -328,7 +332,7 @@ bool LatestLedgerBlock::IsLackingBlock(std::function<void(const BackTrackingProg
             }
         }
 
-        //HC: try to get block from orphan block memory cache
+        //HCE: try to get block from orphan block memory cache
         if (mapOrphanBlocks.count(hashPrev)) {
 
             auto pblock = mapOrphanBlocks[hashPrev];
@@ -348,7 +352,7 @@ bool LatestLedgerBlock::IsLackingBlock(std::function<void(const BackTrackingProg
             continue;
         }
 
-        //HC: try to get block from local disk
+        //HCE: try to get block from local disk
         CBlock block;
         BLOCKTRIPLEADDRESS tripleaddr;
         if (GetBlock(hashPrev, block, tripleaddr)) {
@@ -363,13 +367,13 @@ bool LatestLedgerBlock::IsLackingBlock(std::function<void(const BackTrackingProg
 
         bool isFound = false;
 
-        //HC: try to get block from local block cache
+        //HCE: try to get block from local block cache
         if (mapBlocks.contain(hashPrev)) {
             block = mapBlocks[hashPrev];
             isFound = true;
         }
         else {
-            //HC: try to get block from orphan block disk cache
+            //HCE: try to get block from orphan block disk cache
             COrphanBlockDB_Wrapper db;
             if (db.ReadBlock(hashPrev, block)) {
                 isFound = true;
@@ -389,7 +393,7 @@ bool LatestLedgerBlock::IsLackingBlock(std::function<void(const BackTrackingProg
         break;
     }
 
-    //HC: try to get block from neighbors
+    //HCE: try to get block from neighbors
     PullingPrevBlocks();
     return true;
 }
@@ -411,7 +415,7 @@ bool LatestLedgerBlock::IsOnChain()
     }
 
     if (p && p->GetBlockHash() == _pindexLatest->GetBlockHash()) {
-        //HC: Clear memory exclude latest block index and previous
+        //HCE: Clear memory exclude latest block index and previous
         auto iter = _mapBlockIndexLatest.begin();
         for (;iter!=_mapBlockIndexLatest.end();) {
 
@@ -455,7 +459,7 @@ bool LatestLedgerBlock::GetBlock(const uint256 & hashblock, CBlock & block, BLOC
 
         if (!block.ReadFromDisk(tripleaddr.ToAddr())) {
 
-            //HC: Data in _mapBlockAddressOnDisk is error, remove it
+            //HCE: Data in _mapBlockAddressOnDisk is error, remove it
             _mapBlockAddressOnDisk.erase(hashblock);
 
             return false;
@@ -463,7 +467,7 @@ bool LatestLedgerBlock::GetBlock(const uint256 & hashblock, CBlock & block, BLOC
 
         hashFromDisk = block.GetHash();
         if (hashFromDisk != hashblock) {
-            //HC: Data in _mapBlockAddressOnDisk is error, correct it
+            //HCE: Data in _mapBlockAddressOnDisk is error, correct it
             _mapBlockAddressOnDisk.erase(hashblock);
             _mapBlockAddressOnDisk.insert(hashFromDisk, tripleaddr);
 
@@ -631,14 +635,14 @@ bool ChainReadyCondition::IsTooFar(std::string& reason)
             uint256 hash;
             g_blockChckPnt.Get(height, hash);
             if (height == 0) {
-                //HC: "Warning: Seed server's block information is unknown";
+                //HCE: "Warning: Seed server's block information is unknown";
                 _eStatusCode = chainstatuscode::ReadyWithWarning1;
                 return false;
             }
-            //HC: compare block height and block hash with remote seed server
+            //HCE: compare block height and block hash with remote seed server
             if (height > 0) {
                 if (p->Height() < height) {
-                    //HC: "Warning: Block height too small: %d, Seed server: %d "
+                    //HCE: "Warning: Block height too small: %d, Seed server: %d "
                     _eStatusCode = chainstatuscode::ReadyWithWarning2;
                     return false;
                 }
@@ -648,7 +652,7 @@ bool ChainReadyCondition::IsTooFar(std::string& reason)
                 }
 
                 if (p->GetBlockHash() != hash) {
-                    //HC: Warning: Block %d hash different: %s, Seed server: %s
+                    //HCE: Warning: Block %d hash different: %s, Seed server: %s
                     _eStatusCode = chainstatuscode::ReadyWithWarning3;
                     return false;
                 }
@@ -704,7 +708,7 @@ void LatestLedgerBlock::PullingPrevBlocks()
     CRITICAL_BLOCK(cs_vNodes)
     {
         pullingNode = ChoosePullingNode();
-        //HC: Request block from neighbors
+        //HCE: Request block from neighbors
         if (pullingNode) {
             pullingNode->PushGetBlocksReversely(currBackHash);
         }
@@ -730,7 +734,7 @@ bool CBlockCacheLocator::contain(const uint256& hashBlock)
 {
     if (!_filterReady) {
         if (_filterCacheReadReady) {
-            //HC: merge the block filter
+            //HCE: merge the block filter
             _filterBlock = _filterBlock | blk_bf_future.get();
             _filterReady = true;
             cout << "Ledger: read block cache completely\n";
@@ -744,7 +748,7 @@ bool CBlockCacheLocator::contain(const uint256& hashBlock)
         return true;
     }
 
-    //HC: Is it in storage?
+    //HCE: Is it in storage?
     CBlockDB_Wrapper blockdb;
     CBlock blk;
     if (blockdb.ReadBlock(hashBlock, blk)) {
@@ -780,7 +784,7 @@ void CBlockCacheLocator::clear()
     _mapTmJoined.clear();
 }
 
-//HC: how to clean the bit flag?
+//HCE: how to clean the bit flag?
 bool CBlockCacheLocator::erase(const uint256& hashBlock)
 {
     return true;
@@ -834,7 +838,7 @@ bool CBlockDiskLocator::contain(const uint256& hashBlock)
     if (!_filterBlock.contain(hashBlock))
         return false;
 
-    //HC: Is it in storage?
+    //HCE: Is it in storage?
     CBlockTripleAddressDB btadb;
     BLOCKTRIPLEADDRESS addr;
     if (btadb.ReadBlockTripleAddress(hashBlock, addr)) {
@@ -882,7 +886,7 @@ void CBlockDiskLocator::clear()
     _setRemoved.clear();
 }
 
-//HC: how to clean the bit flag?
+//HCE: how to clean the bit flag?
 bool CBlockDiskLocator::erase(const uint256& hashBlock)
 {
     if (!_filterBlock.contain(hashBlock)) {
@@ -919,20 +923,4 @@ const BLOCKTRIPLEADDRESS& CBlockDiskLocator::operator[](const uint256& hashBlock
     return _mapBlockTripleAddr[hashBlock];
 }
 
-
-CSpentTime::CSpentTime()
-{
-    _StartTimePoint = std::chrono::system_clock::now();
-}
-
-uint64 CSpentTime::Elapse()
-{
-    auto tdiff = std::chrono::system_clock::now() - _StartTimePoint;
-    return std::chrono::duration_cast<std::chrono::milliseconds>(tdiff).count();
-}
-
-void CSpentTime::Reset()
-{
-    _StartTimePoint = std::chrono::system_clock::now();
-}
 

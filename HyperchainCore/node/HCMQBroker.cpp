@@ -31,8 +31,8 @@ DEALINGS IN THE SOFTWARE.
 #include <thread>
 
 
-#define HEARTBEAT_LIVENESS  3       //  3-5 is reasonable
-#define HEARTBEAT_INTERVAL  2500    //  msecs
+#define HEARTBEAT_LIVENESS  3       //HCE:  3-5 is reasonable
+#define HEARTBEAT_INTERVAL  2500    //HCE:  msecs
 #define HEARTBEAT_EXPIRY    HEARTBEAT_INTERVAL * HEARTBEAT_LIVENESS
 
 
@@ -86,14 +86,14 @@ void HCMQBroker::service_dispatch(service *srv, zmsg *msg)
         srv->m_requests.push_back(make_tuple(std::move(*msg), std::time(nullptr)));
     }
 
-    //HC: only for debug
+    //HCE: only for debug
     //if (srv->m_requests.size() > 50 && srv->m_waiting.empty()) {
     //    cout << time2string() << " " << srv->m_name << " very busy, too many requests :" << srv->m_requests.size()
     //        << " waiting: " << srv->m_waiting.size() << endl;
     //}
 
     while (!srv->m_waiting.empty() && !srv->m_requests.empty()) {
-        //HC: Choose the most recently seen idle worker; others might be about to expire
+        //HCE: Choose the most recently seen idle worker; others might be about to expire
         auto wrk = srv->m_waiting.begin();
         auto next = wrk;
         for (++next; next != srv->m_waiting.end(); ++next) {
@@ -109,7 +109,7 @@ void HCMQBroker::service_dispatch(service *srv, zmsg *msg)
             auto &req = srv->m_requests.front();
             auto t = std::get<1>(req);
             if (t + ntimeout < now) {
-                //HC: Message is expired
+                //HCE: Message is expired
                 srv->m_requests.pop_front();
                 srv->m_req_abandoned++;
                 continue;
@@ -134,7 +134,7 @@ worker * HCMQBroker::worker_require(std::string identity)
 {
     assert(identity.length() != 0);
 
-    //HC: self->workers is keyed off worker identity
+    //HCE: self->workers is keyed off worker identity
     if (m_workers.count(identity)) {
         return m_workers.at(identity);
     }
@@ -166,7 +166,7 @@ void HCMQBroker::worker_delete(worker *&wrk, int disconnect)
     }
     m_waiting.erase(wrk);
 
-    //HC: This implicitly calls the worker destructor
+    //HCE: This implicitly calls the worker destructor
     cout << "ZMQ:  worker_delete " << wrk->m_identity << endl;
     m_workers.erase(wrk->m_identity);
     delete wrk;
@@ -190,11 +190,11 @@ void HCMQBroker::worker_process(std::string sender, zmsg *msg)
         worker_waiting(wrk);
     }
     else if (command.compare(MDPW_READY) == 0) {
-        if (worker_ready) {              //HC: Not first command in session
+        if (worker_ready) {              //HCE: Not first command in session
             worker_delete(wrk, 1);
         }
         else {
-            //HC: Attach worker to service and mark as idle
+            //HCE: Attach worker to service and mark as idle
             std::string service_name = msg->pop_front();
             wrk->m_service = service_require(service_name);
             wrk->m_service->m_workers++;
@@ -205,8 +205,8 @@ void HCMQBroker::worker_process(std::string sender, zmsg *msg)
     else {
         if (command.compare(MDPW_REPLY) == 0) {
             if (worker_ready) {
-                //HC: Remove & save client return envelope and insert the
-                //HC: protocol header and service name, then rewrap envelope.
+                //HCE: Remove & save client return envelope and insert the
+                //HCE: protocol header and service name, then rewrap envelope.
                 std::string client = msg->unwrap();
                 msg->push_front(MDPC_CLIENT);
                 msg->wrap(client.c_str(), "");
@@ -250,13 +250,13 @@ void HCMQBroker::worker_send(worker *worker, char *command, std::string option, 
         msg = &emptymsg;
     }
 
-    //HC: Stack protocol envelope to start of message
+    //HCE: Stack protocol envelope to start of message
     if (option.size() > 0) {
         msg->push_front((char*)option.c_str());
     }
     msg->push_front(command);
     msg->push_front((char*)MDPW_WORKER);
-    //HC: Stack routing envelope to start of message
+    //HCE: Stack routing envelope to start of message
     msg->wrap(worker->m_identity.c_str(), "");
 
     msg->send(*m_socket);
@@ -278,10 +278,21 @@ void HCMQBroker::monitor_process(std::string sender, zmsg *msg)
     std::stringstream ss;
     for (auto& ser : m_services) {
         ss << "\t" << std::setw(20) << setiosflags(ios::right) << ser.first;
+
+        service* sr = ser.second;
         ss << " waiting requests : " << std::resetiosflags(ios::right) <<
-            std::setw(8) << setiosflags(ios::left) << ser.second->m_requests.size();
-        ss << " handled : " << std::setw(12) << ser.second->m_req_handled
-           << " abandoned: " << ser.second->m_req_abandoned << endl;
+            std::setw(8) << setiosflags(ios::left) << sr->m_requests.size();
+
+        ss << " workers : " << sr->m_workers << " " << sr->m_waiting.size();
+        if (sr->m_waiting.size() > 0) {
+            ss << " process_ability: ";
+            for (auto w : sr->m_waiting) {
+                ss << w->m_process_ability << " ";
+            }
+        }
+
+        ss << " handled : " << std::setw(12) << sr->m_req_handled
+           << " abandoned: " << sr->m_req_abandoned << endl;
     }
     msg->push_front(ss.str());
     msg->push_front(MDP_MON);
@@ -297,7 +308,7 @@ void HCMQBroker::client_process(std::string sender, zmsg *msg)
     std::string service_name = msg->pop_front();
     service *srv = service_require(service_name);
     msg->wrap(sender.c_str(), "");
-    //HC: for debug
+    //HCE: for debug
     //if (service_name == NODE_SERVICE)
     //{
     //    zmsg clonemsg(*msg);
@@ -364,7 +375,7 @@ void HCMQBroker::broker_handler()
                 monitor_process(sender, &recvmsg);
             }
             else {
-                //HC: HCMQBroker: **********************invalid message**********************
+                //HCE: HCMQBroker: **********************invalid message**********************
                 recvmsg.dump();
             }
         }

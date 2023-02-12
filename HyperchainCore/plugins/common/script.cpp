@@ -456,7 +456,7 @@ static bool EvalChecksig(const valtype& sig, const valtype& pubkey, CScript::con
     case SigVersion::WITNESS_V0:
         return EvalChecksigPreTapscript(sig, pubkey, pbegincodehash, pend, flags, checker, sigversion, serror, success);
     case SigVersion::TAPSCRIPT:
-        //HC: not support
+        //HCE: not support
         return false;
     case SigVersion::TAPROOT:
         // Key path spending in Taproot has no script, so this is unreachable.
@@ -2274,7 +2274,7 @@ bool Solver(const CKeyStore& keystore, const CScript& scriptPubKey, uint256 hash
             // Sign
             const valtype& vchPubKey = item.second;
             CKey key;
-            //HC: get key pair(public key and private key) from keystore
+            //HCE: get key pair(public key and private key) from keystore
             if (!keystore.GetKey(Hash160(vchPubKey), key))
                 return false;
             if (key.GetPubKey() != vchPubKey)
@@ -2422,7 +2422,7 @@ bool ExtractAddress(const CScript& scriptPubKey, const CKeyStore* keystore, CBit
 
 
 //////////////////////////////////////////////////////////////////////////
-///HC: SegWit
+///HCE: SegWit
 ///
 ///
 
@@ -3000,7 +3000,7 @@ static bool ExecuteWitnessScript(const Span<const valtype>& stack_span, const CS
     std::vector<valtype> stack{ stack_span.begin(), stack_span.end() };
 
     if (sigversion == SigVersion::TAPSCRIPT) {
-        //HC: not support
+        //HCE: not support
         return false;
     }
 
@@ -3032,7 +3032,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             }
             const valtype& script_bytes = SpanPopBack(stack);
             exec_script = CScript(script_bytes.begin(), script_bytes.end());
-            //HC: use Hash function
+            //HCE: use Hash function
             uint256 hash_exec_script = Hash(exec_script.begin(), exec_script.end());
             //CSHA256().Write(&exec_script[0], exec_script.size()).Finalize(hash_exec_script.begin());
             if (memcmp(hash_exec_script.begin(), program.data(), 32)) {
@@ -3054,7 +3054,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
     }
     else if (witversion == 1 && program.size() == WITNESS_V1_TAPROOT_SIZE && !is_p2sh) {
         // BIP341 Taproot: 32-byte non-P2SH witness v1 program (which encodes a P2C-tweaked pubkey)
-        //HC: future softfork compatibility
+        //HCE: future softfork compatibility
         return true;
     }
     else {
@@ -3083,7 +3083,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     //CAmount amount(0);
     //PrecomputedTransactionData txdata(txTo);
 
-    ////HC: Here only support a kind of checker, maybe we need more types in the future
+    ////HCE: Here only support a kind of checker, maybe we need more types in the future
     //auto checker = TransactionSignatureChecker(&txTo, nIn, amount, txdata);
     //if (!EvalScript(stack, scriptSig, flags, checker, SigVersion::BASE, execdata, &serror))
     //    //if (!EvalScript(stack, scriptSig, txTo, nIn, nHashType))
@@ -3218,7 +3218,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
 }
 
 
-//HC: a converter function
+//HCE: a converter function
 bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, const CTransaction& txTo, unsigned int nIn, int nHashType)
 {
     unsigned int flags = 0;
@@ -3242,7 +3242,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     //CAmount amount(0);
     //PrecomputedTransactionData txdata(txTo);
 
-    ////HC: Here only support a kind of checker, maybe we need more types in the future
+    ////HCE: Here only support a kind of checker, maybe we need more types in the future
     //auto checker = TransactionSignatureChecker(&txTo, nIn, amount, txdata);
     //if (!EvalScript(stack, scriptSig, flags, checker, SigVersion::BASE, execdata, &serror))
     ////if (!EvalScript(stack, scriptSig, txTo, nIn, nHashType))
@@ -3288,8 +3288,8 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
 //    return ret;
 //}
 
-//HC: here is core how to support witness,
-//HC: see SignTransaction in bitcoin source code
+//HCE: here is core how to support witness,
+//HCE: see SignTransaction in bitcoin source code
 bool SignSignature(const CKeyStore &keystore, const CTransaction& txFrom, CTransaction& txTo, unsigned int nIn, int nHashType, CScript scriptPrereq)
 {
     assert(nIn < txTo.vin.size());
@@ -3333,7 +3333,7 @@ bool VerifySignature(const CTransaction& txFrom, const CTransaction& txTo, unsig
 }
 
 
-//HC: SegWit
+//HCE: SegWit
 
 
 /** A signature creator for transactions. */
@@ -3827,8 +3827,8 @@ bool IsSegWitOutput(const SigningProvider& provider, const CScript& script)
     return false;
 }
 
-//HC: how to convert CTransaction to CMutableTransaction
-//HC: see static CMutableTransaction TestSimpleSpend(const CTransaction& from, uint32_t index, const CKey& key, const CScript& pubkey)
+//HCE: how to convert CTransaction to CMutableTransaction
+//HCE: see static CMutableTransaction TestSimpleSpend(const CTransaction& from, uint32_t index, const CKey& key, const CScript& pubkey)
 bool SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, const std::map<COutPoint, Coin>& coins, int nHashType, std::map<int, std::string>& input_errors)
 {
     bool fHashSingle = ((nHashType & ~SIGHASH_ANYONECANPAY) == SIGHASH_SINGLE);

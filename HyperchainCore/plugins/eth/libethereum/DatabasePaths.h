@@ -18,6 +18,7 @@ public:
     boost::filesystem::path const& rootPath() const noexcept;
     boost::filesystem::path const& chainPath() const noexcept;
     boost::filesystem::path const& blocksPath() const noexcept;
+
     boost::filesystem::path const& statePath() const noexcept;
     boost::filesystem::path const& extrasPath() const noexcept;
     boost::filesystem::path const& extrasTemporaryPath() const noexcept;
@@ -27,6 +28,7 @@ private:
     boost::filesystem::path m_rootPath;
     boost::filesystem::path m_chainPath;
     boost::filesystem::path m_blocksPath;
+
     boost::filesystem::path m_statePath;
     boost::filesystem::path m_extrasPath;
     boost::filesystem::path m_extrasTemporaryPath;

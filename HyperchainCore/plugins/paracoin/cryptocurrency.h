@@ -107,7 +107,7 @@ public:
         return GetHID() == hid && GetChainNum() == chainnum && GetLocalID() == localid;
     }
 
-    //HC: if shorthash is empty, will scan the directory and find one
+    //HCE: if shorthash is empty, will scan the directory and find one
     bool ReadCoinFile(const string& name, string& shorthash, string& errormsg);
 
     static bool GetAllCoins(vector<CryptoCurrency>& coins);
@@ -158,10 +158,10 @@ private:
     std::map<std::string, std::string> GetPanGuSettings();
 
 private:
-    //HC: bits parameter decides the mining difficulty
-    //HC: if bits = 0x2000ffff,then target will be 0x00ffff00 00000000 00000000 00000000 00000000 00000000 00000000 00000000
-    //HC: if bits = 0x20000fff,then target will be 0x000fff00 00000000 00000000 00000000 00000000 00000000 00000000 00000000
-    //HC: if bits = 0x1f00ffff,then target will be 0x0000ffff 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+    //HCE: bits parameter decides the mining difficulty
+    //HCE: if bits = 0x2000ffff,then target will be 0x00ffff00 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+    //HCE: if bits = 0x20000fff,then target will be 0x000fff00 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+    //HCE: if bits = 0x1f00ffff,then target will be 0x0000ffff 00000000 00000000 00000000 00000000 00000000 00000000 00000000
 
     std::map<std::string, std::string> mapSettings;
     static std::mutex muxUUID;

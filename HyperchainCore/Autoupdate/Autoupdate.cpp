@@ -1,4 +1,4 @@
-﻿#include "../UpdateInfo.h"
+#include "../UpdateInfo.h"
 #include <iostream>
 #include <string>
 #include <thread>
@@ -10,6 +10,9 @@
 
 using namespace std;
 
+//HCE: Fine if the process is still running.
+//HCE: @param strprocess The process name.
+//HCE: @returns True if the process is still running.
 #ifdef WIN32
 bool FindProcess(string& strprocess)
 {
@@ -48,6 +51,10 @@ bool FindProcess(string& strprocess)
 }
 #endif
 
+//HCE:
+//HCE: @brief A tool to update hc files from the server.
+//HCE: Only the files are different from the ones on the server will be updated. 
+//HCE:
 int main()
 {
 	UpdateInfo updateinfo;

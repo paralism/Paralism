@@ -24,11 +24,19 @@ typedef struct tagCHAINCBDATA
     bool m_isLatest;
 } CHAINCBDATA;
 
+//HC:
+//HC: 超块消息类
+//HC: 接收并处理新超块到达或变更通知
+
+//HCE:
+//HCE: @brief The Hyperblock notification message class
+//HCE: Receive and process notifications of new Hyperblock arrivals or changes
+//HCE:
 class HyperBlockMsgs
 {
 public:
-    void insert(CHAINCBDATA&& cb);
-    void process();
+    void insert(CHAINCBDATA&& cb);  //HCE: insert a new notification
+    void process();                 //HCE: Process notifications
     size_t size();
 private:
     boost::fibers::mutex m_cs_list;

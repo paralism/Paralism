@@ -114,9 +114,7 @@ ImportResult TransactionQueue::manageImport_WITH_LOCK(h256 const& _h, Transactio
         auto cs = m_currentByAddressAndNonce.find(_transaction.from());
         if (cs != m_currentByAddressAndNonce.end())
         {
-			//HC: 如果存在重复的则检查gasPrice，
-			//HC: 如果新的交易gasPrice更低，则校验失败，否则将现有的交易删除，替换为gasPrice更高的交易
-            auto t = cs->second.find(_transaction.nonce());
+						            auto t = cs->second.find(_transaction.nonce());
             if (t != cs->second.end())
             {
                 if (_transaction.gasPrice() < (*t->second).transaction.gasPrice())
@@ -362,8 +360,7 @@ void TransactionQueue::enqueue(RLP const& _data, h512 const& _nodeId)
             queued = true;
         }
     }
-    if (queued) //HC: 通知校验线程来校验: verifierBody
-        m_queueReady.notify_all();
+    if (queued)         m_queueReady.notify_all();
 }
 
 void TransactionQueue::verifierBody()
@@ -384,8 +381,7 @@ void TransactionQueue::verifierBody()
         try
         {
             Transaction t(work.transaction, CheckTransaction::Cheap); //Signature will be checked later
-			//HC: 校验交易
-            ImportResult ir = import(t);
+			            ImportResult ir = import(t);
             m_onImport(ir, t.sha3(), work.nodeId);
         }
         catch (...)

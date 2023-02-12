@@ -52,17 +52,25 @@ public:
         _taskFactory.RegisterType<ITask, TASK, TASKBUF>(static_cast<uint32_t>(tt));
     }
 
+    //HCE: Bind handleTask and servicename,then register  to taskworker
     void registerTaskWorker(const char* servicename);
+
+    //HCE: Bind fun and servicename,then register to taskworker
     void registerTaskWorker(const char* servicename, std::function<void(void*, zmsg*)> func);
+
+    //HCE: Bind handleRequest and servicename,then register  to taskworker
     void registerRequestWorker(const char* servicename);
 
+    //HCE: Bind fun and servicename,then add to _pending_service
     void registerWorker(const char* servicename, std::function<void(void*, zmsg*)> func);
+
+    //HCE: Push timer{ delaymilliseconds, delaymilliseconds + s_clock(), func } to _poll_func_timers
     size_t registerTimer(int delaymilliseconds, std::function<void()> func, bool isticket = false);
 
-    //HC: Notice: at first register workers, then register other zmq sockets.
+    //HCE: Notice: at first register workers, then register other zmq sockets.
     void registerSocket(std::function<zmq::socket_t*()> sockcreatefunc, std::function<void(void*, zmsg*)> func);
 
-    void start();
+    void start(const char* threadname);
     void stop();
     bool isstopped();
 

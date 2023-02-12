@@ -164,7 +164,7 @@ void CNode::PushGetBlocks(CBlockIndexSP pindexBegin, uint256 hashEnd)
         }
         else {
             if (g_mapblkindexLocator.size() > 3) {
-                //HC: remove expired element
+                //HCE: remove expired element
                 int64 mintm = time(nullptr);
                 auto bil = g_mapblkindexLocator.begin();
                 auto it = g_mapblkindexLocator.begin();
@@ -191,7 +191,7 @@ void CNode::PushChkBlock()
 
     TRY_CRITICAL_BLOCK(cs_vSend)
     {
-        //HC: send the lastest having block hash
+        //HCE: send the lastest having block hash
         if (nVersion >= VERSION_V72) {
 
             uint256 hash1;
@@ -214,7 +214,7 @@ void CNode::PushChkBlock()
 void CNode::PushGetBlocksReversely(uint256 hashEnd)
 {
     // Filter out duplicate requests
-    //HC: Calling PushMessage, vSend is thread safety, so cs_vSend is not necessary
+    //HCE: Calling PushMessage, vSend is thread safety, so cs_vSend is not necessary
     //TRY_CRITICAL_BLOCK(cs_vSend)
     {
         LogRequest("\n*****************************************************************\n");
@@ -250,7 +250,7 @@ bool ConnectSocket(const CAddress& addrConnect, SOCKET& hSocketRet, int nTimeout
 
 
     hSocketRet = hSocket;
-	//HC: pingNode(addrConnect);
+	//HCE: pingNode(addrConnect);
 
     return false;
 }
@@ -1384,7 +1384,7 @@ void ThreadMessageHandler2(void* parg)
                 return;
 
             // Send messages
-            //HC: SendMessages and pushMessage can make sure sending data is thread safety
+            //HCE: SendMessages and pushMessage can make sure sending data is thread safety
             //TRY_CRITICAL_BLOCK(pnode->cs_vSend)
                 SendMessages(pnode, pnode == pnodeTrickle);
             if (fShutdown)
@@ -1549,7 +1549,7 @@ void StartNode(void* parg)
 #endif
     DEBUG_FL("addrLocalHost = %s\n", addrLocalHost.ToString().c_str());
 
-	//HC:
+	//HCE:
     //if (fUseProxy || mapArgs.count("-connect") || fNoListen)
     //{
     //    // Proxies can't take incoming connections
@@ -1570,7 +1570,7 @@ void StartNode(void* parg)
         MapPort(fUseUPnP);
 
     // Get addresses from IRC and advertise ours
-	//HC: don't get IRC Seed
+	//HCE: don't get IRC Seed
     //if (!CreateThread(ThreadIRCSeed, NULL))
         //ERROR_FL("Error: CreateThread(ThreadIRCSeed) failed\n");
 
@@ -1578,7 +1578,7 @@ void StartNode(void* parg)
     CreateThread(ThreadSocketHandler, NULL);
 
     // Initiate outbound connections
-	//HC: don't connect directly
+	//HCE: don't connect directly
     //if (!CreateThread(ThreadOpenConnections, NULL))
         //printf("Error: CreateThread(ThreadOpenConnections) failed\n");
 

@@ -76,8 +76,10 @@ extern const CUInt128& getMyNodeID();
 extern void ProcessOrphanBlocks(const uint256& hash);
 bool ResolveBlock(CBlock& block, const char* payload, size_t payloadlen);
 
-
-//HC: Here should be change to pull application block in the future
+//HCE: Here should be change to pull application block in the future
+//HCE: Pull Hyperblock asynchronously
+//HCE: @param hid Hyperblock ID that will be pulled.
+//HCE: @param nodeid Node ID which will be pulled from.
 std::map<uint32_t, time_t> mapPullingHyperBlock;
 CCriticalSection cs_pullingHyperBlock;
 void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "")
@@ -89,7 +91,7 @@ void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "")
             mapPullingHyperBlock.insert({ hid, now });
         } else {
             if (now - mapPullingHyperBlock[hid] < 60) {
-                //HC: already pulled
+                //HCE: already pulled
                 return;
             } else {
                 mapPullingHyperBlock[hid] = now;
@@ -144,7 +146,7 @@ bool UpdateAppAddress(const CBlock& genesisblock, const T_LOCALBLOCKADDRESS& add
     string currencyhash = cryptoCurrency.GetHashPrefixOfGenesis();
     string errmsg;
     if (!cryptoCurrencyFromLocal.ReadCoinFile("", currencyhash, errmsg)) {
-        //HC: no this coin
+        //HCE: no this coin
         return ERROR_FL("%s", errmsg.c_str());
     }
 
@@ -195,13 +197,13 @@ bool GetNeighborNodes(list<string>& listNodes)
     return true;
 }
 
-//HC: When a hyper block receieved，chain layer calls this function to validate.
+//HCE: When a hyper block received, chain layer calls this function to validate.
 bool CheckChainCb(vector<T_PAYLOADADDR>& vecPA)
 {
     return true;
 }
 
-//HC: Must getting cs_main before switching chain, else cause db dead lock
+//HCE: The lock cs_main must be acquired first, otherwise a deadlock is raised
 bool SwitchChainToBlock(CBlock& block, CBlockIndexSP pindexBlock)
 {
     CTxDB_Wrapper txdb;
@@ -374,7 +376,7 @@ string FixChainWork()
         if (work != pindexBlock->bnChainWork) {
             nCountChainWorkErr++;
 
-            //HC: fix
+            //HCE: fix
             pindexBlock->bnChainWork = work;
             txdb.WriteBlockIndex(CDiskBlockIndex(pindexBlock.get()));
         }
@@ -418,8 +420,9 @@ static string CheckMainChain_fixhlp(vector<BLOCKWITHADDR>& vecFixingBlocks)
     }
     return "Fixed completed\n";
 }
-
-//HC: 'isbreak' is true means when error occurs function will stop execution
+//HCE: Traverse the Hyperchain in reverse, reading each of its Para subblocks and checking their legitimacy
+//HCE: @param stopheight The height of the Hyperblock that reverses stop traversal
+//HCE: @param isbreak True means when error occurs function will stop traversal
 string CheckMainChain(int stopheight, bool isfix, bool ischecktriaddr, bool isbreak)
 {
     CommadLineProgress progress;
@@ -438,7 +441,7 @@ string CheckMainChain(int stopheight, bool isfix, bool ischecktriaddr, bool isbr
     vector<BLOCKWITHADDR> vecFixingBlocks;
 
     defer{
-        //HC: Fixes the chain
+        //HCE: Fixes the chain
         if (isfix)
             CheckMainChain_fixhlp(vecFixingBlocks);
     };
@@ -482,7 +485,7 @@ string CheckMainChain(int stopheight, bool isfix, bool ischecktriaddr, bool isbr
                         nCount++;
                         CBlockIndexSP pindexprev = mapBlockIndex[block.hashPrevBlock];
                         if (pindexprev->hashNext != hash) {
-                            //HC: fix hashNext of block index
+                            //HCE: fix hashNext of block index
                             pindexprev->hashNext = hash;
 
                             txdb.WriteBlockIndex(CDiskBlockIndex(pindexprev.get()));
@@ -520,7 +523,7 @@ string CheckMainChain(int stopheight, bool isfix, bool ischecktriaddr, bool isbr
             }
 
             if (ppindexBlock->hashNext != pindexBlock->hashBlock) {
-                //HC: fix hashNext
+                //HCE: fix hashNext
                 ppindexBlock->hashNext = pindexBlock->hashBlock;
                 txdb.WriteBlockIndex(CDiskBlockIndex(ppindexBlock.get()));
                 nCountHashNextErr++;
@@ -586,12 +589,12 @@ bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, const uint256& hhash, bool isLat
         }
     }
 
-    //HC: cannot use para block in latest hyper block as unique standard of choosing best chain
+    //HCE: cannot use para block in latest Hyperblock as unique standard of choosing best chain
     return true;
 }
 
 extern HyperBlockMsgs hyperblockMsgs;
-//HC: Accept a validated Paracoin chain in a hyper block or multiple hyper blocks
+//HCE: Accept validated subchains that chain type is Paracoin contained by a Hyperblock or multiple Hyperblocks
 bool AcceptChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t& hidFork, uint32_t& hid, T_SHA256& thhash, bool isLatest)
 {
     CHAINCBDATA cbdata(mapPayload, hidFork, hid, thhash, isLatest);
@@ -606,7 +609,7 @@ bool ProcessChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t&
     //    cout << strprintf("Para ProcessChainCb spent million seconds : %ld\n", spentt.Elapse());
     //};
 
-    //HC: Called by consensus MQ service, switching in case cannot retrieve the cs_main
+    //HCE: Called by consensus MQ service, switching in case cannot retrieve the cs_main
     //FIBER_SWITCH_CRITICAL_BLOCK_T_MAIN(50)
     {
         LatestHyperBlock::CompareAndUpdate(hid, thhash, isLatest);
@@ -631,7 +634,8 @@ bool ProcessChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t&
 
         if (isLatest) {
             //HC: Para链切换过程中，需要回退到分叉超块
-            CBlockIndexSP pStart = pindexBest;
+            //HCE: During the Para chain switching, you need to fall back to the fork Hyperchain
+			CBlockIndexSP pStart = pindexBest;
             while (pStart && pStart->nPrevHID >= hidFork) {
                 pStart = pStart->pprev();
             }
@@ -645,8 +649,8 @@ bool ProcessChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t&
                 return true;
             }
 
-            //HC: Forward to block matched
-            //HC: Sometimes Paracoin has already done mining on base of hid, so continue forwarding to latest para block
+            //HCE: Forward to block matched
+            //HCE: Sometimes Paracoin has already done mining on base of hid, so continue forwarding to latest para block
             uint256 hhash(thhash.toHexString());
             CBlockIndexSP pEnd = pStart;
             while (pEnd && pEnd->nPrevHID == hid && pEnd->hashPrevHyperBlock == hhash) {
@@ -693,8 +697,8 @@ size_t HyperBlockMsgs::size()
     }
 }
 
-//HC: The following function be called when creating Hyperblock, more see ConsensusEngine::CreateHyperBlock(T_HYPERBLOCK &tHyperBlock)
-//HC: CBRET ret = _tP2pManagerStatus->AppCallback<cbindex::CHECKCHAINIDX>
+//HCE: The following function be called when creating Hyperblock, more see ConsensusEngine::CreateHyperBlock(T_HYPERBLOCK &tHyperBlock)
+//HCE: CBRET ret = _tP2pManagerStatus->AppCallback<cbindex::CHECKCHAINIDX>
 bool CheckChainCbWhenOnChaining(vector<T_PAYLOADADDR>& vecPA, uint32_t prevhid, T_SHA256& tprevhhash)
 {
     if (vecPA.size() == 0) {
@@ -737,8 +741,8 @@ namespace boost {
     }
 }
 
-//HC: Here why use boost::any as key?
-//HC: If use class COutPoint directly, consensus layer need to include many ledger's header files.
+//HCE: Here why use boost::any as key?
+//HCE: If use class COutPoint directly, consensus layer need to include many ledger's header files.
 bool ValidateLedgerDataCb(T_PAYLOADADDR& payloadaddr,
     map<boost::any, T_LOCALBLOCKADDRESS>& mapOutPt,
     boost::any& hashPrevBlock)
@@ -768,7 +772,7 @@ bool ValidateLedgerDataCb(T_PAYLOADADDR& payloadaddr,
                 continue;
             }
 
-            //HC: Check against previous transactions
+            //HCE: Check against previous transactions
             map<uint256, std::tuple<CTxIndex, CTransaction>> mapUnused;
             int64 nFees = 0;
             if (!tx.ConnectInputs(txdb, mapUnused, CDiskTxPos(1), pindexBest, nFees, false, false)) {
@@ -778,7 +782,7 @@ bool ValidateLedgerDataCb(T_PAYLOADADDR& payloadaddr,
         }
     }
 
-    //HC: check the whether have conflicts with input transactions
+    //HCE: check the whether have conflicts with input transactions
     for (auto tx : block.vtx) {
         if (tx.IsCoinBase()) {
             continue;
@@ -798,18 +802,18 @@ bool ValidateLedgerDataCb(T_PAYLOADADDR& payloadaddr,
 }
 
 
-//HC: uuidpayload
+//HCE: uuidpayload
 bool BlockUUIDCb(string& payload, string& uuidpayload)
 {
-    //HC: don't contain CBlock's hashPrevBlock when calculating the UUID.
-    //HC: nVersion
+    //HCE: don't contain CBlock's hashPrevBlock when calculating the UUID.
+    //HCE: nVersion
     uuidpayload = payload.substr(0, sizeof(int));
-    //HC: ignore hashPrevBlock
+    //HCE: ignore hashPrevBlock
     uuidpayload += payload.substr(sizeof(int) + sizeof(uint256));
     return true;
 }
 
-//HC: Callback from HyperChain's global consensus, put the Paracoin chain to hyper chain's consensus layer.
+//HCE: Callback from HyperChain's global consensus, put the Paracoin chain to hyper chain's consensus layer.
 bool PutChainCb()
 {
     deque<CBlock> deqblock;
@@ -820,7 +824,8 @@ bool PutChainCb()
 
     if (mapArgs.count("-importtx")) {
         //HC: 预写交易模式，等待所有块准备好
-        if (!g_isBuiltInBlocksReady) {
+        //HCE: Pre-write trading mode, wait for all blocks to be ready
+		if (!g_isBuiltInBlocksReady) {
             return false;
         }
     }
@@ -829,7 +834,7 @@ bool PutChainCb()
 
     FIBER_SWITCH_CRITICAL_BLOCK_T_MAIN(50)
     {
-        //HC: Process hyper block reached message firstly
+        //HCE: Process hyper block reached message firstly
         hyperblockMsgs.process();
 
         if (!g_miningCond.IsMining()) {
@@ -842,7 +847,7 @@ bool PutChainCb()
         //map<int, uint256> mapHIDChecked;
         //CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
 
-        //HC: Select blocks to do consensus
+        //HCE: Select blocks to do consensus
         CBlockIndexSP pStart = LatestBlockIndexOnChained();
         pStart = pStart->pnext();
         //while (pStart) {
@@ -863,12 +868,12 @@ bool PutChainCb()
         //}
 
         if (!pStart) {
-            //HC: no any block need to commit
+            //HCE: no any block need to commit
             return false;
         }
 
         INFO_FL("Committing Para blocks from: %d (HID: %d %s)", pStart->nHeight, pStart->nPrevHID, pStart->hashPrevHyperBlock.ToPreViewString().c_str());
-        //HC: Get blocks need to commit
+        //HCE: Get blocks need to commit
         CBlockIndexSP pEnd = pStart;
         while (pEnd && pEnd->nPrevHID == nHID && pEnd->hashPrevHyperBlock == hhash) {
 
@@ -884,22 +889,22 @@ bool PutChainCb()
         }
 
         if (!deqblock.size()) {
-            //HC: The blocks starting from 'pStart' is stale
+            //HCE: The blocks starting from 'pStart' is stale
             isSwithBestToValid = true;
             pindexValidStarting = pStart->pprev();
             INFO_FL("Committing Para blocks too less: %d, and chain will switch to %d", deqblock.size(), pindexValidStarting->nHeight);
         }
 
-        //HC: Switch chain to valid and return
+        //HCE: Switch chain to valid and return
         if (isSwithBestToValid) {
             SwitchChainTo(pindexValidStarting);
             return false;
         }
     }
 
-    //HC: Commit blocks to hyper chain's consensus layer
+    //HCE: Commit blocks to hyper chain's consensus layer
     if (deqblock.size() < 2) {
-        //HC: do nothing
+        //HCE: do nothing
         INFO_FL("Cannot commit Para chain(len:%d)", deqblock.size());
         return false;
     }
@@ -919,7 +924,7 @@ bool PutChainCb()
             tail_block->nHeight, tail_block->ownerNodeID.ToHexString().c_str());
         return false;
     }
-    //HC: force owner of last block is me.
+    //HCE: force owner of last block is me.
     tail_block->ownerNodeID = mynodeid;
 
     string requestid, errmsg;
@@ -942,7 +947,7 @@ bool GetVPath(T_LOCALBLOCKADDRESS& sAddr, T_LOCALBLOCKADDRESS& eAddr, vector<str
                 p = p->pprev();
                 continue;
             } else if (p->triaddr.hid < sAddr.hid) {
-                //HC: I have not data
+                //HCE: I have not data
                 return false;
             } else {
                 for (; p && p->triaddr.hid <= eAddr.hid;) {
@@ -1028,7 +1033,8 @@ void AppRunningArg(int& app_argc, string& app_argv)
 }
 
 extern MsgHandler paramsghandler;
-
+//HCE: Query the status of this module through the console 'rs' command
+//HCE: @param info Status of this module 
 void AppInfo(string& info)
 {
     ostringstream oss;
@@ -1113,6 +1119,11 @@ void AppInfo(string& info)
         CCriticalBlockT<pcstName>::ToString().c_str());
 }
 
+//HCE: Parses a stream of characters into block object of Para
+//HCE: @param block A output block object parsed from streaming data
+//HCE: @param payload A binary stream of block data 
+//HCE: @param payloadlen Byte length of the stream 
+//HCE: @returns If true parsed successfully
 bool ResolveBlock(CBlock& block, const char* payload, size_t payloadlen)
 {
     CDataStream datastream(payload, payload + payloadlen, SER_BUDDYCONSENSUS);
@@ -1132,7 +1143,7 @@ bool getBlockInMain(int height, CBlock& block, string& info)
         return false;
     }
 
-    //HC: make calling pprev rapidly
+    //HCE: make calling pprev rapidly
     CTxDB_Wrapper txdb;
 
     uint256 hashbegin;
@@ -1180,7 +1191,7 @@ bool getBlockInMain(int height, CBlock& block, string& info)
 
 bool ResolveHeight(int height, string& info)
 {
-    //HC: Getting lock maybe be unnecessary
+    //HCE: Getting lock maybe be unnecessary
     //TRY_CRITICAL_BLOCK_T_MAIN(cs_main)
     {
         CBlock block;
@@ -1272,7 +1283,7 @@ void ScanChainForTxes(const std::vector<unsigned char>& vchPriKey)
                 for (CTransaction& tx : blk.vtx) {
 
                     if (tmpWallet.IsMine(tx)) {
-                        cout << "+: " << tx.ToString(); //HC: send to me
+                        cout << "+: " << tx.ToString(); //HCE: send to me
                     }
 
                     if(tmpWallet.IsFromMe(tx)) {
@@ -1325,6 +1336,21 @@ void RebuildWallet()
     });
 }
 
+
+//HC: 轻节点， 在区块链数据不完整的情况下，可快速参与出块，获得收益。简要过程如下：
+//HC: 1. 通过RPC命令：getwork，向全节点请求待计算的work；
+//HC: 2. 全节点收到请求后，返回work
+//HC: 3. 改变区块里的nonce值，计算出符合难度的hash
+//HC: 4. 返回work给全节点，全节点给予奖励
+
+//HCE: Light nodes, in the case of incomplete Clockchain data, can quickly participate in block production and obtain benefits.
+//HCE: The brief process is as follows :
+//HCE: 1. Through the RPC command : getwork, request the work to be computed from the full node;
+//HCE: 2. After the full node receives the request, it returns work
+//HCE: 3. Change the nonce value in the block to calculate the hash that matches the difficulty
+//HCE: 4. Return the work to the full node, and the full node will give a reward
+
+
 typedef struct tagLightMiningInfo {
 
     string netaddress;
@@ -1370,7 +1396,7 @@ bool LightNodeDoMining(int blockheight, uint64_t start_nonce,
     bool (*CBFnStopMining)(void*),
     void* param,
     int timeout,
-    unsigned char nonce[8], //HC: if found, return mining result
+    unsigned char nonce[8], //HCE: if found, return mining result
     unsigned char mixhash[32])
 {
     ethash::hash256 header_hash;
@@ -1390,7 +1416,7 @@ bool LightNodeDoMining(int blockheight, uint64_t start_nonce,
     int64 nStart = GetTime();
     progpow::search_result searchresult = progpow::search_light(epoch_ctx, blockheight, header_hash, target, start_nonce, nMaxTries,
         [&nStart, timeout, CBFnStopMining, param]() {
-            //HC: Return true means stop mining.
+            //HCE: Return true means stop mining.
             if (CBFnStopMining(param))
                 return true;
             if (GetTime() - nStart >= timeout) {
@@ -1408,6 +1434,7 @@ bool LightNodeDoMining(int blockheight, uint64_t start_nonce,
 }
 
 
+//HCE: Light node mining thread process
 void ThreadLightNode(LightMiningInfo* info, const string& address)
 {
     string server;
@@ -1453,7 +1480,7 @@ void ThreadLightNode(LightMiningInfo* info, const string& address)
             const Value& error = find_value(reply, "error");
 
             if (error.type() != null_type) {
-                //HC: Error
+                //HCE: Error
                 FnExcep("error: " + write_string(error, false));
             } else if (result.type() == obj_type) {
                 ResetSleepTime();
@@ -1468,12 +1495,12 @@ void ThreadLightNode(LightMiningInfo* info, const string& address)
                 unsigned char nonce[8];
                 unsigned char mixhash[32];
                 if (LightNodeDoMining(height, start_nonce, strheaderhash, strtarget, CBFN_LightNodeStop, info, 10, nonce, mixhash)) {
-                    //HC: mined successfully
+                    //HCE: mined successfully
                     Array param_submit;
                     param_submit.push_back(strheaderhash);
                     param_submit.push_back(HexStr(BEGIN(nonce), END(nonce)));
                     param_submit.push_back(HexStr(BEGIN(mixhash), END(mixhash)));
-                    //HC: commit
+                    //HCE: commit
                     reply = CallRPC("getwork", param_submit, server, strPort);
                     const Value& resultcommit = find_value(reply, "result");
                     const Value& errorcommit = find_value(reply, "error");
@@ -1515,7 +1542,7 @@ void StartLightNodeWork(const string& netaddress)
     if (mapLightNodes.count(netaddress)) {
         spInfo = mapLightNodes[netaddress];
         if (!spInfo->stopped) {
-            //HC: already started
+            //HCE: already started
             return;
         }
     } else {
@@ -1568,7 +1595,7 @@ string showCoinUsage()
     oss << "       coin iss [...]                     : issue a coin, 'coin iss' for help\n";
     oss << "       coin imp <hid chainid localid>     : import a coin\n";
     oss << "       coin acc                           : query account balances\n";
-    //oss << "       coin addrba [address]...           : scan wallet for addresses balances\n"; //HC: there are bugs to be fixed
+    //oss << "       coin addrba [address]...           : scan wallet for addresses balances\n"; //HCE: there are bugs to be fixed
     oss << "       coin addr [account]                : query account addresses\n";
     oss << "       coin sendfrom <fromaccount> <toaddress> <amount> : transfer\n";
     oss << "       coin sendtoaddr <address> <amount> : transfer\n";
@@ -1600,6 +1627,8 @@ string showCoinUsage()
 
 extern string GetCommandsCost();
 
+//HC: 处理Para模块的控制台命令
+//HCE: Handles console commands for the Para module
 bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand)
 {
     if (cmdlist.size() == 1) {
@@ -1619,7 +1648,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 for (auto& t : coins) {
                     bool iscurrcoin = false;
                     if (currhash == t.GetHashGenesisBlock()) {
-                        //HC: current using coin
+                        //HCE: current using coin
                         iscurrcoin = true;
                     }
                     oss << strprintf("%c %d\t%-26s %s\t[%u,%u,%u]\n",
@@ -1671,7 +1700,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return StringFormat("set '%s' as current coin, please restart paracoin\n", t.GetName());
             } },
 
-            //HC: iss
+            //HCE: iss
             {"iss",[](const list<string>& l, bool fhelp) ->string {
                 return doAction(issuecoin, l, fhelp, false);
             } },
@@ -1681,13 +1710,13 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
             } },
 
             {"getbalance",[](const list<string>& l, bool fhelp) ->string {
-                //HC: add lock, else it is possible to cause deadlock when read block index
+                //HCE: add lock, else it is possible to cause deadlock when read block index
                 return doAction(getbalance, l, fhelp, true);
                 //return doAction(listaccounts, l, fhelp, true);
             } },
 
             {"acc",[](const list<string>& l, bool fhelp) ->string {
-                //HC: add lock, else It is possible to cause deadlock when read block index
+                //HCE: add lock, else It is possible to cause deadlock when read block index
                 return doAction(listaccounts, l, fhelp, true);
             } },
 
@@ -1718,7 +1747,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
 
                         if (cmd == cmdlist.end()) break;
                         char* end = nullptr;
-                        double amount = std::strtod(cmd->c_str(), &end); //HC: change to double type
+                        double amount = std::strtod(cmd->c_str(), &end); //HCE: change to double type
                         arr.push_back(amount);
                         break;
                     } while (true);
@@ -1739,7 +1768,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
 
                         if (cmd == cmdlist.end()) break;
                         char* end = nullptr;
-                        double amount = std::strtod(cmd->c_str(), &end); //HC: change to double type
+                        double amount = std::strtod(cmd->c_str(), &end); //HCE: change to double type
                         arr.push_back(amount);
                         break;
                     } while (true);
@@ -1748,7 +1777,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return doAction(sendtoaddress, l, fhelp, true, conv);
             } },
 
-            //HC: light node
+            //HCE: light node
             { "ln",[](const list<string>& l, bool fhelp) ->string {
 
                 for (auto iter = l.begin(); iter != l.end(); ++iter) {
@@ -1846,7 +1875,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                     do {
                         if (cmd == cmdlist.end()) break;
                         char* end = nullptr;
-                        double amount = std::strtod(cmd->c_str(), &end); //HC: change to double type
+                        double amount = std::strtod(cmd->c_str(), &end); //HCE: change to double type
                         arr.push_back(amount);
                         break;
                     } while (true);
@@ -1860,7 +1889,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                return doAction(getinfo, l, fhelp, false);
             } },
 
-             //HC: ikp
+             //HCE: ikp
             { "ikp",[&savingcommand](const list<string>& l, bool fhelp) ->string {
                 return doAction([&savingcommand](const Array& params, bool fHelp) ->string {
                     if (fHelp || params.size() < 1)
@@ -1881,7 +1910,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 }, l, fhelp, false);
             } },
 
-            //HC: ekp
+            //HCE: ekp
             { "ekp",[](const list<string>& l, bool fhelp) ->string {
                 return doAction(expwalletkey, l, fhelp, false);
             } },
@@ -1890,12 +1919,12 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return doAction(setaccount, l, fhelp, false);
             } },
 
-             //HC: ikpf
+             //HCE: ikpf
             {"ikpf",[](const list<string>& l, bool fhelp) ->string {
                 return doAction(impwalletkeysfromfile, l, fhelp, false);
             } },
 
-             //HC: ekpf
+             //HCE: ekpf
             { "ekpf",[](const list<string>& l, bool fhelp) ->string {
                 return doAction(expwalletkeystofile, l, fhelp, false);
             } },
@@ -1904,17 +1933,17 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return MakeNewKeyPair();
             } },
 
-            //HC: dkp
+            //HCE: dkp
             { "dkp",[](const list<string>& l, bool fhelp) ->string {
                 return doAction(setdefaultkey, l, fhelp, false);
             } },
 
-             //HC: encw
+             //HCE: encw
             { "encw",[](const list<string>& l, bool fhelp) ->string {
                 return doAction(encryptwallet, l, fhelp, false);
             } },
 
-            //HC: wpass
+            //HCE: wpass
             { "wpass",[&savingcommand](const list<string>& l, bool fhelp) ->string {
 
                 if (l.size() < 1) {
@@ -1939,7 +1968,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return doAction(walletpassphrase, l, fhelp, false, conv);
             } },
 
-             //HC: chwpass
+             //HCE: chwpass
             { "chwpass",[&savingcommand](const list<string>& l, bool fhelp) ->string {
                 if(l.size() != 0)
                     savingcommand = "c chwpass";
@@ -1962,7 +1991,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 int idx = 0;
                 bool onlyshowseedserver = false;
 
-                //HC: bExchk means show block info : idx * (CBlockLocatorEx::nHeightSpan)
+                //HCE: bExchk means show block info : idx * (CBlockLocatorEx::nHeightSpan)
                 bool bExChk = false;
 
                 for (auto iter = l.begin(); iter != l.end(); ++iter) {
@@ -2055,7 +2084,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return strprintf("Failed to read block from address: %s %d", addrblock.tostring().c_str(), nTx);
             } },
 
-            //HC: by height
+            //HCE: by height
             { "readtxbyh",[](const list<string>& l, bool fhelp) ->string {
 
                 if (l.size() < 2) {
@@ -2089,6 +2118,56 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return strprintf("Failed to read block from address: %d %d", height, nTx);
             } },
 
+            { "addtxidx",[](const list<string>& l, bool fhelp) ->string {
+                //HC: 添加一笔交易到索引库
+                //HCE: Add a transaction to the index library
+                //HCE: for coinbase we can also use 'c scancoinbase'.
+                if (l.size() < 3) {
+                    return "c addtxidx [txid Height NO.]";
+                }
+
+                auto cmd = l.begin();
+
+                string strTxHash = *cmd++;
+                uint256 hashTx(strTxHash);
+                int height = std::stoi(*cmd++);
+                int nTx = std::stoi(*cmd);
+
+                string info;
+                CBlock blk;
+                if (!getBlockInMain(height, blk, info)) {
+                    return info;
+                }
+
+                if (nTx >= blk.vtx.size() || blk.vtx[nTx].GetHash() != hashTx) {
+                    return "cannot find the tx\n";
+                }
+
+                CTxDB_Wrapper txdb;
+                if (!txdb.TxnBegin(DB_READ_COMMITTED))
+                    return string("TxnBegin failed\n");
+
+                CTxIndex txindex;
+                std::optional<CDiskTxPos> txpos = blk.GetDiskTxPos(nTx);
+                if (!txpos) {
+                    txdb.TxnAbort();
+                    return string("GetDiskTxPos failed\n");
+                }
+
+                txindex = CTxIndex(*txpos, blk.vtx[nTx].vout.size());
+                if (!txdb.UpdateTxIndex(hashTx, txindex)) {
+                    txdb.TxnAbort();
+                    return string("UpdateTxIndex failed\n");
+                }
+
+                if (!txdb.TxnCommit()) {
+                    txdb.TxnAbort();
+                    return string("TxnCommit failed\n");
+                }
+
+                return string("Ok, you can use command 'c readtx txid' to query the tx index.\n");
+
+            } },
 
             { "readtx",[](const list<string>& l, bool fhelp) ->string {
                 return doAction(getrawtransaction, l, fhelp, false);
@@ -2152,7 +2231,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return doAction(listaddrbalance, l, fhelp, false);
             } },
 
-            //HC: use to test,manually switch Para chain to a specified height
+            //HCE: use to test,manually switch Para chain to a specified height
             { "sw",[](const list<string>& l, bool fhelp) ->string {
                 if (l.size() < 1 || fhelp) {
                     return doAction(SwitchChainToHyperHeight, l, true);
@@ -2314,7 +2393,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return paramqcenter.MTC_ToDetailString(nIdx, nIdxTail);
             } },
 
-            //HC: remove tx index not in main chain
+            //HCE: remove tx index not in main chain
             { "cleantx",[](const list<string>& l, bool fhelp) ->string {
 
                 TRY_CRITICAL_BLOCK(cs_main)
@@ -2350,7 +2429,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                         ssKey >> hash;
 
                         if (!mapTxes.count(hash)) {
-                            //HC:
+                            //HCE:
                             vtxDelete.push_back(hash);
                         }
 
@@ -2378,14 +2457,15 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
             { "fixtxidx",[](const list<string>& l, bool fhelp) ->string {
 
                 string strHash;
-                if (l.size() < 3) {
-                    return "Input <tx's hash> <nTxPos> <hashblock>";
+                if (l.size() < 4) {
+                    return "Input <tx's hash> <nTxPos> <heightblock> <hashblock>";
                 }
 
                 auto cmd = l.begin();
 
                 strHash = *cmd++;
-                int nTxPos = std::stoi(*cmd++);;
+                int nTxPos = std::stoi(*cmd++);
+                int nheightBlk = std::stoi(*cmd++);
                 string strHashBlk = *cmd;
 
                 CTxDB_Wrapper txdb;
@@ -2396,6 +2476,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
 
                 if (fFound) {
                     txindex.pos.nTxPos = nTxPos;
+                    txindex.pos.nHeightBlk = nheightBlk;
                     txindex.pos.hashBlk = hashB;
                     if (txdb.UpdateTxIndex(hash, txindex)) {
                         return "Ok";
@@ -2530,7 +2611,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                     GetCommandsCost());
             } },
 
-             //HC: query a public key if it belongs to me or not.
+             //HCE: query a public key if it belongs to me or not.
             { "myk",[](const list<string>& l, bool fhelp) ->string {
                 return doAction(IsMyPublickey, l, fhelp, false);
             } },

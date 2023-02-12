@@ -32,11 +32,16 @@ thread_local std::shared_ptr<qjs::Context> tls_VMContext_Exec;
 
 
 namespace qjs {
-
+    //HCE: Check condition 
+    //HCE: @para ctx Pointer to JSContext
+    //HCE: @para tripleaddr Triple address to locate the local block
+    //HCE: @para localblkhash Local block hash
+    //HCE: @para localblock Local block
+    //HCE: @returns JS_NULL if success
     JSValue CheckCond(JSContext* ctx, const vector<int> tripleaddr, const std::string& localblkhash, T_LOCALBLOCK& localblock)
     {
         if (tripleaddr.size() != 3) {
-            JS_ThrowReferenceError(ctx, "Child block address error");
+            JS_ThrowReferenceError(ctx, "subblock address error");
             return JS_EXCEPTION;
         }
 
@@ -46,16 +51,16 @@ namespace qjs {
         addr.set(tripleaddr[0], tripleaddr[1], tripleaddr[2]);
 
         if (!hyperchainspace->GetLocalBlock(addr, localblock)) {
-            JS_ThrowReferenceError(ctx, "Child block %s not exists", addr.tostring().c_str());
+            JS_ThrowReferenceError(ctx, "subblock %s not exists", addr.tostring().c_str());
             return JS_EXCEPTION;
         }
 
         if (!localblock.GetAppType().isSmartContract()) {
-            JS_ThrowReferenceError(ctx, "Child block %s doesn't contain contract", addr.tostring().c_str());
+            JS_ThrowReferenceError(ctx, "subblock %s doesn't contain contract", addr.tostring().c_str());
             return JS_EXCEPTION;
         }
 
-        //HC: Check the hash
+        //HCE: Check the hash
         if (!localblkhash.empty()) {
             if (localblkhash.size() != DEF_SHA256_LEN * 2) {
                 JS_ThrowReferenceError(ctx, "invalid hash string, length must be 0 or %d", DEF_SHA256_LEN * 2);
@@ -71,7 +76,11 @@ namespace qjs {
         return JS_NULL;
     }
 
-    //HC: Replace default module name(0e 63 6f 6d 70 69 6c 65 .compile) into newmodname
+    //HCE: Replace default module name(0e 63 6f 6d 70 69 6c 65 .compile) into newmodname
+    //HCE: @para ctx Pointer to JSContext
+    //HCE: @para script Script string
+    //HCE: @para newmodname New module name
+    //HCE: @returns JS_NULL if success
     JSValue RenameModuleName(JSContext* ctx, string& script, const string& newmodname)
     {
         qjs::Context qjsctx(JS_DupContext(ctx));
@@ -87,10 +96,15 @@ namespace qjs {
         return JS_NULL;
     }
 
-    //HC: import import_identifier as modulename from <Contract.%d.%d.%d>
-    //HC: For example: import * as sys from <Contract.1000.1.5>
-    //HC: The following mode don't supported:
-    //HC: import {class1, class2, function1, funtion2, var1, var2} from <Contract.1000.1.5>
+    //HCE: import import_identifier as modulename from <Contract.%d.%d.%d>
+    //HCE: For example: import * as sys from <Contract.1000.1.5>
+    //HCE: The following mode don't supported:
+    //HCE: import {class1, class2, function1, funtion2, var1, var2} from <Contract.1000.1.5>
+    //HCE: @para ctx Pointer to JSContext
+    //HCE: @para tripleaddr Triple address to locate the local block
+    //HCE: @para localblkhash Local block hash
+    //HCE: @para modulename Modulename to import
+    //HCE: @returns JS_TRUE if success
     JSValue ImportContractEx(JSContext *ctx, vector<int> tripleaddr, const std::string& localblkhash, const string& modulename)
     {
         T_LOCALBLOCK localblock;
@@ -112,7 +126,7 @@ namespace qjs {
         std::string_view jscode(script);
         qjsctx.evalBinary(jscode);
 
-        //HC: The following string must end with \0, and pass char* type into eval function
+        //HCE: The following string must end with \0, and pass char* type into eval function
         std::string strScript = StringFormat("import * as %s from '%s'; globalThis.%s = %s;\n\0",
             modulename, strModuleFile, modulename, modulename);
 
@@ -122,6 +136,11 @@ namespace qjs {
         return JS_TRUE;
     }
 
+    //HCE: Call Contract in the block
+    //HCE: @para ctx Pointer to JSContext
+    //HCE: @para tripleaddr Triple address to locate the local block
+    //HCE: @para localblkhash Local block hash
+    //HCE: @returns JS_NewStringLen if success
     JSValue CallContract(JSContext* ctx, vector<int> tripleaddr, const std::string& localblkhash)
     {
         T_LOCALBLOCK localblock;
@@ -136,7 +155,7 @@ namespace qjs {
         std::shared_ptr<qjs::Context> tmpspctx;
 
         try {
-            //HC: Here use a temporary qjs::Context to avoid variable redeclaration conflict
+            //HCE: Here use a temporary qjs::Context to avoid variable redeclaration conflict
             tmpspctx.reset(new qjs::Context(rt));
             VM::executeIsolated(tmpspctx, jscode, value);
         }
@@ -155,11 +174,20 @@ namespace qjs {
     public:
         contract(const qjs::Value &v) : _v(v) {}
 
+        //HCE: import a module from <Contract.%d.%d.%d>
+        //HCE: @para tripleaddr Triple address to locate the local block
+        //HCE: @para localblkhash Local block hash
+        //HCE: @para modulename Modulename to import
+        //HCE: @returns JS_TRUE if success
         JSValue importas(vector<int> tripleaddr, const std::string& localblkhash, const string& modulename)
         {
             return ImportContractEx(_v.ctx, tripleaddr, localblkhash, modulename);
         }
 
+        //HCE: Call Contract in the block
+        //HCE: @para tripleaddr Triple address to locate the local block
+        //HCE: @para localblkhash Local block hash
+        //HCE: @returns JS_NewStringLen if success
         JSValue call(vector<int> tripleaddr, const std::string& localblkhash)
         {
             return CallContract(_v.ctx, tripleaddr, localblkhash);
@@ -168,7 +196,7 @@ namespace qjs {
         qjs::Value _v;
     };
 
-
+    //HCE: constructor
     VM::VM()
     {
         if (!tls_VMContext) {
@@ -186,7 +214,7 @@ namespace qjs {
 
         js_std_init_handlers(rt);
 
-        //HC: loader for ES6 modules
+        //HCE: loader for ES6 modules
         JS_SetModuleLoaderFunc(rt, nullptr, js_module_loader, nullptr);
         js_std_add_helpers(ctx, 0, nullptr);
 
@@ -200,7 +228,7 @@ namespace qjs {
             .fun<&contract::importas>("importas")
             .fun<&contract::call>("call");
 
-        //HC: make 'std' 'os' and 'contract' visible to non module code
+        //HCE: make 'std' 'os' and 'contract' visible to non module code
         const char* str = "import * as std from 'std';\n"
             "import * as os from 'os';\n"
             "import * as hccontract from 'ContractM';\n"
@@ -230,8 +258,8 @@ namespace qjs {
     {
         try {
             string_view vSrc(js_sourcecode);
-            //HC: Notice: don't change the second parameter value
-            //HC: else you must be keep consistent content with function of RenameModuleName
+            //HCE: Notice: don't change the second parameter value
+            //HCE: else you must be keep consistent content with function of RenameModuleName
             qjs::Value obj = tls_VMContext->eval(vSrc, "compile", compile_flags | JS_EVAL_FLAG_COMPILE_ONLY | JS_EVAL_TYPE_GLOBAL);
 
             js_bytecode = tls_VMContext->dumpObject(obj);
@@ -247,4 +275,4 @@ namespace qjs {
         return false;
     }
 
- } // namespace qjs
+ } //HCE: namespace qjs

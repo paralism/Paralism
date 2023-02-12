@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2023 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -30,7 +30,7 @@ DEALINGS IN THE SOFTWARE.
 
 namespace DBSQL {
 
-    //HC: 存证记录
+    //HCE: 存证记录
     const std::string EVIDENCES_TBL =
         "CREATE TABLE IF NOT EXISTS evidence_tbl "
         "("
@@ -71,17 +71,17 @@ namespace DBSQL {
 
     const std::string ONCHAINED_TBL =
         "CREATE TABLE IF NOT EXISTS localblockonchained ("
-        "  [requestid]	varchar(32) DEFAULT ''," //HC: uuid, which is tLocalBlock.getUUID
+        "  [requestid]	varchar(32) DEFAULT ''," //HCE: uuid, which is tLocalBlock.getUUID
         "  [hid]		INTEGER DEFAULT 0,"
         "  [chain_num]	INTEGER DEFAULT 0,"
-        "  [id]	INTEGER DEFAULT 0,"			//HC: local block id
+        "  [id]	INTEGER DEFAULT 0,"			//HCE: local block id
         "  PRIMARY KEY (requestid)"
         ");";
 
     const std::string BATCHONCHAINED_TBL =
         "CREATE TABLE IF NOT EXISTS batchonchained ("
         "  [batchid]	varchar(32) DEFAULT '',"
-        "  [requestid]	varchar(32) DEFAULT ''," //HC: uuid, which is tLocalBlock.getUUID
+        "  [requestid]	varchar(32) DEFAULT ''," //HCE: uuid, which is tLocalBlock.getUUID
         "  [data]       blob DEFAULT '' NOT NULL,"
         "  [retry]      INTEGER DEFAULT 0,"
         "  [ctime]	    INTEGER DEFAULT 0,"
@@ -90,7 +90,7 @@ namespace DBSQL {
         ");";
 
 
-    //HC: best chain info
+    //HCE: best chain info
     const std::string HASHINFO_TBL =
         "CREATE TABLE IF NOT EXISTS hyperblockhashinfo ("
         "  [id]		    INTEGER DEFAULT 0,"
@@ -99,7 +99,7 @@ namespace DBSQL {
         "  PRIMARY KEY (id)"
         ");";
 
-    //HC: best header chain info
+    //HCE: best header chain info
     const std::string HEADERHASHINFO_TBL =
         "CREATE TABLE IF NOT EXISTS headerhashinfo ("
         "  [id]		    INTEGER DEFAULT 0,"
@@ -182,7 +182,7 @@ namespace DBSQL {
 
     const std::string ONCHAINDATA_TBL =
         "CREATE TABLE IF NOT EXISTS onchaindata ("
-        "  [requestid]	varchar(32) DEFAULT ''," //HC: uuid, which is tLocalBlock.getUUID
+        "  [requestid]	varchar(32) DEFAULT ''," //HCE: uuid, which is tLocalBlock.getUUID
         "  [requesttime] INTEGER DEFAULT 0,"
         "  [onchain1time] INTEGER DEFAULT 0,"
         "  [onchain2time] INTEGER DEFAULT 0,"
@@ -343,7 +343,7 @@ int DBmgr::insertEvidence(const TEVIDENCEINFO &evidence)
 {
     try
     {
-        //HC: hash,blocknum,filename,custominfo,owner,filestate,regtime,filesize,extra
+        //HCE: hash,blocknum,filename,custominfo,owner,filestate,regtime,filesize,extra
         CppSQLite3Statement stmt = _db->compileStatement(scEvidenceInsert.c_str());
         stmt.bind(1, evidence.cFileHash.c_str());
         stmt.bind(2, (sqlite_int64)evidence.iBlocknum);
@@ -389,7 +389,7 @@ int DBmgr::getEvidences(std::list<TEVIDENCEINFO> &evidences, int page, int size)
         CppSQLite3Query query = stmt.execQuery();
         while (!query.eof())
         {
-            //HC: hash,blocknum,filename,custominfo,owner,filestate,regtime,filesize,extra
+            //HCE: hash,blocknum,filename,custominfo,owner,filestate,regtime,filesize,extra
             TEVIDENCEINFO evi;
             evi.cFileHash = query.getStringField("hash");
             evi.cFileName = query.getStringField("filename");
@@ -429,7 +429,7 @@ int DBmgr::getNoConfiringList(std::list<TEVIDENCEINFO>& evidences)
         CppSQLite3Query query = stmt.execQuery();
         while (!query.eof())
         {
-            //HC: hash,blocknum,filename,custominfo,owner,filestate,regtime,filesize,extra
+            //HCE: hash,blocknum,filename,custominfo,owner,filestate,regtime,filesize,extra
             TEVIDENCEINFO evi;
             evi.cFileHash = query.getStringField("hash");
             evi.cFileName = query.getStringField("filename");
@@ -455,7 +455,7 @@ int DBmgr::getNoConfiringList(std::list<TEVIDENCEINFO>& evidences)
 int DBmgr::updateEvidence(const TEVIDENCEINFO &evidence, int type)
 {
     try {
-        //HC: hash,blocknum,filename,custominfo,owner,filestate,regtime,filesize,extra
+        //HCE: hash,blocknum,filename,custominfo,owner,filestate,regtime,filesize,extra
         std::string sql;
         if (1 == type) {
             sql = "UPDATE evidence_tbl SET filestate=?"
@@ -559,6 +559,8 @@ int DBmgr::createTbls()
 int DBmgr::updateDB()
 {
     //HC: 兼容老版本db,增加表neighbornodes字段,sqlite目前不支持修改字段类型
+    //HCE: Compatible with the old version of DB, add the table NeighborNodes field, 
+    //HCE: SQLite currently does not support modifying the field type
     //TO DO in the future
     if (ifTblOrIndexExist("neighbornodes", 1)) {
         if (!ifColExist("neighbornodes", "lasttime")) {
@@ -1096,7 +1098,7 @@ int DBmgr::getUpqueue(std::list<TUPQUEUE> &queue, int page, int size)
 
         CppSQLite3Query query = stmt.execQuery();
         while (!query.eof()) {
-            //HC: hash,ctime
+            //HCE: hash,ctime
             TUPQUEUE evi;
             evi.uiID = query.getInt64Field("id");
             evi.strHash = query.getStringField("hash");

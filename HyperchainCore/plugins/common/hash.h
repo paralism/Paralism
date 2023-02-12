@@ -190,7 +190,7 @@ public:
 };
 
 /** Compute the 256-bit hash of an object's serialization. */
-//HC: old version had a implementation
+//HCE: old version had a implementation
 //template<typename T>
 //uint256 SerializeHash(const T& obj, int nType=SER_GETHASH, int nVersion=PROTOCOL_VERSION)
 //{

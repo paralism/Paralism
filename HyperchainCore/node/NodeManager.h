@@ -36,10 +36,14 @@ using namespace std;
 
 class UdpAccessPoint;
 enum class NodeType : char {
-    Normal = 0,       //HC: 可参与共识的节点
-    Bootstrap,        //HC: 除了Normal类型的功能外，带引导功能
-    LedgerRPCClient,  //HC: 只具备账本RPC调用功能
-    Autonomous        //HC: 自动获取本节点内网IP和发现同网段邻居
+    Normal = 0,         //HC: 可参与共识的节点
+                        //HCE: The nodes to consensus
+    Bootstrap,          //HC: 除了Normal类型的功能外，带引导功能
+                        //HCE: Eecept Nomal functions, with boot function 
+    LedgerRPCClient,    //HC: 只具备账本RPC调用功能
+                        //HCE: Only has RPC functions
+    Autonomous          //HC: 自动获取本节点内网IP和发现同网段邻居
+                        //HCE: Auto get this node IP and find the neighbor nodes with the same segment net 
 };
 
 struct stNodeAPS {
@@ -50,11 +54,14 @@ struct stNodeAPS {
     }
 
     string strLanAPS;   //HC: 本地IP地址+端口
+                        //HCE: Lan IP + PORT
     string strPubAPS;   //HC: 公网IP地址+端口
+                        //HCE: Public IP + PORT
     size_t lasttime;    //HC: 最新更新时间
+                        //HCE: The latest update time
 };
 
-//HC: Highest 4 bits is network type, other is version
+//HCE: Highest 4 bits is network type, other is version
 const uint16_t SAND_BOX = 0xD000;
 const uint16_t INFORMAL_NET = 0xE000;
 const uint16_t FORMAL_NET = 0xF000;
@@ -196,6 +203,9 @@ public:
     }
 
     template<typename T>
+    //HCE: Send message to target node
+    //HCE: @para targetNodeid Node id
+    //HCE: @para msgbuf Message data buffer
     void sendTo(const CUInt128& targetNodeid, DataBuffer<T>& msgbuf)
     {
         uint8_t b[CUInt128::value];
@@ -204,6 +214,7 @@ public:
 
         if (_msghandler.getID() == std::this_thread::get_id()) {
             //HC: 检查该nodeid是否在活跃节点列表中
+            //HCE: Check if this node id is in active node id list
             if (!IsNodeInKBuckets(targetNodeid))
                 return;
 
@@ -224,38 +235,63 @@ public:
     bool RemoveMyself();
     void saveMyself();
 
+    //HCE: Get serialized node infomation from nodemap
+    //HCE: @para vecNodes Serialized node infomation vector
     size_t GetNodesJson(vector<string>& vecNodes);
 
+    //HCE: Parse node string to UdpAccessPoint
     bool parseNode(const string& node, UdpAccessPoint* ap);
 
+    //HCE: IS the node a seed server?
+    //HCE: @para node HCNode
+    //HCE: @returns True if it is 
     bool IsSeedServer(const HCNode& node);
 
     string toFormatString();
+
+    //HCE: Get nodeManager MQ cost statistics
     string GetMQCostStatistics();
 
     void PickNeighbourNodes(const CUInt128& nodeid, int num, vector<CUInt128>& vnodes);
     void PickNeighbourNodesEx(const CUInt128& nodeid, int num, vector<HCNode>& vnodes);
 
+    //HCE: Is the node in KBuckets?
     bool IsNodeInKBuckets(const CUInt128& nodeid);
+
     void PickRandomNodes(int nNum, std::set<HCNode>& nodes);
     void GetAllNodes(std::set<CUInt128>& setNodes);
+
+    //HCE: Get node count in m_actKBuchets
     int GetNodesNum();
 
     CKBuckets* GetKBuckets() {
         return &m_actKBuchets;
     }
     void InitKBuckets();
+
+    //HCE: Enable or disable the node active
+    //HCE: @para nodeid Node id
+    //HCE: @para bEnable Enable flag
     void EnableNodeActive(const CUInt128& nodeid, bool bEnable);
 
-
     //HC: 分析返还的节点列表值，记录到_nodemap， 同时提取出新节点，用于Ping测试
+    //HCE: Parse the return node list, record to nodemap and draw the new nodes to ping test
     void ParseNodeList(const string& nodes, vector<CUInt128>& vecNewNode);
 
     //HC: 新版加载邻居节点和退出保存节点
+    //HCE: New version to load neighbour nodes and exit to saved nodes
     void loadNeighbourNodes_New();
 
+    //HCE: Get nodes from node map
+    //HCE: @para vecNodes Vector to nodeid
     void  GetNodeMapNodes(vector<CUInt128>& vecNodes);
+
+    //HCE: Save the active nodes to database
     void SaveLastActiveNodesToDB();
+
+    //HCE: get peer list from vecNodes exclude excludeID
+    //HCE: @para excludeID Exclude node id
+    //HCE: @para peerlist Peer list string
     int getPeerList(CUInt128 excludeID, vector<CUInt128>& vecNodes, string& peerlist);
 
     void SetLocalIP(string& strIP) {
@@ -285,10 +321,20 @@ public:
 
     MsgHandler& GetMsgHandler() { return _msghandler; }
 
+    //HCE: Push the node id into KBuckets
+    //HCE: @para nodeid Node id
     void PushToKBuckets(const CUInt128 &nodeid);
+
+    //HCE: Add the node id to deactive node list
+    //HCE: @para nodeid Node id
     void AddToDeactiveNodeList(const CUInt128& nodeid);
+
+    //HCE: Remove the node id from deactive node list
+    //HCE: @para nodeid Node id
     void RemoveNodeFromDeactiveList(const CUInt128 &nodeid);
 
+    //HCE: Remove the node id from node map
+    //HCE: @para nodeid Node id
     void RemoveFromNodeMap(const CUInt128& nodeid) {
         auto itr = _nodemap.find(nodeid);
         if(itr != _nodemap.end())
@@ -297,6 +343,7 @@ public:
 
 private:
 
+    //HCE: Start message hander
     void startMQHandler();
     void DispatchService(void* wrk, zmsg* msg);
 
@@ -304,6 +351,7 @@ private:
     void ToAllNodes(const string& data);
 
     //HC: 记录单个节点到数据库
+    //HCE: Record single node to datebase
     bool SaveNodeToDB(const CUInt128& nodeid, system_clock::time_point  lastActTime);
 
 

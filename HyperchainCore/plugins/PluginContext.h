@@ -13,6 +13,9 @@
 #endif // WIN32
 
 
+//HCE:
+//HCE: The core structure of the Hyperchain layer is passed to the application layer.
+//HCE:
 struct PluginContext
 {
     int pc_argc = 0;
@@ -32,7 +35,7 @@ struct PluginContext
     std::shared_ptr<spdlog::logger> consensus_console_logger;
 #endif
 
-    //HC: Main program shares the instance with plugin.
+    //HCE: Main program shares the instance with plugin.
     void SetPluginContext()
     {
         Singleton<NodeManager>::setInstance(nodemgr);
@@ -43,7 +46,7 @@ struct PluginContext
 
         g_inproc_context = inproc_context;
 
-        //HC: On Windows, synchronize the value of g_tP2pManagerStatus between main module and application modules
+        //HCE: On Windows, synchronize the value of g_tP2pManagerStatus between main module and application modules
         //g_tP2pManagerStatus = tP2pManagerStatus;
 
 #ifdef WIN32

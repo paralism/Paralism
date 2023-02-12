@@ -64,7 +64,7 @@ extern void FreeGlobalMemeory();
 extern void StartMQHandler();
 extern void StopMQHandler();
 
-//HC: SegWit
+//HCE: SegWit
 extern void SelectParams();
 extern void RandomInit();
 extern void ECC_Start();
@@ -171,7 +171,7 @@ void ShutdownExcludeRPCServer()
     delete pwalletMain;
     pwalletMain = nullptr;
 
-    //HC: CRITICAL_BLOCK(cs_vNodes)
+    //HCE: CRITICAL_BLOCK(cs_vNodes)
     //{
     vNodes.clear();
     //}
@@ -210,6 +210,7 @@ void Shutdown(void* parg)
         CRITICAL_BLOCK_T_MAIN(cs_main)
         {
             //HC: 获取cs_main锁，确保没有来自共识层的回调通知消息在处理链数据中, 否则可能会导致程序崩溃
+            //HCE: Acquire cs_main locks to ensure that no callback notification messages from the consensus layer are in the processing chain data, otherwise it may cause the program to crash
         }
         StopAllLightNodesWork();
         StopRPCServer();
@@ -222,7 +223,7 @@ void Shutdown(void* parg)
         delete pwalletMain;
         //CreateThread(ExitTimeout, NULL);
 
-        //HC: To avoid deadlock, It is very important to select a position to stop MQ
+        //HCE: To avoid deadlock, It is very important to select a position to stop MQ
         StopMQHandler();
 
         FreeGlobalMemeory();
@@ -241,7 +242,7 @@ void HandleSIGTERM(int)
 
 bool LoadCryptoCurrency()
 {
-    //HC: which coin will be used?
+    //HCE: which coin will be used?
     CApplicationSettings appini;
     string defaultAppHash;
     appini.ReadDefaultApp(defaultAppHash);
@@ -261,7 +262,7 @@ bool LoadCryptoCurrency()
             coinhash = defaultAppHash;
         }
         else {
-            //HC: use built-in currency
+            //HCE: use built-in currency
             coinhash = g_cryptoCurrency.GetHashPrefixOfGenesis();
         }
     }
@@ -270,7 +271,7 @@ bool LoadCryptoCurrency()
         appini.WriteDefaultApp(coinhash);
     }
 
-    //HC: load currency
+    //HCE: load currency
     if (g_cryptoCurrency.GetHashPrefixOfGenesis() != coinhash) {
 
         string errmsg;
@@ -280,7 +281,7 @@ bool LoadCryptoCurrency()
     }
     hashGenesisBlock = g_cryptoCurrency.GetHashGenesisBlock();
 
-    //HC: change data directory
+    //HCE: change data directory
     string strLedgerDir = CreateChildDir(g_cryptoCurrency.GetCurrencyConfigPath());
     strlcpy(pszSetDataDir, strLedgerDir.c_str(), sizeof(pszSetDataDir));
 
@@ -415,7 +416,7 @@ bool AppInit2(int argc, char* argv[])
     if (mapArgs.count("-model") && mapArgs["-model"] == "informal")
         pro_ver = ProtocolVer::NET::INFORMAL_NET;
 
-    //HC: which coin will be used?
+    //HCE: which coin will be used?
     LoadCryptoCurrency();
 
     if (!fDebug && !pszSetDataDir[0])
@@ -467,7 +468,7 @@ bool AppInit2(int argc, char* argv[])
         strErrors += _("Error loading addr.dat      \n");
     TRACE_FL(" addresses   %15" PRI64d " ms\n", GetTimeMillis() - nStart);
 
-    //HC:
+    //HCE:
     INFO_FL("Loading blocks will to do global buddy consensus...\n");
     LoadBlockUnChained();
 
@@ -513,6 +514,7 @@ bool AppInit2(int argc, char* argv[])
     }
     if (pindexBest != pindexRescan) {
         //HC: 让钱包和最优链保持一致
+        //HCE: Keep wallets consistent with optimal chains 
         fprintf(stdout, "Para: Rescanning last %i blocks (from block %i)...\n", pindexBest->nHeight - pindexRescan->nHeight, pindexRescan->nHeight);
         nStart = GetTimeMillis();
         pwalletMain->ScanForWalletTransactions(pindexRescan, true);
@@ -592,7 +594,7 @@ bool AppInit2(int argc, char* argv[])
                 AddAddress(addr);
         }
     }
-    //HC: remove dns seed
+    //HCE: remove dns seed
     //if (GetBoolArg("-nodnsseed"))
     //    printf("DNS seeding disabled\n");
     //else
@@ -622,18 +624,18 @@ bool AppInit2(int argc, char* argv[])
 
     RandAddSeedPerfmon();
 
-    //HC: Output my public key and put it into wallet
+    //HCE: Output my public key and put it into wallet
     if (mapArgs.count("-publickey")) {
         CReserveKey reservekey(pwalletMain);
         std::vector<unsigned char> vchPubKey = reservekey.GetReservedKey();
         cout << "PublicKey:" << ToHexString(vchPubKey) << endl;
-        //HC: Remove key from key pool
+        //HCE: Remove key from key pool
         reservekey.KeepKey();
         return 0;
     }
 
 
-    //HC: Register application callbacks,for example when a new block become onchained,one of callbacks is called.
+    //HCE: Register application callbacks,for example when a new block become onchained,one of callbacks is called.
     ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::getInstance();
     if (consensuseng) {
 

@@ -46,9 +46,11 @@ struct ChainParams: public ChainOperationParams
     u256 gasUsed = 0;
     u256 timestamp = 0;
     bytes extraData;
-    uint32_t previousHID = 0;           //HC: Previous Hyper block ID
-    h256 previousHHash = h256();        //HC: hash of previous Hyper block
-    mutable h256 stateRoot;	///< Only pre-populate if known equivalent to genesisState's root. If they're different Bad Things Will Happen.
+    uint32_t previousHID = 0;
+    h256 previousHHash = h256();
+    mutable h256 stateRoot;
+
+    ///< Only pre-populate if known equivalent to genesisState's root. If they're different Bad Things Will Happen.
     AccountMap genesisState;
 
     unsigned sealFields = 0;

@@ -38,7 +38,7 @@ using namespace std;
 #define PARACOIN_T_SERVICE "paracoin_task"
 
 
-//HC: paracoin task type
+//HCE: paracoin task type
 enum class PARA_TASKTYPE : unsigned char
 {
     BASETYPE = 0,
@@ -66,7 +66,7 @@ public:
     IParaTask() {}
     IParaTask(TASKBUF && recvbuf) : ITask(std::forward<TASKBUF>(recvbuf))
     {
-        //HC: skip child type
+        //HCE: skip child type
         _payload++;
         _payloadlen--;
     }
@@ -85,7 +85,7 @@ private:
         list<TASKBUF> datas;
         int64_t totallenpushed = 0;
         int64_t tmlastpushed = 0;
-        int64_t waitinghandle = 0; //HC: node's recv buffer data which will be handled
+        int64_t waitinghandle = 0; //HCE: node's recv buffer data which will be handled
     } NODEDATA;
     map<string, NODEDATA> _mapNodedata;
     map<string, CNode*> _activeNodes;

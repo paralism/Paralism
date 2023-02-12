@@ -18,7 +18,7 @@ struct KeyOriginInfo
         return std::equal(std::begin(a.fingerprint), std::end(a.fingerprint), std::begin(b.fingerprint)) && a.path == b.path;
     }
 
-    //HC:
+    //HCE:
     //SERIALIZE_METHODS(KeyOriginInfo, obj) { READWRITE(obj.fingerprint, obj.path); }
     IMPLEMENT_SERIALIZE(
         for (size_t i = 0; i < (sizeof(fingerprint) / sizeof(fingerprint[0])); i++) {

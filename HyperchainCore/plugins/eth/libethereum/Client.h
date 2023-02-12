@@ -103,7 +103,6 @@ public:
     /// Get the gas bid price
     u256 gasBidPrice() const override { return m_gp->bid(); }
 
-    //HC: Get the object representing the current work.
     dev::eth::Block working() const { ReadGuard l(x_working); return m_working; }
 
     /// Get the object representing the current state of Ethereum.
@@ -114,12 +113,14 @@ public:
     /// Get some information on the block queue.
     BlockQueueStatus blockQueueStatus() const { return m_bq.status(); }
 
-    //HC: Get some information on the block queue.
+    //HC:
     BlockQueueStatus blockQueueStatus(size_t& readySet) const { return m_bq.status(readySet); }
 
 
     /// Get some information on the block syncing.
     SyncStatus syncStatus() const override;
+    SyncStatus syncStatusNoLock() const; //HC:
+
     /// Populate the uninitialized fields in the supplied transaction with default values
     TransactionSkeleton populateTransactionWithDefaults(TransactionSkeleton const& _t) const override;
     /// Get the block queue.
@@ -161,6 +162,22 @@ public:
     void stopSealing() override {
         m_wouldSeal = false;
     }
+
+
+    //HC:
+    bool isSuspendSealing() {
+        return m_wouldSuspendSeal;
+    }
+
+    void resumeSealing() {
+        m_wouldSuspendSeal = false;
+    }
+
+    void suspendSealing() {
+        m_wouldSuspendSeal = true;
+    }
+
+
     /// Are we sealing now?
     bool wouldSeal() const override { return m_wouldSeal; }
 
@@ -168,6 +185,7 @@ public:
     bool isSyncing() const override;
     /// Are we syncing the chain?
     bool isMajorSyncing() const override;
+    bool isMajorSyncingNoLock() const ; //HC:
 
     /// Gets the network id.
     u256 networkId() const override;
@@ -193,10 +211,12 @@ public:
     ActivityReport activityReport() { ActivityReport ret; std::swap(m_report, ret); return ret; }
     /// Set the extra data that goes into sealed blocks.
     void setExtraData(bytes const& _extraData) { m_extraData = _extraData; }
+    
     /// Rewind to a prior head.
     void rewind(unsigned _n);
+    //HC: 
+    void rewindSyncNotReset(unsigned _n);
 
-    //HC: set sync state is completed
     void completeSync();
 
     /// Rescue the chain.
@@ -229,12 +249,13 @@ public:
     ///< Get POW depending on sealengine it's using
     std::tuple<h256, h256, h256> getWork() override;
 
-    //HC:
-    /// Called after processing blocks by onChainChanged(_ir)
+        /// Called after processing blocks by onChainChanged(_ir)
     void resyncStateFromChain();
 
-    //HC: reset work block, after rewinding
     void resetWorking();
+
+    //HC: 
+    void SyncfromPeers();
 
 protected:
     /// Perform critical setup functions.
@@ -288,8 +309,7 @@ protected:
     virtual void onNewBlocks(h256s const& _blocks, h256Hash& io_changed);
 
     /// Update m_preSeal, m_working, m_postSeal blocks from the latest state of the chain
-    //HC: add parameter: _isForce
-    void restartMining(bool _isForce = false);
+        void restartMining(bool _isForce = false);
 
     /// Clear working state of transactions
     void resetState();
@@ -352,6 +372,10 @@ protected:
     BlockHeader m_sealingInfo;              ///< The header we're attempting to seal on (derived from m_postSeal).
     std::atomic<bool> m_remoteWorking = { false };          ///< Has the remote worker recently been reset?
     std::atomic<bool> m_needStateReset = { false };         ///< Need reset working state to premin on next sync
+
+    //HCE: 
+    std::atomic<bool> m_chainIsSwitching = { false };
+
     std::chrono::system_clock::time_point m_lastGetWork;    ///< Is there an active and valid remote worker?
 
     std::weak_ptr<EthereumCapability> m_host;
@@ -365,6 +389,8 @@ protected:
     Handler<> m_bqReady;
 
     std::atomic<bool> m_wouldSeal = { false };               ///< True if we /should/ be sealing.
+    std::atomic<bool> m_wouldSuspendSeal = { false };               ///< False if we /should/ be sealing.
+
     bool m_wouldButShouldnot = false;       ///< True if the last time we called rejigSealing wouldSeal() was true but sealer's shouldSeal() was false.
 
     mutable std::chrono::system_clock::time_point m_lastGarbageCollection;
@@ -388,6 +414,9 @@ protected:
 
     /// Called when blockchain was changed
     Signal<h256s const&, h256s const&> m_onChainChanged;
+
+    //HC:
+    p2p::Host *m_myHost = nullptr;
 
     Logger m_logger{createLogger(VerbosityInfo, "client")};
     Logger m_loggerDetail{createLogger(VerbosityDebug, "client")};

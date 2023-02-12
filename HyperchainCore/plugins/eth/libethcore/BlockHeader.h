@@ -193,22 +193,19 @@ private:
     h256 m_receiptsRoot;
     LogBloom m_logBloom;
 
-    //HC: 以太坊区块高度
-    int64_t m_number = 0;
+        int64_t m_number = 0;
 
     u256 m_gasLimit;
     u256 m_gasUsed;
     bytes m_extraData;
     int64_t m_timestamp = -1;
 
-	//HC: 挖掘出这个区块的作者地址
-    Address m_author;
+	    Address m_author;
     u256 m_difficulty;
 
     std::vector<bytes> m_seal;		///< Additional (RLP-encoded) header fields.
 
-    //HC: 前一个超块的ID和hash
-    uint32_t m_prevHID;
+        uint32_t m_prevHID;
     h256 m_prevHyperBlockHash;
 
     mutable Mutex m_sealLock;

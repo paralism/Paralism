@@ -40,19 +40,12 @@ using namespace dev::eth;
 
 typedef struct _tagGENESIS_ACC {
 public:
-    bytes genesis;          //HC: 创世块字节
-    AccountMap accmap;      //HC: 账户信息
-    std::string jsonconfig;      //HC: 配置
-
+    bytes genesis;              AccountMap accmap;          std::string jsonconfig;      
     bytes to() {
         RLPStream block(3); //HC：准备压入2个List
-        block.appendList(1) //HC: 此list后跟1个元素, 如果n个那么这里就是n
-            << genesis;
+        block.appendList(1)             << genesis;
 
-        //HC: 分成多个list，目的是创世块和其他普通块提取块数据时代码保持一致
-        //HC: 参见CryptoEthCurrency::ResolveBlock
-        block.appendList(1) //HC: 同样此list后跟1个元素，
-            << jsonconfig;
+                        block.appendList(1)             << jsonconfig;
 
         int s = accmap.size();
         block.appendList(1 + s * 3);
@@ -118,6 +111,15 @@ private:
     const std::string _key = "App.ethcoinhash";
 };
 
+
+//HC:
+//HC: @brief Ethereum兼容的加密数字货币类 
+//HC: 加载并提供加密货币的基本参数及其他辅助功能
+
+//HCE:
+//HCE: @brief Ethereum-compatible cryptocurrencies
+//HCE: Load and provide basic parameters and other auxiliary features of cryptocurrencies
+//HCE:
 class CryptoEthCurrency
 {
 public:
@@ -132,9 +134,7 @@ public:
     const_iterator end() const { return mapSettings.end(); }
 
     static bool ResolveBlock(BlockHeader& blockheader, const std::string& payload);
-    static bytes ExtractBlock(const std::string& payload);   //HC: 从Payload中提取块数据
-    static std::string MakePayload(const bytes& blk);        //HC: 将块数据打包为string类型的payload
-
+    static bytes ExtractBlock(const std::string& payload);       static std::string MakePayload(const bytes& blk);        
     bool LoadCryptoCurrency(bool &isBuiltIn);
 
     bool isNullCurrency()
@@ -142,23 +142,27 @@ public:
         return GetChainNum() == 0;
     }
 
+    //HC: 返回加密货币创世块所在超块高度
+    //HCE: Get the Hyperblock height where the cryptocurrency genesis block is located
     uint32_t GetHID() {
         return std::stoul(mapSettings["hid"]);
     }
 
+    //HC: 返回加密货币创世块所在超块的子链号
+    //HCE: Get the subchain number of the Hyperblock where the cryptocurrency genesis block is located
     uint16_t GetChainNum() {
         return std::stoul(mapSettings["chainnum"]);
     }
 
+    //HC: 返回加密货币创世块所在超块子链的块号
+    //HCE: Get the block number of subchain of the Hyperblock where the cryptocurrency genesis block is located
     uint16_t GetLocalID() { return std::stoul(mapSettings["localid"]); }
-
 
     h256 GetHashGenesisBlock() { return h256(mapSettings["hashgenesisblock"]); }
     std::string GetHashPrefixOfGenesis() { return mapSettings["hashgenesisblock"]; }
 
     static boost::filesystem::path GetCurrencyRootPath();
 
-    //HC: Save NodeID
     boost::filesystem::path getConfigFile()
     {
         return GetCurrencyRootPath() / boost::filesystem::path("config.rlp");
@@ -192,8 +196,7 @@ public:
         return GetHID() == hid && GetChainNum() == chainnum && GetLocalID() == localid;
     }
 
-    //HC: if shorthash is empty, will scan the directory and find one
-    bool ReadCoinFile(const std::string& shorthash, std::string& errormsg);
+        bool ReadCoinFile(const std::string& shorthash, std::string& errormsg);
     bool WriteCoinFile();
 
     static bool GetAllCoins(vector<CryptoEthCurrency>& coins);
