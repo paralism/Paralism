@@ -56,7 +56,7 @@ using std::chrono::system_clock;
 
 //HC: 块版本号历史：
 //HC: 0.7.1 超块加入版本号
-//HC: 0.7.2 子块_tlocalblock加入：difficulty，version，requestid
+//HC: 0.7.2 局部块_tlocalblock加入：difficulty，version，requestid
 //HC: 1.0.0 链核心数据结构重新进行设计，不兼容1.0.0 以下版本
 //HCE: Block version number history
 //HCE: 0.7.1 Add version number information to the hyperblock
@@ -137,10 +137,10 @@ typedef struct _tprivateblock
     //T_SHA256 tHHash;
     //T_FILEINFO tPayLoad;
 
-    T_LOCALBLOCKADDRESS preBlockAddr;       //HC:前一逻辑块所在子块地址
-                                            //HCE: The address of the subblock where the previous logical block is located
-    T_SHA256 tpreBlockHash;                 //HC:前一逻辑子块hash
-                                            //HCE: The hash of the previous logical subblock
+    T_LOCALBLOCKADDRESS preBlockAddr;       //HC:前一局部块地址
+                                            //HCE: The address of the predecessor local block to current block
+    T_SHA256 tpreBlockHash;                 //HC:前一局部块哈希
+                                            //HCE: The hash of the predecessor local block
     string sData;
 
     /*
@@ -496,8 +496,8 @@ typedef struct _tlocalblockheader
 
     //HC: appType.mt=1,局部块body中payload域的记录hash的Merkle Tree Root
     //HC: appType.mt=0,局部块body中payload域的整体hash
-    //HCE: appType.mt=1, tMTRootorBlockBodyHash holds the Merkle Tree Root of the hash for each record in the payload field in the subblock body
-    //HCE: appType.mt=0, tMTRootorBlockBodyHash holds the hash of the data in the payload field in the subblock body
+    //HCE: appType.mt=1, tMTRootorBlockBodyHash holds the Merkle Tree Root of the hash for each record in the payload field in the local block body
+    //HCE: appType.mt=0, tMTRootorBlockBodyHash holds the hash of the data in the payload field in the local block body
     T_SHA256 tMTRootorBlockBodyHash = T_SHA256(0);      //HCE: is merkle root if payload is a kind of ledger, or is local block body verify hash if payload is arbitary data.
     T_SHA256 tScriptHash = T_SHA256(0);                 //HC: 局部共识脚本hash
                                                         //HCE: local consensus script hash
@@ -1688,14 +1688,14 @@ using HANDLEGENESISCBFN = std::function<bool(vector<T_PAYLOADADDR>&)>;
 using CONSENSUSCBFN = std::function<bool(T_PAYLOADADDR&, map<boost::any, T_LOCALBLOCKADDRESS>&, boost::any&)>;
 using VALIDATEFN = CONSENSUSCBFN;
 
-//HC: 新创建了超块，或者收到了超块，将相同应用的子块按顺序组成集合，并通知应用层进行合法性检查
-//HCE: A new hyperblock is created, or a hyperblock is received, subblocks of the same application 
+//HC: 新创建了超块，或者收到了超块，将相同应用的局部块按顺序组成集合，并通知应用层进行合法性检查
+//HCE: A new hyperblock is created, or a hyperblock is received, local blocks of the same application 
 //HCE: are grouped sequentially and the application layer is notified for legitimacy checks
 using VALIDATECHAINFN = std::function<bool(vector<T_PAYLOADADDR>& vecPA)>;
 
-//HC: 当新增超块或更优合法超块被选择，将相同应用的子块按顺序组成集合，通知应用层同步更新
+//HC: 当新增超块或更优合法超块被选择，将相同应用的局部块按顺序组成集合，通知应用层同步更新
 //HCE: When a new hyperblock is created or a better legal hyperblock is selected, 
-//HCE: subblocks of the same application are organized into a collection 
+//HCE: local blocks of the same application are organized into a collection 
 //HCE: in order to notify the application layer to synchronize the update
 using ACCEPTCHAINFN = std::function<bool(map<T_APPTYPE, vector<T_PAYLOADADDR>>&, uint32_t & hidFork, uint32_t& hid, T_SHA256& thhash, bool)>;
 
