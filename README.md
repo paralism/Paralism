@@ -14,7 +14,7 @@ Paralism is an new economy infrastructure based on Parallel Blockchain Technolog
 * [Facebook >>](https://www.facebook.com/Paralism)
 * [Twitter >>](https://twitter.com/para_platform)
 * [Reddit >>](https://www.reddit.com/r/Paralism/)
-* [telegram >>](https://t.me/paralism_info)
+* [telegram >>](https://t.me/paralism_community)
 * [Weibo >>](https://www.weibo.com/u/6938603985)
 
 ## Fork of Hyperchain-Core  
