@@ -204,7 +204,7 @@ public:
                 else if (n != 0 || blockHash == m_chain.genesisHash())
                 {
                     auto top = n + uint64_t(step) * numHeadersToSend - 1;
-                    // HC: 得到当前区块链最新块号
+                    //HC: 得到当前区块链最新块号
                     auto lastBlock = m_chain.number();
                     if (top > lastBlock)
                     {

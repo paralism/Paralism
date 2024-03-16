@@ -213,6 +213,13 @@ private:
     int m_line;
 };
 
+
+#ifdef WIN32
+#ifdef _DEBUG
+#define ETH_DEBUG 1
+#endif
+#endif
+
 /// Scope guard for invariant check in a class derived from HasInvariants.
 #if ETH_DEBUG
 #define DEV_INVARIANT_CHECK ::dev::InvariantChecker __dev_invariantCheck(this, BOOST_CURRENT_FUNCTION, __FILE__, __LINE__)
@@ -315,4 +322,10 @@ private:
 
 bool isTrue(std::string const& _m);
 bool isFalse(std::string const& _m);
+
+
+std::string UnitConversionToEth(const std::string& value);
+std::string UnitConversionToPara(const std::string& value);
+
+
 }  // namespace dev

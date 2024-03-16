@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -24,7 +24,7 @@ DEALINGS IN THE SOFTWARE.
 #include "Singleton.h"
 #include "IAccessPoint.h"
 #include "UdtThreadPool.h"
-#include "../wnd/common.h"
+#include "../util/common.h"
 #include <cpprest/json.h>
 using namespace web;
 

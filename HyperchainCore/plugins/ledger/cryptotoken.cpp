@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -61,7 +61,7 @@ string GetKeyConfigFile()
 {
     fs::path pathConfig;
 
-    pathConfig = fs::path(GetHyperChainDataDir()) / "key.db";
+    pathConfig = fs::path(GetHyperChainDataDirInApp()) / "key.db";
     return pathConfig.string();
 }
 
@@ -228,7 +228,7 @@ string GetTokenWalletFile(const string& name)
     pathConfig.append(name);
 
     if (!pathConfig.is_complete())
-        pathConfig = fs::path(GetHyperChainDataDir()) / pathConfig / "wallet.dat";
+        pathConfig = fs::path(GetHyperChainDataDirInApp()) / pathConfig / "wallet.dat";
     return pathConfig.string();
 }
 
@@ -251,7 +251,7 @@ string CryptoToken::GetTokenConfigFile(const string& shorthash)
     pathConfig.append(relpath);
 
     if (!pathConfig.is_complete())
-        pathConfig = fs::path(GetHyperChainDataDir()) / pathConfig / "token.ini";
+        pathConfig = fs::path(GetHyperChainDataDirInApp()) / pathConfig / "token.ini";
     return pathConfig.string();
 }
 
@@ -263,7 +263,7 @@ string CryptoToken::GetTokenConfigFile()
     pathConfig.append(relpath);
 
     if (!pathConfig.is_complete())
-        pathConfig = fs::path(GetHyperChainDataDir()) / pathConfig / "token.ini";
+        pathConfig = fs::path(GetHyperChainDataDirInApp()) / pathConfig / "token.ini";
     return pathConfig.string();
 }
 
@@ -417,7 +417,7 @@ bool CryptoToken::ReadTokenFile(const string& name, string& shorthash, string& e
         SelectNetWorkParas();
         return true;
     }
-    fs::directory_iterator item_begin(GetHyperChainDataDir());
+    fs::directory_iterator item_begin(GetHyperChainDataDirInApp());
     fs::directory_iterator item_end;
     for (; item_begin != item_end; item_begin++) {
         if (fs::is_directory(*item_begin)) {
@@ -454,7 +454,7 @@ bool CryptoToken::ReadIssCfg(const string& cfgfile, map<string, string>& mapGene
 
     fs::ifstream streamConfig(cfgfile);
     if (!streamConfig.good()) {
-        pathConfig = fs::path(GetHyperChainDataDir()) / cfgfile;
+        pathConfig = fs::path(GetHyperChainDataDirInApp()) / cfgfile;
         streamConfig.open(pathConfig);
         if (!streamConfig.good()) {
             errormsg = strprintf("Cannot open file '%s'", cfgfile.c_str());
@@ -489,7 +489,7 @@ bool CryptoToken::ReadIssCfg(const string& cfgfile, map<string, string>& mapGene
 
 bool CryptoToken::GetAllTokens(vector<CryptoToken>& tokens)
 {
-    fs::directory_iterator item_begin(GetHyperChainDataDir());
+    fs::directory_iterator item_begin(GetHyperChainDataDirInApp());
     fs::directory_iterator item_end;
 
     std::list<string> listPath;
@@ -513,7 +513,7 @@ bool CryptoToken::GetAllTokens(vector<CryptoToken>& tokens)
 bool CryptoToken::SearchTokenByTriple(uint32_t hid, uint16 chainnum, uint16 localid,
     string& coinname, string& coinshorthash)
 {
-    fs::directory_iterator item_begin(GetHyperChainDataDir());
+    fs::directory_iterator item_begin(GetHyperChainDataDirInApp());
     fs::directory_iterator item_end;
 
     std::list<string> listPath;
@@ -538,7 +538,7 @@ bool CryptoToken::SearchTokenByTriple(uint32_t hid, uint16 chainnum, uint16 loca
 
 bool CryptoToken::SearchTokenByName(const string& tokenname, string& tokenshorthash, string& errormsg)
 {
-    fs::directory_iterator item_begin(GetHyperChainDataDir());
+    fs::directory_iterator item_begin(GetHyperChainDataDirInApp());
     fs::directory_iterator item_end;
 
     std::list<string> listPath;
@@ -740,7 +740,7 @@ bool CryptoToken::CheckGenesisBlock()
 
 string CryptoToken::GetPath()
 {
-    string apppath = (fs::path(GetHyperChainDataDir()) / GetTokenConfigPath()).string();
+    string apppath = (fs::path(GetHyperChainDataDirInApp()) / GetTokenConfigPath()).string();
     return apppath;
 }
 

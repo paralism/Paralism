@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -82,8 +82,8 @@ void NodeUPKeepThreadPool::PreparePullList()
     }
 }
 
-//HC: 每5min取k桶16个节点获取10个邻居
-//HCE: Pick 16 nodes in KBuckets and get 10 neighbor nodes every 5 min
+//HC: 每3min取k桶16个节点获取10个邻居
+//HCE: Pick 16 nodes in KBuckets and get 10 neighbor nodes every 3 min
 void NodeUPKeepThreadPool::NodeFind()
 {
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
@@ -151,14 +151,23 @@ void NodeUPKeepThreadPool::DoPing()
 {
     //HC: 对超时没有更新的节点，删除并移出Activenode
     //HCE: Remove the nodes that do not update in time out of active node list
+    set<CUInt128> removedNodes;
     if (m_pingstate == pingstate::ping1)
-        UpdateBroadcastMap();
+        removedNodes = UpdateBroadcastMap();
 
-    //HC:准备广播节点
-    //HC:如果内网IP已经连接，不用加入广播；如果外网IP已连接，只加入外网IP；如果尚未连接，内外网IP都加入广播
+    //HC: 准备广播节点
+    //HC: 如果内网IP已经连接，不用加入广播；如果外网IP已连接，只加入外网IP；如果尚未连接，内外网IP都加入广播
     //HCE: Prepare broadcast node list
     //HCE: If lan ip is connected, don't add it into broadcast list;if pub ip is connected, add it into broadcast list; if it isn't connected, lan and pub ip add into broadcast list both.
     vector<HCNodeSH> vectNodeSH;
+
+    auto fnAddPingNode = [&](CUInt128 nodeid, const string& aps) {
+        if (!removedNodes.count(nodeid)) {
+            HCNodeSH lanNodeSH = make_shared<HCNode>(std::move(nodeid));
+            lanNodeSH->parseAP(aps);
+            vectNodeSH.push_back(lanNodeSH);
+        }
+    };
 
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
     CUInt128 meNode = nodemgr->getMyNodeId<CUInt128>();
@@ -167,34 +176,28 @@ void NodeUPKeepThreadPool::DoPing()
         CUInt128 nodeid = itr1->first;
         struct stNodeAPS& nodeAPS = itr1->second;
         if (nodeid != meNode) {
-            //HC:是否已经连接
+            //HC: 是否已经连接
             //HCE: If it is connected
             if (nodemgr->IsNodeInKBuckets(nodeid)) {
                 string strNodeAPS = nodemgr->getNode(nodeid)->serializeAP();
                 if (strNodeAPS.compare(nodeAPS.strLanAPS) != 0) {
                     if (nodeAPS.strPubAPS.compare("EMPTY") != 0) {
-                        HCNodeSH pubNodeSH = make_shared<HCNode>(std::move(CUInt128(nodeid)));
-                        pubNodeSH->parseAP(nodeAPS.strPubAPS);
-                        vectNodeSH.push_back(pubNodeSH);
+                        fnAddPingNode(nodeid, nodeAPS.strPubAPS);
                     }
                 }
             }
             else {
                 if (nodeAPS.strLanAPS.compare("EMPTY") != 0) {
-                    HCNodeSH lanNodeSH = make_shared<HCNode>(std::move(CUInt128(nodeid)));
-                    lanNodeSH->parseAP(nodeAPS.strLanAPS);
-                    vectNodeSH.push_back(lanNodeSH);
+                    fnAddPingNode(nodeid, nodeAPS.strLanAPS);
                 }
                 if (nodeAPS.strPubAPS.compare("EMPTY") != 0) {
-                    HCNodeSH pubNodeSH = make_shared<HCNode>(std::move(CUInt128(nodeid)));
-                    pubNodeSH->parseAP(nodeAPS.strPubAPS);
-                    vectNodeSH.push_back(pubNodeSH);
+                    fnAddPingNode(nodeid, nodeAPS.strPubAPS);
                 }
             }
         }
     }
 
-    //HC:将pingset加入到广播节点
+    //HC: 将pingset加入到广播节点
     //HCE: Add pingset into broadcast list
     std::set<CUInt128>& pingNodeSet = getPingNodeSet();
     for (auto& nodeID : pingNodeSet) {
@@ -202,10 +205,16 @@ void NodeUPKeepThreadPool::DoPing()
         //HCE: Node aready in broadcast list
         if (nodemgr->mapBroadcastNodeAPS.count(nodeID) == 0) {
             HCNodeSH nodeSH = nodemgr->getNode(nodeID);
-            if (nodeSH) {
+            if (nodeSH && !removedNodes.count(nodeID)) {
                 vectNodeSH.push_back(nodeSH);
             }
         }
+    }
+
+    //HC: 加入因超时未更新而被删除的节点
+    for (auto & elm : removedNodes) {
+        HCNodeSH n = make_shared<HCNode>(std::move(CUInt128(elm)));
+        vectNodeSH.push_back(n);
     }
 
     PingPongWithGenBlockHHashTask task(vectNodeSH);
@@ -289,39 +298,60 @@ void NodeUPKeepThreadPool::RemoveNodeFromPingList(const CUInt128 &nodeid)
     pingNodeSet.erase(nodeid);
 }
 
-//HC:定期广播邻居节点信息
+//HC: 定期广播邻居节点信息
 //HCE: Broadcast neighbor nodes regularly
 void NodeUPKeepThreadPool::BroadcastNeighbor() {
-    //HC:广播邻居节点信息
+    //HC: 广播邻居节点信息
     BroadcastNeighborTask task;
     task.exec();
 }
     
-//HC:对超时没有更新的节点，删除并移出Activenode
+//HC: 对超时没有更新的节点，删除并移出Activenode
 //HCE: Remove the nodes that do not update in time out of active node list
-void NodeUPKeepThreadPool::UpdateBroadcastMap() {
+set<CUInt128> NodeUPKeepThreadPool::UpdateBroadcastMap() {
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
     CUInt128 meNode = nodemgr->getMyNodeId<CUInt128>();
 
+    set<CUInt128> removedNodes;
+
     auto itr = nodemgr->mapBroadcastNodeAPS.begin();
-    size_t now = time(nullptr);
+    int64 now = time(nullptr);
+    CUInt128 nodeid;
     for (; itr != nodemgr->mapBroadcastNodeAPS.end(); ) {
+        nodeid = itr->first;
+
         //HC:自己节点不检查
         //HCE: Dont check itself
-        if (itr->first == meNode) {
+        if (nodeid == meNode) {
             itr++;
             continue;
         }
 
+        //HCE: Don't check node not active
+        if (!nodemgr->IsNodeInKBuckets(nodeid)) {
+            itr++;
+            continue;
+        }
+
+        //HCE: Lan connection needn't check;
+        string strNodeAPS = nodemgr->getNode(nodeid)->serializeAP();
+        if (strNodeAPS.compare(itr->second.strLanAPS) == 0) {
+            removedNodes.insert(itr->first);
+            nodemgr->mapBroadcastNodeAPS.erase(itr++);
+            continue;
+        }
+
         int timespan = now - itr->second.lasttime;
-        if (timespan > 10*60) {
-            g_console_logger->error("Never connected over {} seconds,remove from active node bucket:{}", timespan, itr->second.strPubAPS);
+        if (timespan > 10 * 60) {
+            g_console_logger->info("Never connected over {} seconds,remove from active node bucket:{}", timespan, itr->second.strPubAPS);
 
             nodemgr->GetKBuckets()->RemoveNode(itr->first);     //HC:从Activenode移除
                                                                 //HCE: Remove from active node list
+            removedNodes.insert(itr->first);
             nodemgr->mapBroadcastNodeAPS.erase(itr++);
         }
         else
             itr++;
     }
+    return removedNodes;
 }

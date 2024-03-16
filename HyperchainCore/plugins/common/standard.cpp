@@ -17,6 +17,8 @@ typedef std::vector<unsigned char> valtype;
 bool fAcceptDatacarrier = DEFAULT_ACCEPT_DATACARRIER;
 unsigned nMaxDatacarrierBytes = MAX_OP_RETURN_RELAY;
 
+unsigned int ImmutableWitnessCrossChainHash::version = 16;
+
 CScriptID::CScriptID(const CScript& in) : BaseHash(Hash160(in)) {}
 CScriptID::CScriptID(const ScriptHash& in) : BaseHash(static_cast<uint160>(in)) {}
 
@@ -39,6 +41,77 @@ CKeyID ToKeyID(const WitnessV0KeyHash& key_hash)
     return CKeyID{static_cast<uint160>(key_hash)};
 }
 
+vector<unsigned char> ImmutableWitnessCrossChainHash::serialize() const
+{
+    CDataStream stream;
+
+    stream << genesis_hid
+        << genesis_chainid
+        << genesis_localid
+        << std::vector<unsigned char>(hhash)
+        << std::vector<unsigned char>(genesis_block_hash);
+
+    return vector<unsigned char>(stream.begin(), stream.end());
+}
+
+
+void ImmutableWitnessCrossChainHash::unserialize(vector<unsigned char> scrptdata)
+{
+    CDataStream scrt(scrptdata);
+
+    std::vector<unsigned char> vData;
+    scrt >> genesis_hid
+        >> genesis_chainid
+        >> genesis_localid;
+
+    scrt >> vData;
+    hhash = BaseHash<uint160>(uint160(vData));
+    scrt >> vData;
+    genesis_block_hash = BaseHash<uint160>(uint160(vData));
+}
+
+vector<unsigned char> WitnessCrossChainHash::serialize() const {
+
+    CDataStream stream;
+    std::vector<unsigned char> sender{sender_prikey.begin(), sender_prikey.end()};
+
+    //stream << ImmutableWitnessCrossChainHash::serialize()
+    stream << genesis_hid
+        << genesis_chainid
+        << genesis_localid
+        << std::vector<unsigned char>(hhash)
+        << std::vector<unsigned char>(genesis_block_hash)
+        << std::vector<unsigned char>(recv_address)
+        << sender;
+
+    return vector<unsigned char>(stream.begin(), stream.end());
+}
+
+
+void WitnessCrossChainHash::unserialize(vector<unsigned char> scrptdata)
+{
+    CDataStream scrt(scrptdata);
+
+    std::vector<unsigned char> vData;
+
+    scrt >> genesis_hid
+        >> genesis_chainid
+        >> genesis_localid;
+
+    scrt >> vData;
+    hhash = BaseHash<uint160>(uint160(vData));
+    scrt >> vData;
+    genesis_block_hash = BaseHash<uint160>(uint160(vData));
+
+    //scrt >> vData;
+    //ImmutableWitnessCrossChainHash::unserialize(vData);
+
+    scrt >> vData;
+    recv_address = BaseHash<uint160>(uint160(vData));
+    scrt >> vData;
+    sender_prikey = uint256(vData);
+}
+
 WitnessV0ScriptHash::WitnessV0ScriptHash(const CScript& in)
 {
     CSHA256().Write(in.data(), in.size()).Finalize(begin());
@@ -57,6 +130,7 @@ std::string GetTxnOutputType(TxoutType t)
     case TxoutType::WITNESS_V0_KEYHASH: return "witness_v0_keyhash";
     case TxoutType::WITNESS_V0_SCRIPTHASH: return "witness_v0_scripthash";
     case TxoutType::WITNESS_V1_TAPROOT: return "witness_v1_taproot";
+    case TxoutType::WITNESS_CROSSCHAIN: return "witness_crosschain";
     case TxoutType::WITNESS_UNKNOWN: return "witness_unknown";
     } // no default case, so the compiler can warn about missing cases
     assert(false);
@@ -139,6 +213,13 @@ TxoutType Solver(const CScript& scriptPubKey, std::vector<std::vector<unsigned c
             vSolutionsRet.push_back(std::move(witnessprogram));
             return TxoutType::WITNESS_V1_TAPROOT;
         }
+
+        if (witnessversion == 16 && witnessprogram.size() == WITNESS_CROSSCHAIN_SIZE) {
+            vSolutionsRet.push_back(std::vector<unsigned char>{(unsigned char)witnessversion});
+            vSolutionsRet.push_back(witnessprogram);
+            return TxoutType::WITNESS_CROSSCHAIN;
+        }
+
         if (witnessversion != 0) {
             vSolutionsRet.push_back(std::vector<unsigned char>{(unsigned char)witnessversion});
             vSolutionsRet.push_back(std::move(witnessprogram));
@@ -180,6 +261,46 @@ TxoutType Solver(const CScript& scriptPubKey, std::vector<std::vector<unsigned c
     return TxoutType::NONSTANDARD;
 }
 
+bool ExtractCrossChainInPoint(const CScript& scriptSig, EthInPoint& ethinputpoint)
+{
+    vector<unsigned char> vctHash;
+    vector<unsigned char>::const_iterator pos;
+
+    pos = scriptSig.getVector(vctHash);
+    if (pos == scriptSig.end() || vctHash.size() != 256 / 8) {
+        return false;
+    }
+    ethinputpoint.eth_tx_hash = uint256(vctHash);
+
+    vector<unsigned char> vctPublicKey;
+    if (!scriptSig.getNextVector(vctPublicKey, pos) || vctPublicKey.size() != 512 / 8)
+        return false;
+    std::copy(vctPublicKey.begin(), vctPublicKey.end(), ethinputpoint.eth_tx_publickey.begin());
+
+    //hid
+    uint64 n;
+    if (!scriptSig.getNextUint(n, pos))
+        return false;
+    ethinputpoint.hid = n;
+
+    //chainid
+    if (!scriptSig.getNextUint(n, pos))
+        return false;
+    ethinputpoint.chainid = n;
+
+    //localid
+    if (!scriptSig.getNextUint(n, pos))
+        return false;
+    ethinputpoint.localid = n;
+
+    vector<unsigned char> vctGenesis;
+    if (!scriptSig.getNextVector(vctGenesis, pos) || vctGenesis.size() != 256 / 8)
+        return false;
+    std::copy(vctGenesis.begin(), vctGenesis.end(), ethinputpoint.eth_genesis_block_hash.begin());
+
+    return true;
+}
+
 bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet)
 {
     std::vector<valtype> vSolutions;
@@ -210,6 +331,12 @@ bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet)
     } else if (whichType == TxoutType::WITNESS_V0_SCRIPTHASH) {
         WitnessV0ScriptHash hash;
         std::copy(vSolutions[0].begin(), vSolutions[0].end(), hash.begin());
+        addressRet = hash;
+        return true;
+    } else if (whichType == TxoutType::WITNESS_CROSSCHAIN) {
+        //HC:
+        WitnessCrossChainHash hash;
+        hash.unserialize(vSolutions[1]);
         addressRet = hash;
         return true;
     } else if (whichType == TxoutType::WITNESS_UNKNOWN || whichType == TxoutType::WITNESS_V1_TAPROOT) {
@@ -292,6 +419,16 @@ public:
     CScript operator()(const WitnessV0ScriptHash& id) const
     {
         return CScript() << OP_0 << ToByteVector(id);
+    }
+
+    CScript operator()(const ImmutableWitnessCrossChainHash& id) const
+    {
+        return CScript() << CScript::EncodeOP_N(id.version) << id.serialize();
+    }
+
+    CScript operator()(const WitnessCrossChainHash& id) const
+    {
+        return CScript() << CScript::EncodeOP_N(id.version) << id.serialize();
     }
 
     CScript operator()(const WitnessUnknown& id) const

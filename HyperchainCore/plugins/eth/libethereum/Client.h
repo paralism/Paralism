@@ -128,7 +128,7 @@ public:
     /// Get the state database.
     OverlayDB const& stateDB() const { return m_stateDB; }
     /// Get some information on the transaction queue.
-    TransactionQueue::Status transactionQueueStatus() const { return m_tq.status(); }
+    TransactionQueue::StatusDetails transactionQueueStatusDetails() const { return m_tq.statusDetails(); }
     TransactionQueue::Limits transactionQueueLimits() const { return m_tq.limits(); }
 
     /// Freeze worker thread and sync some of the block queue.
@@ -211,10 +211,10 @@ public:
     ActivityReport activityReport() { ActivityReport ret; std::swap(m_report, ret); return ret; }
     /// Set the extra data that goes into sealed blocks.
     void setExtraData(bytes const& _extraData) { m_extraData = _extraData; }
-    
+
     /// Rewind to a prior head.
     void rewind(unsigned _n);
-    //HC: 
+    //HC:
     void rewindSyncNotReset(unsigned _n);
 
     void completeSync();
@@ -249,13 +249,15 @@ public:
     ///< Get POW depending on sealengine it's using
     std::tuple<h256, h256, h256> getWork() override;
 
-        /// Called after processing blocks by onChainChanged(_ir)
+    /// Called after processing blocks by onChainChanged(_ir)
     void resyncStateFromChain();
 
     void resetWorking();
+    void resetWorkingInMainThread();
 
-    //HC: 
+    //HC:
     void SyncfromPeers();
+    void injectBlocks(std::vector<bytes> const& _blocks);
 
 protected:
     /// Perform critical setup functions.
@@ -329,7 +331,7 @@ protected:
 
     /// Magically called when m_bq needs syncing. Be nice and don't block.
     void onBlockQueueReady();
-    
+
     /// Called when the post state has changed (i.e. when more transactions are in it or we're sealing on a new block).
     /// This updates m_sealingInfo.
     void onPostStateChanged();
@@ -372,9 +374,6 @@ protected:
     BlockHeader m_sealingInfo;              ///< The header we're attempting to seal on (derived from m_postSeal).
     std::atomic<bool> m_remoteWorking = { false };          ///< Has the remote worker recently been reset?
     std::atomic<bool> m_needStateReset = { false };         ///< Need reset working state to premin on next sync
-
-    //HCE: 
-    std::atomic<bool> m_chainIsSwitching = { false };
 
     std::chrono::system_clock::time_point m_lastGetWork;    ///< Is there an active and valid remote worker?
 

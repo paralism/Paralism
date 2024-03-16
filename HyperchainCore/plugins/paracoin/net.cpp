@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -28,6 +28,8 @@ SOFTWARE.
 
 
 #include "headers.h"
+#include "util/threadname.h"
+
 #include "paratask.h"
 #include "irc.h"
 #include "db.h"
@@ -111,31 +113,44 @@ void ChkPoint::Merge(const ChkPointInc& cpincr)
         chkPointHash = cpincr.chkP.chkPointHash;
         nBstH = cpincr.chkP.nBstH;
         bestHash = cpincr.chkP.bestHash;
-        nLatestHeight = cpincr.chkP.nLatestHeight;
-        latestBlkHash = cpincr.chkP.latestBlkHash;
     }
 
     chainloc.mergeDiff(*(cpincr.blocklocincr));
 }
 
-void CNode::IncreReqBlkInterval()
+void CNode::Ping()
 {
-    nScore--;
-    nReqBlkInterval += nMinInterval;
+    tmLastPing = currentMillisecond();
+    ++nPingTimes;
+    PushMessage("ping", tmLastPing);
+
+    UpdateNodeRating(-50);
 }
 
-void CNode::DecreReqBlkInterval(int64 timeReqBlk)
+void CNode::Pong(int64 tmReq)
 {
-    nScore++;
-    int64 timeEscaped = GetTime() - timeReqBlk;
+    tmLastPong = tmReq;
+    ++nPingPongTimes;
 
-    if (timeEscaped < nReqBlkInterval) {
-        nReqBlkInterval = timeEscaped;
-        return;
+    if (networkPingPongCost.size() >= 3) {
+        networkPingPongCost.pop_front();
     }
+    networkPingPongCost.push_back(currentMillisecond() - tmReq);
 
-    if (nReqBlkInterval > 0)
-        nReqBlkInterval -= nMinInterval;
+    UpdateNodeRating(52);
+}
+
+string CNode::PingPongInfo()
+{
+    return StringFormat("ping(ms): %d %d %d, req/rsp: %d/%d, req/rsp time: %s/%s",
+        networkPingPongCost[0],
+        networkPingPongCost[1],
+        networkPingPongCost[2],
+        nPingTimes,
+        nPingPongTimes,
+        DateTimeStrFormat("%H:%M:%S", tmLastPing/1000),
+        DateTimeStrFormat("%H:%M:%S", tmLastPong/1000)
+       );
 }
 
 
@@ -188,7 +203,6 @@ void CNode::PushGetBlocks(CBlockIndexSP pindexBegin, uint256 hashEnd)
 
 void CNode::PushChkBlock()
 {
-
     TRY_CRITICAL_BLOCK(cs_vSend)
     {
         //HCE: send the lastest having block hash
@@ -207,32 +221,6 @@ void CNode::PushChkBlock()
             PushMessage("getchkblock", hash1, hash2);
         } else {
             PushMessage("getchkblock");
-        }
-    }
-}
-
-void CNode::PushGetBlocksReversely(uint256 hashEnd)
-{
-    // Filter out duplicate requests
-    //HCE: Calling PushMessage, vSend is thread safety, so cs_vSend is not necessary
-    //TRY_CRITICAL_BLOCK(cs_vSend)
-    {
-        LogRequest("\n*****************************************************************\n");
-        if (tmLastReqBlk + nReqBlkInterval < GetTime()) {
-
-            tmLastReqBlk = GetTime();
-            PushMessage("rgetblocks", hashEnd, tmLastReqBlk);
-
-            IncreReqBlkInterval();
-
-            LogRequest("PushGetBlocksReversely: rgetblocks %s to: %s(score:%d, interval:%d)\n\n",
-                hashEnd.ToPreViewString().c_str(),
-                nodeid.c_str(), nScore, nReqBlkInterval);
-        }
-        else {
-            LogRequest("PushGetBlocksReversely: wait for call, rgetblocks %s to: %s(score:%d, interval:%d)\n\n",
-                hashEnd.ToPreViewString().c_str(),
-                nodeid.c_str(), nScore, nReqBlkInterval);
         }
     }
 }
@@ -1575,18 +1563,17 @@ void StartNode(void* parg)
         //ERROR_FL("Error: CreateThread(ThreadIRCSeed) failed\n");
 
     // Send and receive from sockets, accept connections
-    CreateThread(ThreadSocketHandler, NULL);
+    hc::CreateThread("ParaSocketHandler", ThreadSocketHandler, NULL);
 
     // Initiate outbound connections
 	//HCE: don't connect directly
     //if (!CreateThread(ThreadOpenConnections, NULL))
         //printf("Error: CreateThread(ThreadOpenConnections) failed\n");
 
-    if (!CreateThread(ThreadSearchParacoinNode, NULL))
-        ERROR_FL("CreateThread(ThreadSearchParacoinNode) failed\n");
+    hc::CreateThread("SearchParacoinNode", ThreadSearchParacoinNode, NULL);
+
     // Process messages
-    if (!CreateThread(ThreadMessageHandler, NULL))
-        ERROR_FL("CreateThread(ThreadMessageHandler) failed\n");
+    hc::CreateThread("ParaMessageHandler", ThreadMessageHandler, NULL);
 
     // Generate coins in the background
     GenerateBitcoins(fGenerateBitcoins, pwalletMain);

@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -82,7 +82,7 @@ private:
     void EmitPingSignal(int nDelaySecond);
 
     //HCE: Update broadcast node list.Remove the nodes that do not update in time out of active node list
-    void UpdateBroadcastMap();
+    std::set<CUInt128> UpdateBroadcastMap();
 
     std::list<CUInt128> m_lstPullNode;
 

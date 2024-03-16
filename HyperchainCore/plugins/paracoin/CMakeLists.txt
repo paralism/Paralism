@@ -1,4 +1,4 @@
-#Copyright 2016-2022 hyperchain.net (Hyperchain)
+#Copyright 2016-2024 hyperchain.net (Hyperchain)
 #Distributed under the MIT software license, see the accompanying
 #file COPYING or https://opensource.org/licenses/MIT.
 
@@ -27,8 +27,8 @@ set(CMAKE_CXX_STANDARD 17)
 if(UNIX)
 
 SET(HC_FLAG "$ENV{CXXFLAGS} -Wall -fstack-protector -fstack-protector-all")
-SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${HC_FLAG} -ggdb -O0 -g -Wl,--retain-symbols-file=${CMAKE_CURRENT_SOURCE_DIR}/../retain.lds -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../export.lds")
-SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} ${HC_FLAG} -O3 -Wl,--retain-symbols-file=${CMAKE_CURRENT_SOURCE_DIR}/../retain.lds -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../export.lds")
+SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${HC_FLAG} -ggdb -O0 -g")
+SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} ${HC_FLAG} -O3")
 
 elseif(WIN32)
 
@@ -102,6 +102,14 @@ set(final_SRC
 
 
 add_library(${PROJECT_NAME} SHARED ${final_SRC} ${final_HEAD})
+
+if(NOT WIN32) 
+    target_compile_options(${PROJECT_NAME} PRIVATE -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../export.lds)
+    target_compile_options(${PROJECT_NAME} PRIVATE -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../export-paracoin.lds)
+endif()
+
+
+
 #set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "" SUFFIX "")
 set_target_properties(${PROJECT_NAME} PROPERTIES DEBUG_POSTFIX "")
 

@@ -228,9 +228,11 @@ void RLPStream::noteAppended(size_t _itemCount)
         if (m_listStack.back().first < _itemCount)
             BOOST_THROW_EXCEPTION(RLPException() << errinfo_comment("itemCount too large") << RequirementError((bigint)m_listStack.back().first, (bigint)_itemCount));
         m_listStack.back().first -= _itemCount;
-        if (m_listStack.back().first)               break;
+        if (m_listStack.back().first)
+            break; //HC: 继续压入剩余元素
         else
         {
+            //HC: 所有元素数据压入完成
             auto p = m_listStack.back().second;
             m_listStack.pop_back();
             size_t s = m_out.size() - p;		// list size             
@@ -239,8 +241,8 @@ void RLPStream::noteAppended(size_t _itemCount)
             //cdebug << "s: " << s << ", p: " << p << ", m_out.size(): " << m_out.size() << ", encodeSize: " << encodeSize << " (br: " << brs << ")";
             auto os = m_out.size();
             m_out.resize(os + encodeSize);
-            memmove(m_out.data() + p + encodeSize, m_out.data() + p, os - p); 
-                        if (s < c_rlpListImmLenCount)
+            memmove(m_out.data() + p + encodeSize, m_out.data() + p, os - p); //HC: 数据添加总长度前缀 
+            if (s < c_rlpListImmLenCount)
                 m_out[p] = (uint8_t)(c_rlpListStart + s);
             else if (c_rlpListIndLenZero + brs <= 0xff)
             {
@@ -300,12 +302,15 @@ RLPStream& RLPStream::append(bytesConstRef _s, bool _compact)
 RLPStream& RLPStream::append(bigint _i)
 {
     if (!_i)
-        m_out.push_back(c_rlpDataImmLenStart);      else if (_i < c_rlpDataImmLenStart)
-        m_out.push_back((uint8_t)_i);                  else
+        m_out.push_back(c_rlpDataImmLenStart);      
+    else if (_i < c_rlpDataImmLenStart)
+        m_out.push_back((uint8_t)_i);                  
+    else
     {
         unsigned br = bytesRequired(_i);
         if (br < c_rlpDataImmLenCount)
-            m_out.push_back((uint8_t)(br + c_rlpDataImmLenStart));         else
+            m_out.push_back((uint8_t)(br + c_rlpDataImmLenStart));         
+        else
         {
             auto brbr = bytesRequired(br);
             if (c_rlpDataIndLenZero + brbr > 0xff)

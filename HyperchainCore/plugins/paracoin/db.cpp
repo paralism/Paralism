@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -61,7 +61,6 @@ static map<string, Db*> mapDb;
 thread_local boost::shared_ptr<CTxDB> tls_txdb_instance;
 thread_local boost::shared_ptr<CWalletDB> tls_walletdb_instance;
 thread_local boost::shared_ptr<CBlockDB> tls_blkdb_instance;
-thread_local boost::shared_ptr<COrphanBlockDB> tls_orphanblkdb_instance;
 
 extern CBlockCacheLocator mapBlocks;
 
@@ -293,10 +292,25 @@ bool CTxDB::ReadTxIndex(const uint256& hash, CTxIndex& txindex)
     return Read(make_pair(string("tx"), hash), txindex);
 }
 
+
+bool CTxDB::ReadTxIndex(const uint256& hash, CCrossChainTxIndex& txindex)
+{
+    assert(!fClient);
+    txindex.SetNull();
+    return Read(make_pair(string("cctx"), hash), txindex);
+}
+
 bool CTxDB::UpdateTxIndex(const uint256& hash, const CTxIndex& txindex)
 {
     assert(!fClient);
     return Write(make_pair(string("tx"), hash), txindex);
+}
+
+
+bool CTxDB::UpdateTxIndex(const uint256& hash, const CCrossChainTxIndex& txindex)
+{
+    assert(!fClient);
+    return Write(make_pair(string("cctx"), hash), txindex);
 }
 
 bool CTxDB::AddTxIndex(const CTransaction& tx, const CDiskTxPos& pos, int nHeight)
@@ -570,11 +584,6 @@ bool CTxDB::LoadBlockIndex()
             return false;
         }
         cout << "deleted\n";
-
-        //HCE: create
-        {
-            COrphanBlockTripleAddressDB db("cr+");
-        }
 
         //HCE: should upgrade block index
         cout << "Para: need to upgrading block index... ";
@@ -949,50 +958,6 @@ bool CTxDB::WriteSP(const CBlockIndex* blockindex)
     CDiskBlockIndex diskindex(idx);
     return WriteBlockIndex(diskindex);
 }
-
-//
-//CBlockTripleAddressDB
-//
-bool CBlockTripleAddressDB::LoadBlockTripleAddress()
-{
-    return Load("triaddr", [](CDataStream& ssKey, CDataStream& ssValue) -> bool {
-
-        BLOCKTRIPLEADDRESS blocktripleaddr;
-        ssValue >> blocktripleaddr;
-        uint256 hash;
-        ssKey >> hash;
-        LatestParaBlock::AddBlockTripleAddress(hash, blocktripleaddr);
-        return true;
-    });
-}
-
-
-bool CBlockTripleAddressDB::ReadMaxHID(uint32 &maxhid)
-{
-    return Read(string("maxhid"), maxhid);
-}
-
-bool CBlockTripleAddressDB::WriteMaxHID(uint32 hid)
-{
-    return Write(string("maxhid"), hid);
-}
-
-
-bool CBlockTripleAddressDB::ReadBlockTripleAddress(const uint256& hash, BLOCKTRIPLEADDRESS& addr)
-{
-    return Read(make_pair(string("triaddr"), hash), addr);
-}
-
-bool CBlockTripleAddressDB::WriteBlockTripleAddress(const uint256& hash, const BLOCKTRIPLEADDRESS& addr)
-{
-    return Write(make_pair(string("triaddr"), hash), addr);
-}
-
-bool CBlockTripleAddressDB::EraseBlockTripleAddress(const uint256& hash)
-{
-    return Erase(make_pair(string("triaddr"), hash));
-}
-
 
 //
 // CAddrDB

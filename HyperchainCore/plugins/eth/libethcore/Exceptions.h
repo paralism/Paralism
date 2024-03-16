@@ -60,6 +60,7 @@ DEV_SIMPLE_EXCEPTION(InvalidBlockNonce);
 DEV_SIMPLE_EXCEPTION(InvalidParentHash);
 DEV_SIMPLE_EXCEPTION(InvalidUncleParentHash);
 DEV_SIMPLE_EXCEPTION(InvalidNumber);
+DEV_SIMPLE_EXCEPTION(InvalidHyperBlock);
 DEV_SIMPLE_EXCEPTION(InvalidZeroSignatureTransaction);
 DEV_SIMPLE_EXCEPTION(InvalidTransactionReceiptFormat);
 DEV_SIMPLE_EXCEPTION(TransactionReceiptVersionError);
@@ -97,5 +98,8 @@ DEV_SIMPLE_EXCEPTION(TransactionRefused);
 DEV_SIMPLE_EXCEPTION(UnknownAccount);
 
 DEV_SIMPLE_EXCEPTION(PeerDisconnected);
+
+//HC:
+DEV_SIMPLE_EXCEPTION(IllegalCrossChainTransaction);
 }
 }

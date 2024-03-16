@@ -35,7 +35,8 @@ enum class TransactionException
 	StackUnderflow,
 	RevertInstruction,
 	InvalidZeroSignatureFormat,
-	AddressAlreadyUsed
+	AddressAlreadyUsed,
+    IllegalCrossChain
 };
 
 enum class CodeDeposit

@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -37,6 +37,8 @@ SOFTWARE.
 #include "latestledgerblock.h"
 #include "ledger_rpc.h"
 #include "plshared.h"
+
+#include <chrono>
 
 #include <boost/any.hpp>
 #include <boost/filesystem.hpp>
@@ -99,49 +101,12 @@ bool IsGenesisBlock(const T_APPTYPE& t)
 }
 
 //HCE: Here should be change to pull application block in the future
-std::map<uint32_t, time_t> mapPullingHyperBlock;
-CCriticalSection cs_pullingHyperBlock;
 void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "")
 {
-    CRITICAL_BLOCK(cs_pullingHyperBlock)
-    {
-        time_t now = time(nullptr);
-        if (mapPullingHyperBlock.count(hid) == 0) {
-            mapPullingHyperBlock.insert({ hid, now });
-        }
-        else {
-            if (now - mapPullingHyperBlock[hid] < 60) {
-                //HCE: already pulled
-                return;
-            }
-            else {
-                mapPullingHyperBlock[hid] = now;
-            }
-        }
-        auto bg = mapPullingHyperBlock.begin();
-        for (; bg != mapPullingHyperBlock.end();) {
-            if (bg->second + 300 < now) {
-                bg = mapPullingHyperBlock.erase(bg);
-            }
-            else {
-                ++bg;
-            }
-        }
+    CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
+    if (hyperchainspace) {
+        hyperchainspace->GetRemoteHyperBlockByID_UntilSuccess(hid, hid + 1, nodeid);
     }
-    std::thread t([hid, nodeid]() {
-        CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
-        if (hyperchainspace) {
-            if (nodeid.empty()) {
-                hyperchainspace->GetRemoteHyperBlockByID(hid);
-                INFO_FL("GetRemoteHyperBlockByID: %d", hid);
-            }
-            else {
-                hyperchainspace->GetRemoteHyperBlockByID(hid, nodeid);
-                INFO_FL("GetRemoteHyperBlockByID: %d, from node: %s", hid, nodeid.c_str());
-            }
-        }
-    });
-    t.detach();
 }
 
 bool UpdateAppAddress(const CBlock& genesisblock, const T_LOCALBLOCKADDRESS& addr)
@@ -910,35 +875,6 @@ void ThreadGetNeighbourChkBlockInfo(void* parg)
     }
 }
 
-void ThreadRSyncGetBlock(void* parg)
-{
-    while (!fShutdown) {
-        time_t now = time(nullptr);
-        CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
-        CRITICAL_BLOCK(cs_pullingHyperBlock)
-        {
-            auto bg = mapPullingHyperBlock.begin();
-            for (; bg != mapPullingHyperBlock.end();) {
-                if (bg->second + 120 < now) {
-                    T_HYPERBLOCK h;
-                    if (hyperchainspace->getHyperBlock(bg->first, h)) {
-                        bg = mapPullingHyperBlock.erase(bg);
-                    }
-                    else {
-                        hyperchainspace->GetRemoteHyperBlockByID(bg->first);
-                        bg->second = now;
-                    }
-                }
-                else {
-                    ++bg;
-                }
-            }
-        }
-        SleepFn(20);
-    }
-}
-
-
 void AppRunningArg(int& app_argc, string& app_argv)
 {
     app_argc = mapArgs.size();
@@ -965,59 +901,9 @@ void AppInfo(string& info)
         return;
     }
 
-    ostringstream oss;
-    string strNodes;
-    TRY_CRITICAL_BLOCK(cs_vNodes)
-    {
-        int num = 0;
-        for (auto& node : vNodes) {
-            if (num++ > 20) {
-                break;
-            }
-            strNodes += strprintf("\t%s    version: %d  PKIdx: %d  height: %d(%s)\n",
-                node->addr.ToStringIPPort().c_str(), node->nVersion, node->nPKeyIdx,
-                node->nHeightCheckPointBlock,
-                node->hashCheckPointBlock.ToPreViewString().c_str());
-        }
-    }
-    oss << "Ledger module's current token: " << g_cryptoToken.GetName() << " - "
-        << g_cryptoToken.GetHashPrefixOfGenesis() << endl
-        << "Block message: " << g_cryptoToken.GetDesc() << endl
-        << "Genesis block address: " << g_cryptoToken.GetHID() << " "
-        << g_cryptoToken.GetChainNum() << " "
-        << g_cryptoToken.GetLocalID() << endl
-        << "PKIdx: " << g_cryptoToken.GetPKIdx() << endl
-        << "Neighbor node amounts: " << vNodes.size() << endl
-        << strNodes << endl;
-
-    oss << "MQID: " << ledgermsghandler.details() << endl << endl;
-
-    bool isAllowed;
-    string reason = g_chainReadyCond.GetReadyStatus(&isAllowed);
-    oss << "Chain status: " << (isAllowed ? "Ready" : "Unready");
-
-    if (!isAllowed && !reason.empty()) {
-        oss << ", " << reason;
-    }
-
-    oss << endl;
-
-    if (fGenerateBitcoins) {
-        oss << "Block generate enabled\n";
-    }
-    else {
-        oss << "Block generate disabled, use command 'token e' to enable\n";
-    }
-
-    if (fShutdown) {
-        oss << "Ledger module has been in shutdown state, please restart\n";
-    }
-
-    info = oss.str();
-
     TRY_CRITICAL_BLOCK_T_MAIN(cs_main)
     {
-        info += "Best block's ";
+        info += "Ledger best block's ";
         if (pindexBest) {
             info += pindexBest->ToString();
         }
@@ -1109,6 +995,7 @@ string showTokenUsage()
     oss << "       token addr [account]                : query account addresses\n";
     oss << "       token sendfrom <fromaccount> <toaddress> <amount> : transfer\n";
     oss << "       token sendtoaddr <address> <amount> : transfer\n";
+    oss << "       token s                             : query running status\n";
     oss << "       token e                             : enable to generate blocks\n";
     oss << "       token d                             : disable to generate blocks\n";
     oss << "       token tx <txid>                     : Get detailed information about <txid>\n";
@@ -1286,6 +1173,63 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                     return arr;
                 };
                 return doAction(sendtoaddress, l, fhelp, true, conv);
+            }},
+
+            //HC: 模块状态
+            { "s", [](const list<string>& l, bool fhelp) ->string {
+                if (CryptoToken::IsSysToken(g_cryptoToken.GetHashPrefixOfGenesis())) {
+                    return "Ledger module's current token: (null)";
+                }
+
+                ostringstream oss;
+                string strNodes;
+
+                TRY_CRITICAL_BLOCK(cs_vNodes)
+                {
+                    int num = 0;
+                    for (auto& node : vNodes) {
+                        if (num++ > 20) {
+                            break;
+                        }
+                        strNodes += strprintf("\t%s    version: %d  PKIdx: %d  height: %d(%s)\n",
+                            node->addr.ToStringIPPort().c_str(), node->nVersion, node->nPKeyIdx,
+                            node->nHeightCheckPointBlock,
+                            node->hashCheckPointBlock.ToPreViewString().c_str());
+                    }
+                }
+                oss << "Ledger module's current token: " << g_cryptoToken.GetName() << " - "
+                    << g_cryptoToken.GetHashPrefixOfGenesis() << endl
+                    << "Block message: " << g_cryptoToken.GetDesc() << endl
+                    << "Genesis block address: " << g_cryptoToken.GetHID() << " "
+                    << g_cryptoToken.GetChainNum() << " "
+                    << g_cryptoToken.GetLocalID() << endl
+                    << "PKIdx: " << g_cryptoToken.GetPKIdx() << endl
+                    << "Neighbor node amounts: " << vNodes.size() << endl
+                    << strNodes << endl;
+
+                oss << "MQID: " << ledgermsghandler.details() << endl << endl;
+
+                bool isAllowed;
+                string reason = g_chainReadyCond.GetReadyStatus(&isAllowed);
+                oss << "Chain status: " << (isAllowed ? "Ready" : "Unready");
+
+                if (!isAllowed && !reason.empty()) {
+                    oss << ", " << reason;
+                }
+
+                oss << endl;
+
+                if (fGenerateBitcoins) {
+                    oss << "Block generate enabled\n";
+                }
+                else {
+                    oss << "Block generate disabled, use command 'token e' to enable\n";
+                }
+
+                if (fShutdown) {
+                    oss << "Ledger module has been in shutdown state, please restart\n";
+                }
+                return oss.str();
             }},
 
             { "e",[](const list<string>& l, bool fhelp) ->string {

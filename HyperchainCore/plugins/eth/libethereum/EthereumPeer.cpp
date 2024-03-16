@@ -70,6 +70,9 @@ std::string EthereumPeer::validate(
     return error.str();
 }
 
+//HC: 向对方发送一个StatusPacket包,这个数据包真正开始了与peer有意义的通讯
+//HC: 告知对方我自己的版本号，网络id，区块链难度，当前区块链最新块hash值，当前区块链创世区块的hash值
+//HC: EthereumCapability::interpretCapabilityPacket处理此包
 void EthereumPeer::requestStatus(
     u256 _hostNetworkId, u256 _chainTotalDifficulty, h256 _chainCurrentHash, h256 _chainGenesisHash)
 {

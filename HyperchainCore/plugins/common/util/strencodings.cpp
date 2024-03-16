@@ -84,6 +84,11 @@ bool IsHexNumber(const std::string& str)
 std::vector<unsigned char> ParseHex(const char* psz)
 {
     // convert hex dump to vector
+
+    if (*psz == '0' && *(psz + 1) == 'x') {
+        psz += 2;
+    }
+
     std::vector<unsigned char> vch;
     while (true)
     {

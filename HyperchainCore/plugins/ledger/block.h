@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -845,6 +845,8 @@ struct CMutableTransaction
     int32_t nVersion;
     uint32_t nLockTime;
 
+    mutable CScript fromscriptSig;
+
     CMutableTransaction() : nVersion(CTransaction::CURRENT_VERSION), nLockTime(0) {}
     explicit CMutableTransaction(const CTransaction& tx) : vin(tx.vin), vout(tx.vout), nVersion(tx.nVersion), nLockTime(tx.nLockTime) {}
 
@@ -1003,8 +1005,8 @@ class BLOCKTRIPLEADDRESS
 {
 public:
     uint32 hid = 0;            //HCE: Hyperblock ID
-    uint16 chainnum = 0;       //HCE: Subchain ID
-    uint16 id = 0;             //HCE: Subblock ID
+    uint16 chainnum = 0;       //HCE: solo chain ID
+    uint16 id = 0;             //HCE: local block ID
     uint256 hhash;             //HCE: Hyperblock hash
 
 public:
@@ -1131,7 +1133,7 @@ class CBlock
 public:
     // header
     int nVersion;
-    uint256 hashPrevBlock; //HCE: hashPrevBlock is previous HyperBlock's largest ledger subblock which is different from BitCoin.
+    uint256 hashPrevBlock; //HCE: hashPrevBlock is previous HyperBlock's largest ledger local block which is different from BitCoin.
     uint256 hashMerkleRoot;
     uint32_t nHeight = 0;
 
@@ -1457,7 +1459,7 @@ public:
     //unsigned int nBlockPos; //HCE: unused
 
     //HC: 子块逻辑地址, 带所在超块hash， Add in VERSION >= 50000
-    //HCE: The logical address of the subblock, with the hash of the Hyperblock, Add in VERSION >= 50000
+    //HCE: The logical address of local block, with the hash of Hyperblock, Add in VERSION >= 50000
     BLOCKTRIPLEADDRESS triaddr; //HCE: 子块逻辑地址
 
     // block header

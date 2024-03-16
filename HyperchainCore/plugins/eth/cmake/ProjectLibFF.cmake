@@ -37,9 +37,18 @@ add_library(libff::ff STATIC IMPORTED)
 file(MAKE_DIRECTORY ${libff_inlcude_dir})
 set_property(TARGET libff::ff PROPERTY IMPORTED_CONFIGURATIONS ${CMAKE_BUILD_TYPE})
 
-# HC:
+# HC: 这里要分开设置编译配置类型
 #set_property(TARGET libff::ff PROPERTY IMPORTED_LOCATION_RELEASE ${libff_library})
-set_property(TARGET libff::ff PROPERTY IMPORTED_LOCATION_DEBUG ${libff_library})
+#set_property(TARGET libff::ff PROPERTY IMPORTED_LOCATION_DEBUG ${libff_library})
+
+if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+ set_property(TARGET libff::ff PROPERTY IMPORTED_LOCATION_DEBUG ${libff_library})
+elseif("${CMAKE_BUILD_TYPE}" STREQUAL "Release")
+ set_property(TARGET libff::ff PROPERTY IMPORTED_LOCATION_RELEASE ${libff_library})
+endif()
+
+
+
 
 set_property(TARGET libff::ff PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${libff_inlcude_dir})
 set_property(TARGET libff::ff PROPERTY INTERFACE_LINK_LIBRARIES MPIR::mpir)

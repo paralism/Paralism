@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -40,8 +40,10 @@ DEALINGS IN THE SOFTWARE.
 #include "consensus/buddyinfo.h"
 #include "consensus/consensus_engine.h"
 #include "db/RestApi.h"
+#include "util/hex.hpp"
 
 #include "vm/vm.h"
+
 
 #include <boost/program_options/detail/config_file.hpp>
 #include <boost/filesystem.hpp>
@@ -56,7 +58,9 @@ DEALINGS IN THE SOFTWARE.
 int g_argc = 0;
 char **g_argv;
 
-extern string GetHyperChainDataDir();
+
+
+
 extern void stopAll();
 
 
@@ -65,6 +69,39 @@ namespace fs = boost::filesystem;
 namespace pod = boost::program_options::detail;
 
 std::string g_strSysStartTm = time2string(time(nullptr));
+
+
+//HCE: Get the directoty of the hyper chain data
+//HCE: @returns The directoty string 
+string GetHyperChainDataDir()
+{
+    HC_MAIN_PROGRAM_ARGS;
+
+    boost::filesystem::path pathDataDir;
+    if (mapHCArgs.count("-datadir")) {
+        pathDataDir = boost::filesystem::system_complete(mapHCArgs["-datadir"]);
+        if (!boost::filesystem::exists(pathDataDir))
+            if (!boost::filesystem::create_directories(pathDataDir)) {
+                cerr << "can not create directory: " << pathDataDir << endl;
+                pathDataDir = boost::filesystem::system_complete(".");
+            }
+    }
+    else
+        pathDataDir = boost::filesystem::system_complete(".");
+
+    if (mapHCArgs.count("-model") && mapHCArgs["-model"] == "informal")
+        pathDataDir /= "informal";
+    else if (mapHCArgs.count("-model") && mapHCArgs["-model"] == "formal")
+        pathDataDir /= "formal";
+    else {
+        pathDataDir /= "sandbox";
+    }
+
+    if (!boost::filesystem::exists(pathDataDir))
+        boost::filesystem::create_directories(pathDataDir);
+
+    return pathDataDir.string();
+}
 
 //HCE: Get file name from full path
 //HCE: @para fullpath Full path string
@@ -101,6 +138,7 @@ void trim(string &str)
 
 string ProgramConfigFile::GetCfgFile(const string& cfgfile)
 {
+    HC_MAIN_PROGRAM_ARGS;
     if (!mapHCArgs.count("-conf")) {
         return "";
     }
@@ -125,11 +163,15 @@ void ProgramConfigFile::LoadSettings(const string& scfgfile)
     cout << StringFormat("Read configuration file: %s\n", cfgfile);
 
     fs::ifstream streamConfig(cfgfile);
-    if (!streamConfig.good())
+    if (!streamConfig.good()) {
+        cerr << "Failed to read configuration file, please check whether command line is right or not. \n";
         return;
+    }
 
     set<string> setOptions;
     setOptions.insert("*");
+
+    HC_MAIN_PROGRAM_ARGS;
 
     try {
         for (pod::config_file_iterator it(streamConfig, setOptions), end; it != end; ++it) {
@@ -206,7 +248,7 @@ std::streambuf::int_type SocketClientStreamBuf::overflow(std::streambuf::int_typ
 
 int SocketClientStreamBuf::FlushBuffer()
 {
-    int  len = m_buffer.size();
+    int len = m_buffer.size();
     if (len == 0) {
         return EOF;
     }
@@ -370,7 +412,7 @@ ConsoleCommandHandler::ConsoleCommandHandler(std::streambuf* in_smbuf, std::stre
     _commands.emplace_back(cmdstruct("search", std::bind(&ConsoleCommandHandler::searchLocalHyperBlock, this, std::placeholders::_1)));
     _commands.emplace_back(cmdstruct("se", std::bind(&ConsoleCommandHandler::searchLocalHyperBlock, this, std::placeholders::_1)));
     _commands.emplace_back(cmdstruct("i", std::bind(&ConsoleCommandHandler::showInnerDataStruct, this, std::placeholders::_1)));
-    _commands.emplace_back(cmdstruct("rs", std::bind(&ConsoleCommandHandler::resolveAppData, this, std::placeholders::_1)));
+    _commands.emplace_back(cmdstruct("ps", std::bind(&ConsoleCommandHandler::parseAppData, this, std::placeholders::_1)));
     _commands.emplace_back(cmdstruct("token", std::bind(&ConsoleCommandHandler::handleToken, this, std::placeholders::_1, std::placeholders::_2)));
     _commands.emplace_back(cmdstruct("t", std::bind(&ConsoleCommandHandler::handleToken, this, std::placeholders::_1, std::placeholders::_2)));
     _commands.emplace_back(cmdstruct("coin", std::bind(&ConsoleCommandHandler::handleCoin, this, std::placeholders::_1, std::placeholders::_2)));
@@ -392,7 +434,9 @@ ConsoleCommandHandler::ConsoleCommandHandler(std::streambuf* in_smbuf, std::stre
 
     //HC: Query the on-chain state of a committed block
     _commands.emplace_back(cmdstruct("query", std::bind(&ConsoleCommandHandler::queryOnchainState, this, std::placeholders::_1)));
+    
     _commands.emplace_back(cmdstruct("qr", std::bind(&ConsoleCommandHandler::queryOnchainState, this, std::placeholders::_1)));
+    
     //HC: javascript VM
     _commands.emplace_back(cmdstruct("vm", std::bind(&ConsoleCommandHandler::handleVM, this, std::placeholders::_1)));
 
@@ -400,6 +444,13 @@ ConsoleCommandHandler::ConsoleCommandHandler(std::streambuf* in_smbuf, std::stre
     _commands.emplace_back(cmdstruct("stop", std::bind(&ConsoleCommandHandler::stopApplication, this, std::placeholders::_1)));
     _commands.emplace_back(cmdstruct("app", std::bind(&ConsoleCommandHandler::statusApplication, this, std::placeholders::_1)));
     _commands.emplace_back(cmdstruct("update", std::bind(&ConsoleCommandHandler::UpdateProgram, this)));
+
+    //HC: create cross-chain transaction
+    _commands.emplace_back(cmdstruct("getchainaddr", std::bind(&ConsoleCommandHandler::getChainAddr, this, std::placeholders::_1)));
+
+    _commands.emplace_back(cmdstruct("swap", std::bind(&ConsoleCommandHandler::swap, this, std::placeholders::_1)));
+    _commands.emplace_back(cmdstruct("s", std::bind(&ConsoleCommandHandler::swap, this, std::placeholders::_1)));
+    
     _commands.emplace_back(cmdstruct("exit", std::bind(&ConsoleCommandHandler::exit, this)));
     _commands.emplace_back(cmdstruct("quit", std::bind(&ConsoleCommandHandler::exit, this)));
     _commands.emplace_back(cmdstruct("q", std::bind(&ConsoleCommandHandler::exit, this)));
@@ -413,6 +464,53 @@ ConsoleCommandHandler::~ConsoleCommandHandler()
     }
 }
 
+void ConsoleCommandHandler::showUsages()
+{
+    _ostream << "Copyright 2016-2024 hyperchain.net (Hyperchain (R)) v" << VERSION_STRING << endl;
+    _ostream << "These are common commands used in various situations:" << endl;
+    _ostream << "The '<>' means that the command has a required argument, and '[]' means an optional argument" << endl << endl;
+
+    _ostream << "   help(?):                        show all available commands" << endl;
+    _ostream << "   /h:                             show history of commands" << endl;
+    _ostream << "   /c [color]:                     set prompt color(RED GREEN YELLOW BLUE MAGENTA CYAN WHITE)" << endl;
+    _ostream << "   clh:                            clear history of commands" << endl;
+    _ostream << "   node(n):                        show neighbor node information" << endl;
+    _ostream << "   space(sp):                      show HyperChain-Space information" << endl;
+    _ostream << "   spacemore(spm):                 show a specified hyper block from HyperChain-Space more information" << endl;
+    _ostream << "                                       spm <hid>" << endl;
+    _ostream << "   local(l):                       show local data information" << endl;
+    _ostream << "   down(d):                        download specified hyper blocks from HyperChain-Space to local" << endl;
+    _ostream << "                                       d <nodeid> <hid> [blockcount] " << endl;
+    _ostream << "   search(se):                     search detail information for a number of specified hyper blocks,show solo chains with 'v'" << endl;
+    _ostream << "                                       se [hid] [v], se [from hid1] [to hid2] [v], se -1 v" << endl;
+    _ostream << "   submit(sm):                     submit data onto the chain: submit <data>" << endl;
+    _ostream << "   query(qr):                      query status of the submitted data on the chain: query <requestid>" << endl;
+    _ostream << "   internal(i):                    show internal information of program: i [b/n/c/sn/sc]" << endl;
+    _ostream << "   debug:                          debug the specified application: debug application [file/con/both/off] [err/warn/info/debug/trace] [nobt/bt/bt:id] " << endl;
+    _ostream << "   parse(ps):                      parse the specified block data stream into a readable form" << endl;
+    _ostream << "                                       ps [ledger/paracoin] [hid chainid localid] or rs [ledger/paracoin] height" << endl;
+    _ostream << "   token(t):                       control or show tokens" << endl;
+    _ostream << "   coin(c):                        control or show coins" << endl;
+    _ostream << "   eth(e):                         control or show ethereum" << endl;
+    _ostream << "   start:                          load and start the specified application: start <ledger/paracoin> [options]" << endl;
+    _ostream << "                                       start paracoin -debug -gen" << endl;
+
+    _ostream << "   stop:                           stop and unload the specified application: stop <ledger/paracoin>" << endl;
+    _ostream << "   app:                            list the loaded applications and their status" << endl;
+    _ostream << "   loggerlevel(ll):                set logger level(trace=0,debug=1,info=2,warn=3,err=4,critical=5,off=6)" << endl;
+    _ostream << "   consensusloggerlevel(llcss):    set consensus logger level(trace=0,debug=1,info=2,warn=3,err=4,critical=5,off=6)" << endl;
+
+    _ostream << "   getchainaddr:                   generate a target chain address of ethereum" << endl;
+    _ostream << "   swap(s):                        send/query/import cross-chain transactions, which swap value between paracoin and ethereum" << endl;
+
+    _ostream << "   vm:                             run a javascript script or submit a block with javascript script onto the chain" << endl;
+
+    _ostream << "   update:                         check the program whether it is the latest and update" << endl;
+    _ostream << "   exit(quit/q):                   exit the program" << endl << endl;
+
+
+    _ostream << "Press ctrl-L to clear screen, ctrl-R to reverse history search, ctrl-S to forward history search" << endl << endl;
+}
 
 string ConsoleCommandHandler::GetConfigFile()
 {
@@ -468,49 +566,6 @@ void ConsoleCommandHandler::insertRemoteServer(string& ip, int port)
     _mapSettings.insert(make_pair(StringFormat("%d", ++s), server));
 }
 
-void ConsoleCommandHandler::showUsages()
-{
-    _ostream << "Copyright 2016-2022 hyperchain.net (Hyperchain (R)) v" << VERSION_STRING << endl;
-    _ostream << "These are common commands used in various situations:" << endl;
-    _ostream << "The '<>' means that the command has a required argument, and '[]' means an optional argument" << endl << endl;
-
-    _ostream << "   help(?):                        show all available commands" << endl;
-    _ostream << "   /h:                             show history of commands" << endl;
-    _ostream << "   /c [color]:                     set prompt color(RED GREEN YELLOW BLUE MAGENTA CYAN WHITE)" << endl;
-    _ostream << "   clh:                            clear history of commands" << endl;
-    _ostream << "   node(n):                        show neighbor node information" << endl;
-    _ostream << "   space(sp):                      show HyperChain-Space information" << endl;
-    _ostream << "   spacemore(spm):                 show a specified hyper block from HyperChain-Space more information" << endl;
-    _ostream << "                                       spm <hid>" << endl;
-    _ostream << "   local(l):                       show local data information" << endl;
-    _ostream << "   down(d):                        download specified hyper blocks from HyperChain-Space to local" << endl;
-    _ostream << "                                       d <nodeid> <hid> [blockcount] " << endl;
-    _ostream << "   search(se):                     search detail information for a number of specified hyper blocks,show subchains with 'v'" << endl;
-    _ostream << "                                       se [hid] [v], se [from hid1] [to hid2] [v], se -1 v" << endl;
-    _ostream << "   submit(sm):                     submit data onto the chain: submit <data>" << endl;
-    _ostream << "   query(qr):                      query status of the submitted data on the chain: query <requestid>" << endl;
-    _ostream << "   inner(i):                       show inner information: i [b/n/c]" << endl;
-    _ostream << "   debug:                          debug the specified application: debug application [file/con/both/off] [err/warn/info/debug/trace] [nobt/bt/bt:id] " << endl;
-    _ostream << "   resolve(rs):                    resolve the specified data into a kind of application" << endl;
-    _ostream << "                                       rs [ledger/paracoin] [hid chainid localid] or rs [ledger/paracoin] height" << endl;
-    _ostream << "   token(t):                       control or show tokens" << endl;
-    _ostream << "   coin(c):                        control or show coins" << endl;
-    _ostream << "   eth(e):                         control or show ethereum" << endl;
-    _ostream << "   start:                          load and start the specified application: start <ledger/paracoin> [options]" << endl;
-    _ostream << "                                       start paracoin -debug -gen" << endl;
-
-    _ostream << "   stop:                           stop and unload the specified application: stop <ledger/paracoin>" << endl;
-    _ostream << "   app:                            list the loaded applications and their status" << endl;
-    _ostream << "   loggerlevel(ll):                set logger level(trace=0,debug=1,info=2,warn=3,err=4,critical=5,off=6)" << endl;
-    _ostream << "   consensusloggerlevel(llcss):    set consensus logger level(trace=0,debug=1,info=2,warn=3,err=4,critical=5,off=6)" << endl;
-    _ostream << "   vm:                             run a javascript script or submit a block with javascript script onto the chain" << endl;
-    _ostream << "   update:                         check the program whether it is the latest and update" << endl;
-    _ostream << "   exit(quit/q):                   exit the program" << endl << endl;
-
-
-    _ostream << "Press ctrl-L to clear screen, ctrl-R to reverse history search, ctrl-S to forward history search" << endl << endl;
-}
-
 bool ConsoleCommandHandler::UpdateProgram()
 {
     //HC:Get hc.exe path
@@ -537,6 +592,8 @@ bool ConsoleCommandHandler::UpdateProgram()
         cout << "The new fuctions include:" << endl;
         for(auto& strmsg: updateinfo.updatemsg)
             cout << strmsg << endl;
+
+        HC_MAIN_PROGRAM_ARGS;
 
         cout << "Update may cause data lost." << endl;
         cout << "Please backup your data in directory: " << mapHCArgs["-datadir"] << " before update." << endl;
@@ -627,6 +684,7 @@ string GetCommHisFile()
     pathConfig = fs::path(GetHyperChainDataDir()) / ".commdhis";
     return pathConfig.string();
 }
+
 
 void ConsoleCommandHandler::run_as_client()
 {
@@ -937,12 +995,12 @@ void ConsoleCommandHandler::showHyperBlock(uint64 hid, bool isShowDetails)
         _ostream << "PreHyper Block Hash:   " << h.GetPreHash().toHexString() << endl;
         _ostream << "PreHyper Block Header Hash:   " << h.GetPreHeaderHash().toHexString() << endl;
         _ostream << "Hyper Block Weight:    " << h.GetWeight() << endl;
-        _ostream << "subchains count:    " << h.GetChildChainsCount() << endl;
-        _ostream << "subblocks count:    " << h.GetChildBlockCount() << endl;
+        _ostream << "The total number of solo chains:    " << h.GetChildChainsCount() << endl;
+        _ostream << "The total number of local blocks:   " << h.GetChildBlockCount() << endl;
 
         int nChainID = 1;
         for (auto& chain : h.GetChildChains()) {
-            _ostream << StringFormat("\tsubchain %d:\t", nChainID++);
+            _ostream << StringFormat("\tsolo chain %d:\t", nChainID++);
             for (auto& l : chain) {
                 _ostream << l.GetAppType().tohexstring();
                 break;
@@ -957,7 +1015,7 @@ void ConsoleCommandHandler::showHyperBlock(uint64 hid, bool isShowDetails)
             for (auto& chain : h.GetChildChains()) {
                 _ostream << StringFormat("*********************** The %d Chain Details *****************************\n\n", nChainID++);
                 for (auto& l : chain) {
-                    _ostream << "subblock Id:    " << l.GetID() << endl;
+                    _ostream << "local block Id:    " << l.GetID() << endl;
                     _ostream << "Version:           " << l.GetVersion().tostring() << endl;
                     _ostream << "Application Type:  " << l.GetAppType().tohexstring() << endl;
                     _ostream << "Chain number:      " << l.GetChainNum() << endl;
@@ -1064,13 +1122,14 @@ void ConsoleCommandHandler::debug(const list<string> &paralist)
     _ostream << "unknown application\n";
 }
 
-void ConsoleCommandHandler::resolveAppData(const list<string> &paralist)
+void ConsoleCommandHandler::parseAppData(const list<string> &paralist)
 {
     size_t s = paralist.size();
 
     string info;
     if (s < 2) {
         for (auto& app : (*g_appPlugin)) {
+            info = "";
             app.second.appInfo(info);
             _ostream << StringFormat("%s\n\n", info.c_str());
 
@@ -1183,7 +1242,8 @@ void ConsoleCommandHandler::showInnerBasicInfo()
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
 
     _ostream << "Starting time: " << g_strSysStartTm << endl;
-    _ostream << "My NodeID: " << nodemgr->getMyNodeId<string>() << endl;
+    //_ostream << "My NodeID: " << nodemgr->getMyNodeId<string>() << endl;
+    _ostream << "My Node: " << nodemgr->myself()->serialize() << endl;
     _ostream << "My Max HyperBlock ID: " << sp->GetMaxBlockID() << endl;
     _ostream << "Latest HyperBlock is ready: " << sp->IsLatestHyperBlockReady() << endl;
     _ostream << "My Data Root Directory: " << GetHyperChainDataDir() << endl;
@@ -1195,6 +1255,8 @@ void ConsoleCommandHandler::showInnerBasicInfo()
         ss << g_argv[i] << " ";
     }
     _ostream << "Command line: " << ss.str() << endl;
+
+    HC_MAIN_PROGRAM_ARGS;
 
     string cfgfile = ProgramConfigFile::GetCfgFile();
     if (!cfgfile.empty()) {
@@ -1219,6 +1281,17 @@ void ConsoleCommandHandler::showInnerBasicInfo()
 #endif
 }
 
+void ConsoleCommandHandler::showHyperChainSpaceInteral()
+{
+    CHyperChainSpace* hspace = Singleton<CHyperChainSpace, string>::getInstance();
+    if (!hspace) {
+        return;
+    }
+
+    _ostream << hspace->GetPullingHyperBlock() << endl;
+}
+
+
 void ConsoleCommandHandler::showInnerDataStruct(const list<string>& paralist)
 {
     auto para = paralist.begin();
@@ -1231,14 +1304,23 @@ void ConsoleCommandHandler::showInnerDataStruct(const list<string>& paralist)
     string option1 = *(++para);
     if (option1 == "b") {
         showMQBroker();
+    }
+    else if (option1 == "sn") { //statistics node
         NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
         _ostream << nodemgr->GetMQCostStatistics() << endl;
+    }
+    else if (option1 == "sc") { //statistics chain
+        CHyperChainSpace* hspace = Singleton<CHyperChainSpace, string>::getInstance();
+        _ostream << hspace->GetMQCostStatistics() << endl;
     }
     else if (option1 == "c") {
         showConsensusInfo();
     }
     else if (option1 == "n") {
         showUdpDetails();
+    }
+    else if (option1 == "h") {
+        showHyperChainSpaceInteral();
     }
     else if (option1 == "uuid") {
         cout << "Are you sure you want to reset uuid of the node(y/n)?";
@@ -1254,7 +1336,8 @@ void ConsoleCommandHandler::showInnerDataStruct(const list<string>& paralist)
         }
     }
     else {
-        _ostream << "Available options: b/c/n/uuid, which mean Broker/Consensus/Network/Reset uuid." << endl;
+        _ostream << "Available options: b/c/n/sn/sc/uuid, \n"
+            "\twhich mean Broker/Consensus/Network/Perf Statis of Node&ChainSpace/Reset uuid." << endl;
     }
 }
 
@@ -1321,12 +1404,15 @@ void ConsoleCommandHandler::startApplication(const list<string> &appli)
 
 void ConsoleCommandHandler::stopApplication(const list<string> &appli)
 {
+    //HC: 调用二次完成退出，第一次各模块收到退出通知，置位开始退出 第二次执行全面退出
     if (appli.size() > 1) {
         auto option = ++appli.begin();
         g_appPlugin->StopApp(*option);
+
+        //HC: 全面退出
+        g_appPlugin->StopApp(*option);
         return;
     }
-
     _ostream << "Invalid command\n";
 }
 
@@ -1630,6 +1716,168 @@ void ConsoleCommandHandler::handleVM(const list<string>& vmcmdlist)
 
 VMUsage:
     showVMUsage();
+}
+
+void ConsoleCommandHandler::getChainAddr(const list<string>& cmdlist)
+{
+    if (cmdlist.size() < 5) {
+        _ostream << "Usage: getchainaddr <hid> <chainid> <localid> <targetgenesisblockhash> : generate a target chain address\n";
+        return;
+    }
+
+    auto cmd = ++cmdlist.begin();
+
+    map<string, string> mapparams;
+    mapparams["hid"] = *cmd;
+    mapparams["chainid"] = *++cmd;
+    mapparams["localid"] = *++cmd;
+    mapparams["target_genesis_hash"] = *++cmd; 
+
+    //if (++cmd != cmdlist.end())
+    //    mapparams["recv_address"] = *cmd; //HC: account address of target chain
+
+    string result;
+    string strerr;
+    bool ret = AppPlugins::callFunction<bool>("paracoin", "getchainaddress", mapparams, result, strerr);
+    if (!ret) {
+        _ostream << StringFormat("Error occurred: %s\n", strerr);
+        return;
+    }
+    _ostream << result << endl;
+}
+
+static string cmd_desc_swap2eth =
+        "swap p2e <name> <fromaccount> <tochain> <amount> [toaddress] : send a cross-chain transaction, <tochain> refer to command 'getchainaddr'\n";
+void ConsoleCommandHandler::swap2Eth(const list<string>& cmdlist)
+{
+    if (cmdlist.size() < 4) {
+        _ostream << "Usage: " << cmd_desc_swap2eth;
+        return;
+    }
+
+    auto txcmdlist = cmdlist;
+
+    auto cmd = cmdlist.begin();
+    string name = *cmd;
+    string fromaccount = *++cmd;
+    if (fromaccount == "\"\"" || fromaccount == "\'\'") {
+        fromaccount = "";
+    }
+
+    string chainaddress = *++cmd;
+    string amount = *++cmd;
+
+    string accountaddress;
+
+    if (++cmd != cmdlist.end())
+        accountaddress = *cmd; //HC: account address of target chain
+
+
+    crosschain::ParaToEthExecutor ctx(name);
+    ctx.initEnv(fromaccount, chainaddress, accountaddress, amount);
+
+    _ostream << ctx.details();
+    _ostream << "Are you sure you want to continue(y/n, default:n)?";
+
+    char c_action;
+    cin >> std::noskipws >> c_action;
+    if (c_action != '\n') {
+        cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    }
+
+    if (c_action == '\n' || (c_action != 'y' && c_action != 'Y')) {
+        _ostream << "canceled\n";
+        return;
+    }
+
+    ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::instance();
+    string result = consensuseng->Swap2Eth(fromaccount, chainaddress, accountaddress, amount, name);
+    _ostream << result << endl;
+
+    return;
+}
+
+
+//HC: 跨链交易，以太坊转到Para
+static const string cmd_desc_swap2Para = "swap e2p <name> <from> <to> <amount> : send a cross-chain transaction, <to> is address of Para account\n";
+void ConsoleCommandHandler::swap2Para(const list<string>& cmdlist)
+{
+    if (cmdlist.size() < 4) {
+        _ostream << cmd_desc_swap2Para;
+        return;
+    }
+
+    auto txcmdlist  = cmdlist;
+
+    auto cmd = cmdlist.begin();
+
+    string name = *cmd;
+    string fromaddress = *++cmd;
+    string paraaddress = *++cmd;
+    string amount = *++cmd;
+
+    crosschain::EthToParaExecutor ctx(name);
+    ctx.initEnv(fromaddress, paraaddress, amount);
+
+    _ostream << ctx.details();
+    _ostream << "Are you sure you want to continue(y/n, default:n)?";
+
+    char c_action;
+    cin >> std::noskipws >> c_action;
+    if (c_action != '\n') {
+        cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    }
+
+    if (c_action == '\n' || (c_action != 'y' && c_action != 'Y')) {
+        _ostream << "canceled\n";
+        return;
+    }
+
+    ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::instance();
+    string result = consensuseng->Swap2Para(fromaddress, paraaddress, amount, name);
+    _ostream << result << endl;
+}
+
+void ConsoleCommandHandler::swap(const list<string>& cmdlist)
+{
+    if (cmdlist.size() <= 1) {
+        _ostream << "The usage is shown as below: \n";
+        _ostream << "       " << cmd_desc_swap2eth;
+        _ostream << "       " << cmd_desc_swap2Para;
+        _ostream << "       swap status(s) [No.]               : query status of the cross-chain transaction\n";
+        _ostream << "       swap list(l)                    : list all available the cross-chain transactions\n";
+        _ostream << "       swap import(i) [hash of Tx]     : import a cross-chain transaction\n";
+        _ostream << "       swap importse(ise) [hash of Tx]    : import a settlement cross-chain transaction\n";
+        _ostream << "       swap rename(r) <No.> <new name>    : change name of a available cross-chain transaction\n";
+        _ostream << "       swap delete(d) <No.>               : stop monitoring the cross-chain transaction\n";
+        return;
+    }
+    auto cmd = ++cmdlist.begin();
+    string action = *cmd;
+
+    if (action == "p2e") {
+        list<string> newcmdlist(++cmd, cmdlist.end());
+        swap2Eth(newcmdlist);
+        return;
+    }
+    else if (action == "e2p") {
+        list<string> newcmdlist(++cmd, cmdlist.end());
+        swap2Para(newcmdlist);
+        return;
+    }
+
+    string param1;
+    string param2;
+    if (++cmd != cmdlist.end()) {
+        param1 = *cmd;
+        if (++cmd != cmdlist.end()) {
+            param2 = *cmd;
+        }
+    }
+
+    ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::instance();
+    string ret = consensuseng->Swap(action, param1, param2);
+    _ostream << ret << endl;
 }
 
 void ConsoleCommandHandler::appConsoleCmd(const string& appname, const list<string>& cmdlist, string& savingcommand)

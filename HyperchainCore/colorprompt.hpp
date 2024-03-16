@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -165,6 +165,8 @@ private:
             "exit", "help", "sendfrom", "sendtoaddr", "test",
             "ledger", "paracoin", "start", "stop", "simulate",
             "WIF", "WIFC", "ikpf", "ekpf", "sacc", "getbalance",
+            "getchainaddr",
+            "swap", "status",
             "wpass" , "chwpass", NULL
         };
 

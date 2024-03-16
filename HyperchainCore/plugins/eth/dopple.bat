@@ -1,0 +1,1 @@
+python scripts\dopple\dopple.py \\.\pipe\%1\geth.ipc

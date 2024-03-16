@@ -82,6 +82,10 @@ typedef enum ScriptError_t
     SCRIPT_ERR_OP_CODESEPARATOR,
     SCRIPT_ERR_SIG_FINDANDDELETE,
 
+    //HC:
+    SCRIPT_ERR_VERIFY_ETH_TX,
+
+
     SCRIPT_ERR_ERROR_COUNT
 } ScriptError;
 

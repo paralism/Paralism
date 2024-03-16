@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -52,7 +52,8 @@ DEALINGS IN THE SOFTWARE.
 #include <iostream>
 #include <sstream>
 
-#include "wnd/common.h"
+#include "util/common.h"
+#include "util/threadname.h"
 
 #include "db/RestApi.h"
 #include "db/dbmgr.h"
@@ -78,14 +79,14 @@ DEALINGS IN THE SOFTWARE.
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
 #include <boost/program_options/detail/config_file.hpp>
+#include <boost/stacktrace.hpp>
 
-//#include <boost/asio.hpp>
-//#include <boost/date_time/posix_time/posix_time.hpp>
 #include <UpdateInfo.h>
 #define Miningversion 100
 
 using namespace std;
 using namespace boost::program_options;
+
 
 #ifdef WIN32
 #include <client/windows/handler/exception_handler.h>
@@ -93,35 +94,8 @@ using namespace boost::program_options;
 #include <client/linux/handler/exception_handler.h>
 #endif
 
-//HCE: Get the directoty of the hyper chain data
-//HCE: @returns The directoty string 
-string GetHyperChainDataDir()
-{
-    boost::filesystem::path pathDataDir;
-    if (mapHCArgs.count("-datadir")) {
-        pathDataDir = boost::filesystem::system_complete(mapHCArgs["-datadir"]);
-        if (!boost::filesystem::exists(pathDataDir))
-            if (!boost::filesystem::create_directories(pathDataDir)) {
-                cerr << "can not create directory: " << pathDataDir << endl;
-                pathDataDir = boost::filesystem::system_complete(".");
-            }
-    }
-    else
-        pathDataDir = boost::filesystem::system_complete(".");
 
-    if (mapHCArgs.count("-model") && mapHCArgs["-model"] == "informal")
-        pathDataDir /= "informal";
-    else if (mapHCArgs.count("-model") && mapHCArgs["-model"] == "formal")
-        pathDataDir /= "formal";
-    else {
-        pathDataDir /= "sandbox";
-    }
-
-    if (!boost::filesystem::exists(pathDataDir))
-        boost::filesystem::create_directories(pathDataDir);
-
-    return pathDataDir.string();
-}
+extern string GetHyperChainDataDir();
 
 //HCE: Create a child branch of the hyper chain data directory
 //HCE: @returns The child directoty string 
@@ -150,25 +124,39 @@ static std::string make_db_path()
     return CreateChildDir("hp");
 }
 
+static bool g_isExceptionAutoReboot = false;
 extern NodeType g_nodetype;
 string g_localip;
+
+std::string GetWSAErrorString()
+{
+#ifdef _WIN32
+    DWORD error = WSAGetLastError();
+    if (error == 0) {
+        return "";
+    }
+    LPSTR messageBuffer = nullptr;
+    size_t size = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
+    std::string message(messageBuffer, size);
+    LocalFree(messageBuffer);
+    return message;
+#else
+    char* error = strerror(errno);
+    return std::string(error);
+#endif
+}
 
 //HCE: Check if local time is close to ntp time enough
 //HCE: @returns True if it is  
 bool CheckLocalTime()
 {
-    bool Flag = false;
     string ntpservers[] = {"ntp.aliyun.com","time.asia.apple.com","cn.ntp.org.cn","time.google.com","time.windows.com","time.apple.com"};
 
     for (int i = 0; i < 5; i++) {
         struct hostent* host = gethostbyname(ntpservers[i].c_str());
         if (NULL == host) {
-#ifdef WIN32
-            cout << "CheckLocalTime(), gethostbyname[" << ntpservers[i].c_str() << "] failed! " << WSAGetLastError() << endl;
-#else
-            cout << "CheckLocalTime(), gethostbyname[" << ntpservers[i].c_str() << "] failed! " << strerror(h_errno) << endl;
-#endif
-            //return false;
+            cout << "CheckLocalTime(), gethostbyname[" << ntpservers[i].c_str() << "] failed! " << GetWSAErrorString() << endl;
             continue;
         }
 
@@ -176,12 +164,7 @@ bool CheckLocalTime()
             char ipStr[32];
             const char* ret = inet_ntop(host->h_addrtype, host->h_addr_list[i], ipStr, sizeof(ipStr));
             if (NULL == ret) {
-#ifdef WIN32
-                cout << "CheckLocalTime(), inet_ntop failed! " << WSAGetLastError() << endl;
-#else
-                cout << "CheckLocalTime(), inet_ntop failed! " << strerror(errno) << endl;
-#endif
-                //return false;
+                cout << "CheckLocalTime(), inet_ntop failed! " << GetWSAErrorString() << endl;
                 continue;
             }
 
@@ -227,13 +210,13 @@ bool CheckLocalTime()
 
 #ifdef WIN32
                 tm* temptm = localtime(&tt);
-                SYSTEMTIME systime = { 1900 + temptm->tm_year,
-                                        1 + temptm->tm_mon,
-                                        temptm->tm_wday,
-                                        temptm->tm_mday,
-                                        temptm->tm_hour,
-                                        temptm->tm_min,
-                                        temptm->tm_sec,
+                SYSTEMTIME systime = { (WORD)(1900 + temptm->tm_year),
+                                        (WORD)(1 + temptm->tm_mon),
+                                        (WORD)(temptm->tm_wday),
+                                        (WORD)(temptm->tm_mday),
+                                        (WORD)(temptm->tm_hour),
+                                        (WORD)(temptm->tm_min),
+                                        (WORD)(temptm->tm_sec),
                                         0 };
 
                 if (SetLocalTime(&systime))
@@ -277,21 +260,13 @@ bool GetLocalHostInfo()
     char name[256];
     int ret = gethostname(name, sizeof(name));
     if (ret != 0) {
-#ifdef WIN32
-        g_daily_logger->error("gethostname() failed! [{}]", WSAGetLastError());
-#else
-        g_daily_logger->error("gethostname() failed! [{}]", strerror(errno));
-#endif
+        g_daily_logger->error("gethostname() failed! [{}]", GetWSAErrorString());
         return false;
     }
 
     struct hostent* host = gethostbyname(name);
     if (NULL == host) {
-#ifdef WIN32
-        g_daily_logger->error("gethostbyname() failed! [{}]", WSAGetLastError());
-#else
-        g_daily_logger->error("gethostbyname() failed! [{}]", strerror(h_errno));
-#endif
+        g_daily_logger->error("gethostbyname() failed! [{}]", GetWSAErrorString());
         return false;
     }
 
@@ -299,11 +274,7 @@ bool GetLocalHostInfo()
         char ipStr[32];
         const char* ret = inet_ntop(host->h_addrtype, host->h_addr_list[i], ipStr, sizeof(ipStr));
         if (NULL == ret) {
-#ifdef WIN32
-            g_daily_logger->error("inet_ntop() failed! [{}]", WSAGetLastError());
-#else
-            g_daily_logger->error("inet_ntop() failed! [{}]", strerror(errno));
-#endif
+            g_daily_logger->error("inet_ntop() failed! [{}]", GetWSAErrorString());
             return false;
         }
 
@@ -419,11 +390,7 @@ void parseNetAddress(const string &netaddress, string &ip, int &port)
     if (ipu32 == 0) {
         struct hostent* host = gethostbyname(ip.c_str());
         if (NULL == host) {
-#ifdef WIN32
-            cout << "parseNetAddress(), gethostbyname[" << ip.c_str() << "] failed! " << WSAGetLastError() << endl;
-#else
-            cout << "parseNetAddress(), gethostbyname[" << ip.c_str() << "] failed! " << strerror(h_errno) << endl;
-#endif
+            cout << "parseNetAddress(), gethostbyname[" << ip.c_str() << "] failed! " << GetWSAErrorString() << endl;
             return;
         }
 
@@ -431,11 +398,7 @@ void parseNetAddress(const string &netaddress, string &ip, int &port)
             char ipStr[32];
             const char* ret = inet_ntop(host->h_addrtype, host->h_addr_list[i], ipStr, sizeof(ipStr));
             if (NULL == ret) {
-#ifdef WIN32
-                g_daily_logger->error("parseNetAddress(), inet_ntop() failed! [{}]", WSAGetLastError());
-#else
-                g_daily_logger->error("parseNetAddress(), inet_ntop() failed! [{}]", strerror(errno));
-#endif
+                g_daily_logger->error("parseNetAddress(), inet_ntop() failed! [{}]", GetWSAErrorString());
                 continue;
             }
 
@@ -568,61 +531,302 @@ bool g_isChild = false;
 //HCE: @returns void
 void stopAll()
 {
+    ConsensusEngine * consensuseng = Singleton<ConsensusEngine>::getInstance();
+    consensuseng->requestStop();
+
     if (g_appPlugin) {
-        cout << "Stopping Applications..." << endl;
+        cout << "Stopping Applications...";
         g_appPlugin->StopAllApp();
+        cout << "Stopped" << endl;
     }
 
     g_sys_interrupted = 1; //HC: stop MQ
     auto datahandler = Singleton<UdpRecvDataHandler>::getInstance();
     if (datahandler) {
-        cout << "Stopping UdpRecvDataHandler..." << endl;
+        cout << "Stopping UdpRecvDataHandler...";
         datahandler->stop();
+        cout << "Stopped" << endl;
     }
 
-    ConsensusEngine * consensuseng = Singleton<ConsensusEngine>::getInstance();
     if (consensuseng) {
-        cout << "Stopping Consensuseng..." << endl;
+        cout << "Stopping Consensuseng...";
         consensuseng->stop();
+        cout << "Stopped" << endl;
     }
     CHyperChainSpace *hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
     if (hyperchainspace) {
-        cout << "Stopping Hyperchain Space..." << endl;
+        cout << "Stopping Hyperchain Space...";
         hyperchainspace->stop();
+        cout << "Stopped" << endl;
     }
 
     NodeUPKeepThreadPool* nodeUpkeepThreadpool = Singleton<NodeUPKeepThreadPool>::getInstance();
     if (nodeUpkeepThreadpool) {
-        cout << "Stopping NodeUPKeepThreadPool..." << endl;
+        cout << "Stopping NodeUPKeepThreadPool...";
         nodeUpkeepThreadpool->stop();
+        cout << "Stopped" << endl;
     }
 
     NodeManager* nmg = Singleton<NodeManager>::getInstance();
     if (nmg) {
-        cout << "Stopping NodeManager..." << endl;
+        cout << "Stopping NodeManager...";
         nmg->stop();
+        cout << "Stopped" << endl;
     }
 
     UdtThreadPool *udpthreadpool = Singleton<UdtThreadPool, const char*, uint32_t>::getInstance();
     if (udpthreadpool) {
-        cout << "Stopping UDT..." << endl;
+        cout << "Stopping UDT...\n";
         udpthreadpool->stop();
+        cout << "UDT Stopped" << endl;
     }
 
     if (g_nodetype != NodeType::LedgerRPCClient) {
-        cout << "Stopping Rest Server..." << endl;
+        cout << "Stopping Rest Server...";
         RestApi::stopRest();
+        cout << "Stopped" << endl;
     }
 
     HCMQBroker *brk = Singleton<HCMQBroker>::getInstance();
     if (brk) {
-        cout << "Stopping HCBroker..." << endl;
+        cout << "Stopping HCBroker...";
         brk->stop();
+        cout << "Stopped" << endl;
     }
 
     if (Singleton<DBmgr>::instance()->isOpen()) {
-        cout << "Closing Database" << endl;
+        cout << "Closing Database...";
         Singleton<DBmgr>::instance()->close();
+        cout << "Closed" << endl;
+    }
+}
+
+
+#ifdef _WIN32
+#include <DbgHelp.h>
+#pragma comment(lib, "dbghelp.lib")
+
+const int CALLSTACK_DEPTH = 10;
+
+// Translate exception code to description
+#define CODE_DESCR(code) CodeDescMap::value_type(code, #code)
+
+struct FunctionCall
+{
+    std::string FunctionName;
+    std::string FileName;
+    int LineNumber;
+};
+
+class StackTracer
+{
+public:
+    static LONG ExceptionFilter(LPEXCEPTION_POINTERS e)
+    {
+        return s_StackTracer.HandleException(e);
+    }
+
+    static std::string GetExceptionMsg() 
+    {
+        std::ostringstream  m_ostringstream;
+
+        // Exception Code
+        CodeDescMap::iterator itc = s_StackTracer.m_mapCodeDesc.find(s_StackTracer.m_dwExceptionCode);
+
+        m_ostringstream << "------------------------------------------------------------------\r\n";
+        if (itc != s_StackTracer.m_mapCodeDesc.end())
+            m_ostringstream << "Exception: " << itc->second << "\r\n";
+        else
+            m_ostringstream << "Unknown Exception...\r\n";
+
+        m_ostringstream << "------------------------------------------------------------------\r\n";
+
+        // Call Stack
+        std::vector<FunctionCall>::iterator itbegin = s_StackTracer.m_vecCallStack.begin();
+        std::vector<FunctionCall>::iterator itend = s_StackTracer.m_vecCallStack.end();
+        std::vector<FunctionCall>::iterator it;
+        int i = 0;
+        for (it = itbegin; it < itend; ++it)
+        {
+            std::string strFunctionName = it->FunctionName.empty() ? "UnkownFunction" : it->FunctionName;
+            std::string strFileName = it->FileName.empty() ? "UnkownFile" : it->FileName;
+
+            m_ostringstream << StringFormat("#%d    %s(...) : \n", i, strFunctionName);
+            m_ostringstream << StringFormat("          %s:%d\n", strFileName, it->LineNumber);
+            i++;
+        }
+
+        return m_ostringstream.str();
+    }
+
+    static DWORD GetExceptionCode()
+    {
+        return s_StackTracer.m_dwExceptionCode;
+    }
+
+    static std::vector<FunctionCall> GetExceptionCallStack()
+    {
+        return s_StackTracer.m_vecCallStack;
+    }
+
+private:
+    static StackTracer s_StackTracer;
+
+private:
+    StackTracer(void) :m_dwExceptionCode(0) 
+    {
+        // Get machine type
+        m_dwMachineType = IMAGE_FILE_MACHINE_AMD64;
+
+        // Exception code description
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_ACCESS_VIOLATION));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_DATATYPE_MISALIGNMENT));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_BREAKPOINT));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_SINGLE_STEP));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_ARRAY_BOUNDS_EXCEEDED));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_FLT_DENORMAL_OPERAND));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_FLT_DIVIDE_BY_ZERO));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_FLT_INEXACT_RESULT));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_FLT_INVALID_OPERATION));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_FLT_OVERFLOW));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_FLT_STACK_CHECK));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_FLT_UNDERFLOW));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_INT_DIVIDE_BY_ZERO));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_INT_OVERFLOW));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_PRIV_INSTRUCTION));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_IN_PAGE_ERROR));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_ILLEGAL_INSTRUCTION));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_NONCONTINUABLE_EXCEPTION));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_STACK_OVERFLOW));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_INVALID_DISPOSITION));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_GUARD_PAGE));
+        m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_INVALID_HANDLE));
+        //m_mapCodeDesc.insert(CODE_DESCR(EXCEPTION_POSSIBLE_DEADLOCK));      
+        // Any other exception code???
+    }
+
+    ~StackTracer(void) {}
+
+    // The main function to handle exception
+    LONG __stdcall HandleException(LPEXCEPTION_POINTERS e)
+    {
+        m_dwExceptionCode = e->ExceptionRecord->ExceptionCode;
+        m_vecCallStack.clear();
+
+        HANDLE hProcess = INVALID_HANDLE_VALUE;
+
+        // Initializes the symbol handler
+        if (!SymInitialize(GetCurrentProcess(), NULL, TRUE))
+        {
+            SymCleanup(hProcess);
+            return EXCEPTION_EXECUTE_HANDLER;
+        }
+
+        // Work through the call stack upwards.
+        TraceCallStack(e->ContextRecord);
+
+        // ...
+        SymCleanup(hProcess);
+
+        return(EXCEPTION_EXECUTE_HANDLER);
+    }
+
+    // Work through the stack upwards to get the entire call stack
+    void TraceCallStack(CONTEXT* pContext)
+    {
+        // Initialize stack frame
+        STACKFRAME64 sf;
+        memset(&sf, 0, sizeof(STACKFRAME));
+
+#if defined(_WIN64)
+        sf.AddrPC.Offset = pContext->Rip;
+        sf.AddrStack.Offset = pContext->Rsp;
+        sf.AddrFrame.Offset = pContext->Rbp;
+#elif defined(WIN32)
+        sf.AddrPC.Offset = pContext->Eip;
+        sf.AddrStack.Offset = pContext->Esp;
+        sf.AddrFrame.Offset = pContext->Ebp;
+#endif
+        sf.AddrPC.Mode = AddrModeFlat;
+        sf.AddrStack.Mode = AddrModeFlat;
+        sf.AddrFrame.Mode = AddrModeFlat;
+
+        if (0 == m_dwMachineType)
+            return;
+
+        // Walk through the stack frames.
+        HANDLE hProcess = GetCurrentProcess();
+        HANDLE hThread = GetCurrentThread();
+        while (StackWalk64(m_dwMachineType, hProcess, hThread, &sf, pContext, 0, SymFunctionTableAccess64, SymGetModuleBase64, 0)) {
+            if (sf.AddrFrame.Offset == 0 || m_vecCallStack.size() >= CALLSTACK_DEPTH)
+                break;
+
+            // 1. Get function name at the address
+            const int nBuffSize = (sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR) + sizeof(ULONG64) - 1) / sizeof(ULONG64);
+            ULONG64 symbolBuffer[nBuffSize];
+            PSYMBOL_INFO pSymbol = (PSYMBOL_INFO)symbolBuffer;
+
+            pSymbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+            pSymbol->MaxNameLen = MAX_SYM_NAME;
+
+            FunctionCall curCall = { "", "", 0 };
+
+            DWORD64 dwSymDisplacement = 0;
+            if (SymFromAddr(hProcess, sf.AddrPC.Offset, &dwSymDisplacement, pSymbol)) {
+                curCall.FunctionName = std::string(pSymbol->Name);
+            }
+
+            //2. get line and file name at the address
+            IMAGEHLP_LINE64 lineInfo = { sizeof(IMAGEHLP_LINE64) };
+            DWORD dwLineDisplacement = 0;
+
+            if (SymGetLineFromAddr64(hProcess, sf.AddrPC.Offset, &dwLineDisplacement, &lineInfo)) {
+                curCall.FileName = std::string(lineInfo.FileName);
+                curCall.LineNumber = lineInfo.LineNumber;
+            }
+
+            // Call stack stored
+            m_vecCallStack.push_back(curCall);
+        }
+    }
+
+private:
+    DWORD m_dwExceptionCode;
+
+    std::vector<FunctionCall> m_vecCallStack;
+
+    typedef std::map<DWORD, const char*> CodeDescMap;
+    CodeDescMap m_mapCodeDesc;
+
+    DWORD m_dwMachineType; // Machine type matters when trace the call stack (StackWalk64)
+};
+StackTracer StackTracer::s_StackTracer;
+
+#endif 
+
+void printStackTrace()
+{ 
+    std::cout << boost::stacktrace::stacktrace() << std::endl;
+
+    //std::string now = time2stringf("%Y-%m-%d%H%M%S");
+    //std::ofstream file_stream(StringFormat("hc_crash_stacktrace_%s.log", now), std::ios::trunc);
+    //if (file_stream.is_open()) {
+    //    std::stringstream ss;
+    //    ss << boost::stacktrace::stacktrace();
+    //    file_stream.write(ss.str().c_str(), ss.str().size());
+    //    file_stream.close();
+    //}
+}
+
+void dumpTips(bool succeeded, const string &dumpid)
+{
+    std::string now = time2stringf("%Y-%m-%d %H:%M:%S");
+    cout << StringFormat("An exception is caught at %s\n", now);
+    if (succeeded) {
+        cout << "A crash report (minidump) generated," << " dumpid: " << dumpid << "\n";
+        cout << "To analyze the crash report, use the tools provided by Breakpad, such as 'minidump_stackwalk' or 'windbg' for Windows platform\n";
+    } else {
+        cout << "dump failed";
     }
 }
 
@@ -635,71 +839,82 @@ bool dumpCallback(const wchar_t* dump_path,
     MDRawAssertionInfo* assertion,
     bool succeeded)
 {
-    cout << "Exception occurs:" << (char*)context << endl;
-    stopAll();
-    cout << "Rebooting..." << endl;
+    dumpTips(succeeded, t2s(std::wstring(minidump_id)));
 
-    std::system((char*)context);
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    StackTracer::ExceptionFilter(exinfo);
+    cout << StackTracer::GetExceptionMsg();
+
+    if (g_isExceptionAutoReboot) {
+        cout << "Exception occurs:" << (char*)context << endl;
+        stopAll();
+        cout << "Rebooting..." << endl;
+
+        std::system((char*)context);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
     return succeeded;
 }
 #else
 
 bool dumpCallback(const google_breakpad::MinidumpDescriptor& descriptor, void* context, bool succeeded)
 {
+    dumpTips(succeeded, descriptor.path());
+    printStackTrace();
+
     int ret;
+    if (g_isExceptionAutoReboot) {
+        cout << "Exception occurs:" << g_argv[0] << endl;
+        stopAll();
+        cout << "Rebooting..." << endl;
 
-    cout << "Exception occurs:" << g_argv[0] << endl;
-    stopAll();
-    cout << "Rebooting..." << endl;
+        //HC: add child options
+        std::shared_ptr<char*> hc_argv(new char* [g_argc + 2]);
 
-    //HC: add child options
-    std::shared_ptr<char*> hc_argv(new char*[g_argc + 2]);
-
-    int i = 0;
-    char ** p = hc_argv.get();
-    for (; i < g_argc; i++) {
-        p[i] = g_argv[i];
-    }
-    char option[16] = { "--child" };
-    p[g_argc] = option;
-    p[g_argc + 1] = nullptr;
-
-    while (!g_isChild) {
-        pid_t pid = fork();
-        if (pid == -1) {
-            fprintf(stderr, "fork() error.errno:%d error:%s\n", errno, strerror(errno));
-            break;
+        int i = 0;
+        char** p = hc_argv.get();
+        for (; i < g_argc; i++) {
+            p[i] = g_argv[i];
         }
-        if (pid == 0) {
-            ret = execv(hc_argv.get()[0], hc_argv.get());
-            if (ret < 0) {
-                fprintf(stderr, "execv ret:%d errno:%d error:%s\n", ret, errno, strerror(errno));
-                continue;
-            }
-            break;
-        }
+        char option[16] = { "--child" };
+        p[g_argc] = option;
+        p[g_argc + 1] = nullptr;
 
-        if (pid > 0) {
-            fprintf(stdout, "Parent process enter waiting status\n");
-
-            int status;
-            pid_t childpid = wait(&status);
-            fprintf(stdout, "Created a child process %d\n", childpid);
-            if (WIFEXITED(status)) {			//Child exit normally
-                fprintf(stdout, "Child process exited with code %d\n", WEXITSTATUS(status));
+        while (!g_isChild) {
+            pid_t pid = fork();
+            if (pid == -1) {
+                fprintf(stderr, "fork() error.errno:%d error:%s\n", errno, strerror(errno));
                 break;
             }
-            else if (WIFSIGNALED(status)) {		//Child was terminated by a siganl
-                fprintf(stdout, "Child process terminated by signal %d\n", WTERMSIG(status));
+            if (pid == 0) {
+                ret = execv(hc_argv.get()[0], hc_argv.get());
+                if (ret < 0) {
+                    fprintf(stderr, "execv ret:%d errno:%d error:%s\n", ret, errno, strerror(errno));
+                    continue;
+                }
+                break;
             }
-            else if (WIFSTOPPED(status)) {		//Child was stopped by a delivery siganl
-                fprintf(stdout, "%d signal case child stopped\n", WSTOPSIG(status));
+
+            if (pid > 0) {
+                fprintf(stdout, "Parent process enter waiting status\n");
+
+                int status;
+                pid_t childpid = wait(&status);
+                fprintf(stdout, "Created a child process %d\n", childpid);
+                if (WIFEXITED(status)) {			//Child exit normally
+                    fprintf(stdout, "Child process exited with code %d\n", WEXITSTATUS(status));
+                    break;
+                }
+                else if (WIFSIGNALED(status)) {		//Child was terminated by a siganl
+                    fprintf(stdout, "Child process terminated by signal %d\n", WTERMSIG(status));
+                }
+                else if (WIFSTOPPED(status)) {		//Child was stopped by a delivery siganl
+                    fprintf(stdout, "%d signal case child stopped\n", WSTOPSIG(status));
+                }
+                else if (WIFCONTINUED(status)) {	//Child was resumed by delivery SIGCONT
+                    fprintf(stdout, "Child was resumed by SIGCONT\n");
+                }
+                cout << "Rebooted" << endl;
             }
-            else if (WIFCONTINUED(status)) {	//Child was resumed by delivery SIGCONT
-                fprintf(stdout, "Child was resumed by SIGCONT\n");
-            }
-            cout << "Rebooted" << endl;
         }
     }
     return succeeded;
@@ -717,6 +932,7 @@ void signalHandler(int sig)
     }
 }
 
+
 //HCE: Get command line string
 //HCE: @returns command line string
 string getMyCommandLine(int argc, char *argv[])
@@ -732,6 +948,8 @@ string getMyCommandLine(int argc, char *argv[])
 //HCE: Parse parameters from args infomation
 void ParseParameters(int argc, char* argv[])
 {
+    HC_MAIN_PROGRAM_ARGS;
+
     mapHCArgs.clear();
     mapHCMultiArgs.clear();
     for (int i = 1; i < argc; i++) {
@@ -761,14 +979,17 @@ class CloneArgs
 {
 public:
     CloneArgs(int argc, char* argv[]) {
-        nArgc = 1 + vHCCommands.size();
+        nArgc = 1 + (int)(vHCCommands.size());
+
+        HC_MAIN_PROGRAM_ARGS;
+
         for (auto& elm : mapHCMultiArgs) {
-            nArgc += elm.second.size();
+            nArgc += (int)(elm.second.size());
         }
 
         ppArgv = new char* [nArgc];
 
-        int len = strlen(argv[0]) + 1;
+        int len = (int)strlen(argv[0]) + 1;
         ppArgv[0] = new char[len];
         strlcpy(ppArgv[0], argv[0], len);
 
@@ -782,13 +1003,13 @@ public:
                 else {
                     kv = StringFormat("%s=%s", key.first, value);
                 }
-                int len = kv.size() + 1;
+                int len = (int)kv.size() + 1;
                 ppArgv[i] = new char[len];
                 strlcpy(ppArgv[i++], kv.c_str(), len);
             }
         }
         for (auto& cmmd : vHCCommands) {
-            int len = cmmd.size() + 1;
+            int len = (int)cmmd.size() + 1;
             ppArgv[i] = new char[len];
             strlcpy(ppArgv[i++], cmmd.c_str(), len);
         }
@@ -821,7 +1042,18 @@ static google_breakpad::ExceptionHandler* exceptionhandler = nullptr;
 //HCE: @returns void
 void checkupdate(boost::filesystem::path pathHC)
 {
-    while (true) {
+    std::function<void(int)> sleepfn = [](int sleepseconds) {
+        int i = 0;
+        int maxtimes = sleepseconds * 1000 / 200;
+        while (i++ < maxtimes) {
+            if (g_sys_interrupted) {
+                break;
+            }
+            this_thread::sleep_for(chrono::milliseconds(300));
+        }
+    };
+
+    while (!g_sys_interrupted) {
         //HCE: Check if HC needs to update
         UpdateInfo updateinfo(pathHC);
         string localmd5;
@@ -848,21 +1080,12 @@ void checkupdate(boost::filesystem::path pathHC)
 
         }
 
-        std::this_thread::sleep_for(std::chrono::hours(13));
+        sleepfn(13 * 60 * 60);
     }
 }
 
-//HCE: main program entry
-int main(int argc, char *argv[])
+string usage()
 {
-    SoftwareInfo();
-
-    if (!CheckLocalTime())
-        return 0;
-
-    ParseParameters(argc, argv);
-    ProgramConfigFile::LoadSettings();
-
     string strUsage = string() +
         _("Usage:") + "\t\t\t\t\t\t\t\t\t\t\n" +
         "  hc [options]                   \t  " + "\n" +
@@ -926,8 +1149,26 @@ int main(int argc, char *argv[])
         "  -rpcsslciphers=<ciphers>               \t  " + _("Acceptable ciphers (default: TLSv1+HIGH:!SSLv2:!aNULL:!eNULL:!AH:!3DES:@STRENGTH)\n");
 #endif
 
+    return strUsage;
+}
+
+
+int main(int argc, char *argv[])
+{
+    SoftwareInfo();
+
+    if (!CheckLocalTime())
+        return 0;
+
+    ParseParameters(argc, argv);
+    ProgramConfigFile::LoadSettings();
+
+    string strUsage = usage();
+
     //HCE: Remove tabs
     strUsage.erase(std::remove(strUsage.begin(), strUsage.end(), '\t'), strUsage.end());
+
+    HC_MAIN_PROGRAM_ARGS;
 
     if (mapHCArgs.size() == 0 || mapHCArgs.count("-?") || mapHCArgs.count("--help")) {
         cout << strUsage << endl;
@@ -947,9 +1188,8 @@ int main(int argc, char *argv[])
         g_isChild = true;
     }
 
-    bool isExceptionAutoReboot = false;
     if (mapHCArgs.count("-autoreboot")) {
-        isExceptionAutoReboot = true;
+        g_isExceptionAutoReboot = true;
     }
 
     g_argc = argc;
@@ -957,13 +1197,11 @@ int main(int argc, char *argv[])
 
 #ifdef WIN32
     string commandline = getMyCommandLine(argc, argv);
-    if (isExceptionAutoReboot) {
-        exceptionhandler = new google_breakpad::ExceptionHandler(L"./",
-            nullptr,
-            dumpCallback,
-            (char*)commandline.c_str(),
-            google_breakpad::ExceptionHandler::HANDLER_ALL);
-    }
+    exceptionhandler = new google_breakpad::ExceptionHandler(L"./",
+        nullptr,
+        dumpCallback,
+        (char*)commandline.c_str(),
+        google_breakpad::ExceptionHandler::HANDLER_ALL);
 #else
 
     //HC: fork myself, become a daemon
@@ -1004,14 +1242,11 @@ int main(int argc, char *argv[])
         break;
     }
 
-    if (isExceptionAutoReboot) {
-        google_breakpad::MinidumpDescriptor descriptor("./");
-        exceptionhandler = new google_breakpad::ExceptionHandler(descriptor,
-            nullptr, dumpCallback, nullptr, true, -1);
-    }
+    google_breakpad::MinidumpDescriptor descriptor("./");
+    exceptionhandler = new google_breakpad::ExceptionHandler(descriptor,
+        nullptr, dumpCallback, nullptr, true, -1);
 
 #endif
-
     if (mapHCArgs.count("-connect")) {
         //HCE: run as client and connect to server
         string strServer = mapHCArgs.at(string("-connect"));
@@ -1140,7 +1375,7 @@ int main(int argc, char *argv[])
     pathHC = boost::filesystem::system_complete(pathHC);
 
     std::thread thrCheck(checkupdate, pathHC);
-    thrCheck.detach();
+    hc::SetThreadName(&thrCheck, "checkupdate");
 
     ConsoleCommandHandler *console =
         Singleton<ConsoleCommandHandler, std::streambuf* , std::streambuf*>::instance(cin.rdbuf(), cout.rdbuf());
@@ -1157,6 +1392,9 @@ int main(int argc, char *argv[])
         boost::filesystem::current_path(pathHC);
         execlp("./Autoupdate", "Autoupdate", (char*)0);
     }
+
+    if (thrCheck.joinable())
+        thrCheck.join();
 
     return 0;
 }

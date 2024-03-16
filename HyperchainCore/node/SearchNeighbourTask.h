@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -76,6 +76,7 @@ public:
 
         memcpy(&port, _payload, sizeof(uint32_t));
         string ip(_payload + sizeof(uint32_t), _payloadlen - sizeof(uint32_t));
+        
         nodemanager->updateNode(_sentnodeid, ip, port);
 
         nodemanager->EnableNodeActive(_sentnodeid, true);   //HC: 记录到活跃桶里

@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -86,18 +86,47 @@ bool WIF2PrKey(const string& strprivkey, bool isCompressed, std::vector<unsigned
 //HCE: otherwise all are compressed form.
 int impwalletkey(const string& strprivkey, const string& strlabel, string& msg)
 {
-    CKey keyPair;
-    CPrivKey privkey;
     CBitcoinAddress coinaddress;
 
-    msg = "Invalid private key encoding";
-    CKey_Secp256k1 key_secp = DecodeSecret(strprivkey);
-    if (!key_secp.IsValid())
-        return -1;
+    std::vector<unsigned char> vchPriKey;
 
-    privkey = key_secp.GetPrivKey();
-    if (!keyPair.SetPrivKey(privkey))
+    bool isCompressed = false;
+    bool isWIFOK = true;
+    size_t nSize = strprivkey.size();
+    if (nSize == 52 && (strprivkey[0] == 'K' || strprivkey[0] == 'L')) {
+        //HC: WIF-compressed begin with K or L
+        isCompressed = true;
+        isWIFOK = WIF2PrKey(strprivkey, true, vchPriKey);
+    }
+    else if (nSize == 51 && strprivkey[0] == '5') {
+        //HC: WIF begin with 5
+        isWIFOK = WIF2PrKey(strprivkey, false, vchPriKey);
+    }
+    else {
+        //HC: 16 hex format
+        vchPriKey = ParseHex(strprivkey);
+    }
+
+    msg = "Invalid private key encoding";
+    if (vchPriKey.size() == 0) {
         return -1;
+    }
+
+    if (vchPriKey[0] == 0x80 && vchPriKey.size() == 0x21) {
+        vchPriKey.erase(vchPriKey.begin());
+    }
+
+    CPrivKey privkey;
+    privkey.insert(privkey.end(), vchPriKey.begin(), vchPriKey.end());
+
+    CKey keyPair;
+    if (vchPriKey.size() != 0x20 || !isWIFOK || !keyPair.SetSecret(privkey)) {
+        return -1;
+    }
+
+
+    CKey_Secp256k1 key_secp;
+    key_secp.Set(privkey.begin(), privkey.end(), isCompressed);
 
     CPubKey pubkey = key_secp.GetPubKey();
     vector<unsigned char> vecPubKey = vector<unsigned char>(pubkey.begin(), pubkey.end());
@@ -345,6 +374,14 @@ Value setdefaultkey(const Array& params, bool fHelp)
 
 string MakeNewKeyPair()
 {
+    CKey_Secp256k1 key_secp;
+    key_secp.MakeNewKey(false);
+
+    return StringFormat("Public key: %s\nPrivate key(WIF, WIF-compressed): \n\t%s\n\t%s", ToHexString(key_secp.GetPubKey()),
+        PrKey2WIF(key_secp.GetPrivKey(), false),
+        PrKey2WIF(key_secp.GetPrivKey(), true));
+
+    //HC: or use the following solution:
     CKey keyPair;
     try {
         keyPair.MakeNewKey();
@@ -353,8 +390,9 @@ string MakeNewKeyPair()
         return e.what();
     }
 
-    CPrivKey pr = keyPair.GetPrivKey();
-    std::vector<unsigned char> vPr(pr.begin(), pr.end());
+    //CPrivKey pr = keyPair.GetPrivKey();
+    //std::vector<unsigned char> vPr(pr.begin(), pr.end());
+
     return StringFormat("Public key: %s\nPrivate key(WIF, WIF-compressed): \n\t%s\n\t%s", ToHexString(keyPair.GetPubKey()),
         PrKey2WIF(keyPair.GetPrivKey(), false),
         PrKey2WIF(keyPair.GetPrivKey(), true));

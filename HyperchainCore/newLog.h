@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -33,10 +33,10 @@ DEALINGS IN THE SOFTWARE.
 #include "spdlog/fmt/ostr.h"
 
 
-extern "C" std::shared_ptr<spdlog::logger> g_daily_logger;
-extern "C" std::shared_ptr<spdlog::logger> g_basic_logger;
-extern "C" std::shared_ptr<spdlog::logger> g_rotating_logger;
-extern "C" std::shared_ptr<spdlog::logger> g_console_logger;
-extern "C" std::shared_ptr<spdlog::logger> g_consensus_console_logger;
+extern std::shared_ptr<spdlog::logger> g_daily_logger;
+extern std::shared_ptr<spdlog::logger> g_basic_logger;
+extern std::shared_ptr<spdlog::logger> g_rotating_logger;
+extern std::shared_ptr<spdlog::logger> g_console_logger;
+extern std::shared_ptr<spdlog::logger> g_consensus_console_logger;
 
 #endif

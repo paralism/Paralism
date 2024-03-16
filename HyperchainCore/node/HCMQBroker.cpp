@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -23,6 +23,7 @@ DEALINGS IN THE SOFTWARE.
 #include "zmsg.h"
 #include "mdp.h"
 #include "HCMQBroker.h"
+#include "util/threadname.h"
 
 #include <map>
 #include <set>
@@ -102,7 +103,7 @@ void HCMQBroker::service_dispatch(service *srv, zmsg *msg)
         }
 
         auto now = std::time(nullptr);
-        int ntimeout = 5; // 5 seconds
+        int ntimeout = 10; // 10 seconds
 
         while (!srv->m_requests.empty() && (*wrk)->has_strength()) {
 
@@ -283,6 +284,9 @@ void HCMQBroker::monitor_process(std::string sender, zmsg *msg)
         ss << " waiting requests : " << std::resetiosflags(ios::right) <<
             std::setw(8) << setiosflags(ios::left) << sr->m_requests.size();
 
+        //zmsg request((const char*)taskbuf, len);
+        //TASKTYPE tt = ITask::getTaskType(taskbuf);
+
         ss << " workers : " << sr->m_workers << " " << sr->m_waiting.size();
         if (sr->m_waiting.size() > 0) {
             ss << " process_ability: ";
@@ -329,6 +333,7 @@ void HCMQBroker::start()
         return;
     }
     m_brokerthread.reset(new std::thread(&HCMQBroker::broker_handler, this));
+    hc::SetThreadName(&(*m_brokerthread), "HCMQBroker::broker_handler");
 
     while (!m_isbinded) {
         this_thread::sleep_for(chrono::milliseconds(200));

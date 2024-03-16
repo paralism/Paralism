@@ -57,7 +57,8 @@ public:
         EXT_PUBLIC_KEY,
         EXT_SECRET_KEY,
 
-        MAX_BASE58_TYPES
+        CROSS_CHAIN_ADDRESS,
+        MAX_BASE58_TYPES,
     };
 
 

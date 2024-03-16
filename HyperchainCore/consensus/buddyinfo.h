@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -24,7 +24,7 @@ DEALINGS IN THE SOFTWARE.
 
 #include "headers/inter_public.h"
 #include "headers/commonstruct.h"
-#include "utility/MutexObj.h"
+#include "util/MutexObj.h"
 #include "node/zmsg.h"
 #include "node/mdp.h"
 #include "p2pprotocol.h"
@@ -138,6 +138,8 @@ typedef struct _tagCONSENSUSNOTIFYSTATE
 {
     CONSENSUSNOTIFY notify_fns;
     bool unreging = false;           //whether application is unregistering
+    cbindex calling_index = cbindex::IDLE;
+    std::thread::id calling_thread;
 
 public:
 
@@ -191,9 +193,14 @@ typedef struct _tp2pmanagerstatus
     T_HYPERBLOCK tHyperBlock;
 
     map<CUInt128, T_BUDDYINFO> mapLocalBuddyInfo;           //HC: first:发送方nodeid, second:LOCAL阶段BLOCK数据不完整的buddy信息
+                                                            //HCE: first: sent node id, second: buddy whose block data is uncomplete in local phase
     map<CUInt128, T_BUDDYINFO> mapGlobalBuddyInfo;          //HC: first:发送方nodeid, second:GLOBAL阶段BLOCK数据不完整的buddy信息
+                                                            //HCE: first: sent node id, second: buddy whose block data is uncomplete in global phase
     map< T_SHA256, T_LOCALCONSENSUS > mapLocalConsensus;    //HC: first:子块hash, second:子块consensus
+                                                            //HCE: first: block hash, second: block consensus
 
+    //HCE: Clear all kinds of consensus status 
+    //HCE: @returns void
     void ClearStatus();
 
     _tp2pmanagerstatus()
@@ -228,11 +235,15 @@ typedef struct _tp2pmanagerstatus
     bool HaveOnChainReq()const;
 
     //HC: 返回当前共识子块头里存放的前一个超块Hash,这不完全等同于本节点最新超块的hash
+    //HCE: Get pre hyper block hash in current consensus block which is not always equal to the latest pre hyper block hash of this node
     T_SHA256 GetConsensusPreHyperBlockHash()const;
 
     uint16 GetNodeState()const;
 
     uint64 GettTimeOfConsensus();
+
+    //HCE: Get current consensus phase
+    //HCE: @returns Current consensus phase
     CONSENSUS_PHASE GetCurrentConsensusPhase() const;
 
     T_PEERADDRESS GetLocalBuddyAddr()const;
@@ -244,10 +255,19 @@ typedef struct _tp2pmanagerstatus
         TrackLocalBlock,
     };
 
+    //HCE: Reply message according to its service
+    //HCE: @para t Service defined
+    //HCE: @para msg Pointer to zmsg
+    //HCE: @returns True if the message is processed.
     bool ReplyMsg(int t, zmsg* msg);
 
-
+    //HCE: Get the size of listOnChainReq
+    //HCE: @returns The size of listOnChainReq
     size_t GetListOnChainReqCount();
+
+    //HCE: Push back a block to listOnChainReq(on chain request queue)
+    //HCE: @para LocalConsensusInfo A local block
+    //HCE: @returns void
     void RequestOnChain(const T_LOCALCONSENSUS& LocalConsensusInfo);
 
     void SetStartGlobalFlag(bool flag);
@@ -260,36 +280,125 @@ typedef struct _tp2pmanagerstatus
 
     void SetBuddyInfo(T_STRUCTBUDDYINFO info);
 
+
+    //HCE: Set lastest hyper block
+    //HCE: @para hyperid The lastest hyper block ID
+    //HCE: @para hhash Hash of the lastest hyper block
+    //HCE: @para hyperctime Time of the lastest hyper block created
+    //HCE: @returns void
     void SetLatestHyperBlock(uint64 hyperid, const T_SHA256& hhash, uint64 hyperctime);
 
     inline uint64 GetLatestHyperBlockId() const { return latestHyperblockId; };
 
     const T_SHA256& GetLatestHyperBlockHash() const { return latestHyperBlockHash; };
 
+    //HCE: Get broadcast nodes
+    //HCE: @para MulticastNodes the vector to store the broadcast nodes
+    //HCE: @returns void
     void GetMulticastNodes(vector<CUInt128>& MulticastNodes);
 
+    //HCE: Update on chain state of blocks in a hyper block
+    //HCE: @para hyperblock Hyper block to update
+    //HCE: @returns void
     void UpdateOnChainingState(const T_HYPERBLOCK& hyperblock);
 
+    //HCE: let application layer check the payload data.
+    //HCE: @para hyperblock Hyper block
+    //HCE: @returns True if OK
     bool ApplicationCheck(T_HYPERBLOCK& hyperblock);
+
+    //HCE: Let application layer handle their genesis block and accept block data.
+    //HCE: @para hyperblock Hyper block
+    //HCE: @para isLatest Bool value if it's latest
+    //HCE: @returns True if OK
     bool ApplicationAccept(uint32_t hidFork, T_HYPERBLOCK& hyperblock, bool isLatest);
 
+    //HCE: Update local block's hyper block info into the latest hyper block.
+    //HCE: @para prehyperblockid Block's pre hyper block id 
+    //HCE: @para preHyperBlockHash Block's pre hyper block hash
+    //HCE: @returns void
     void UpdateLocalBuddyBlockToLatest(uint64 prehyperblockid, const T_SHA256& preHyperBlockHash);
 
+    //HCE: init consensus environment
+    //HCE: @returns void
     void CleanConsensusEnv();
 
     //HC:跟踪本地块上链状态
+    //HCE: Trace the on chain state of local block 
+    //HCE: @para localblock A local block
+    //HCE: @returns void
     void TrackLocalBlock(const T_LOCALBLOCK& localblock);
+
+    //HCE: Init on chain state of blocks in mapSearchOnChain whose hyperid = hid
+    //HCE: @para hid Hid to init
+    //HCE: @returns void
     void InitOnChainingState(uint64 hid);
+
+    //HCE: Rehandle on chain state of blocks in mapSearchOnChain whose hyperid > hid
+    //HCE: @para hid Hid to rehandle
+    //HCE: @returns void
     void RehandleOnChainingState(uint64 hid);
 
     void SetAppCallback(const T_APPTYPE& app, const CONSENSUSNOTIFY& notify);
+
+    //HCE: Remove call back App by App type
+    //HCE: @para app App type 
+    //HCE: @returns void
     void RemoveAppCallback(const T_APPTYPE& app);
+
+    bool IsParaAppLoaded() {
+
+        auto tmpmapcbfn = _mapcbfn;  //HC: reference count increase
+
+        map<string, T_APPTYPE> mapApps;
+        for (auto& appnoti : tmpmapcbfn) {
+            if (appnoti.second->unreging) {
+                continue;
+            }
+            if (appnoti.first.isParacoin()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool IsAlethAppLoaded() {
+
+        auto tmpmapcbfn = _mapcbfn;  //HC: reference count increase
+
+        map<string, T_APPTYPE> mapApps;
+        for (auto& appnoti : tmpmapcbfn) {
+            if (appnoti.second->unreging) {
+                continue;
+            }
+            if (appnoti.first.isEthereum()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+    map<string, T_APPTYPE> GetAppsInfo()
+    {
+        auto tmpmapcbfn = _mapcbfn;  //HC: reference count increase
+
+        map<string, T_APPTYPE> mapApps;
+        for (auto& appnoti : tmpmapcbfn) {
+            if (appnoti.second->unreging) {
+                continue;
+            }
+            mapApps[appnoti.first.appName()] = appnoti.first;
+        }
+        return mapApps;
+    }
+
 
     template<cbindex I, typename... Args>
     bool AllAppCallback(Args&... args)
     {
-        //HC: copy _mapcbfn, avoid crash when exiting the program which will call RemoveAppCallback to unregister the application
-        //HC: RemoveAppCallback will erase the elements in _mapcbfn, so here traversing _mapcbfn maybe cause crash
+        //HCE: copy _mapcbfn, avoid crash when exiting the program which will call RemoveAppCallback to unregister the application
+        //HCE: RemoveAppCallback will erase the elements in _mapcbfn, so here traversing _mapcbfn maybe cause crash
         auto tmpmapcbfn = _mapcbfn;  //HC: reference count increase
 
         for (auto& appnoti : tmpmapcbfn) {
@@ -298,7 +407,11 @@ typedef struct _tp2pmanagerstatus
             }
             auto fn = std::get<static_cast<size_t>(I)>(appnoti.second->notify_fns);
             if (fn) {
+                appnoti.second->calling_index = I;
+                appnoti.second->calling_thread = std::this_thread::get_id();
                 fn(args...);
+                appnoti.second->calling_index = cbindex::IDLE;
+                appnoti.second->calling_thread = std::thread::id();
             }
         }
         return true;
@@ -307,8 +420,8 @@ typedef struct _tp2pmanagerstatus
     template<cbindex I, typename... Args>
     CBRET AppCallback(const T_APPTYPE& app, Args&... args)
     {
-        //HC: If use lock, it will cause dead lock when calling RPC command addamounttoaddress
-        //HC: which hold mutex: cs_main then _muxmapcbfn
+        //HCE: If use lock, it will cause dead lock when calling RPC command addamounttoaddress
+        //HCE: which hold mutex: cs_main then _muxmapcbfn
         if (_mapcbfn.count(app)) {
 
             if (_mapcbfn[app]->unreging) {
@@ -318,7 +431,11 @@ typedef struct _tp2pmanagerstatus
             auto spnotistate = _mapcbfn.at(app);
             auto fn = std::get<static_cast<size_t>(I)>(spnotistate->notify_fns);
             if (fn) {
-                return fn(args...) ? (CBRET::REGISTERED_TRUE) : (CBRET::REGISTERED_FALSE);
+                spnotistate->calling_index = I;
+                spnotistate->calling_thread = std::this_thread::get_id();
+                auto ret = (fn(args...) ? (CBRET::REGISTERED_TRUE) : (CBRET::REGISTERED_FALSE));
+                spnotistate->calling_index = cbindex::IDLE;
+                spnotistate->calling_thread = std::thread::id();
             }
         }
         return CBRET::UNREGISTERED;
@@ -326,6 +443,10 @@ typedef struct _tp2pmanagerstatus
 
 private:
 
+    //HCE: Insert block's address and payload in the hyper block to mapPayload
+    //HCE: @para hyperblock Hyper block
+    //HCE: @para mapPayload Map to store block's address and payload
+    //HCE: @returns void
     void ToAppPayloads(const T_HYPERBLOCK& hyperblock, map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload);
 
 private:

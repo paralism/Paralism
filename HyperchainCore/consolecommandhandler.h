@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -24,6 +24,7 @@ DEALINGS IN THE SOFTWARE.
 
 #include "headers/inter_public.h"
 #include "node/zmsg.h"
+#include "consensus/crosschaintx.h"
 
 #include <streambuf>
 #include <iostream>
@@ -113,7 +114,7 @@ public:
     };
     role _r = role::SERVER;
 
-    //HCE: Run console 
+    //HCE: Run console
     //HCE: @para r Run as role r
     void run(role r);
 
@@ -145,6 +146,9 @@ private:
     std::ostream _ostream;
     std::vector<cmdstruct> _commands;
     std::map<std::string, std::string> _mapSettings;
+
+    std::map<int, crosschain::EthToParaExecutor> _mapEth2ParaTx;
+
 
 private:
 
@@ -183,6 +187,9 @@ private:
     //HCE: Show UDP details
     void showUdpDetails();
 
+    //HCE: Show hyper chain details
+    void showHyperChainSpaceInteral();
+
     //HCE: Show consensus infomation
     void showConsensusInfo();
 
@@ -190,7 +197,7 @@ private:
     void showInnerBasicInfo();
 
     //HCE: Show hyper block infomation by hid
-    //HCE: @para hid Hyper block id 
+    //HCE: @para hid Hyper block id
     //HCE: @isShowDetails Show details or not
     void showHyperBlock(uint64 hid, bool isShowDetails);
 
@@ -200,14 +207,14 @@ private:
     //HCE: Download block header according to input node id and block id
     void downloadBlockHeader(const list<string> &commlist);
 
-    //HCE: Show specified local hyper block details 
+    //HCE: Show specified local hyper block details
     void searchLocalHyperBlock(const list<string> &commlist);
 
     //HCE: Show inner infomation
     void showInnerDataStruct(const list<string>& paralist);
 
-    //HCE: Resolve app data
-    void resolveAppData(const list<string> &paralist);
+    //HCE: parse app data
+    void parseAppData(const list<string> &paralist);
 
     void debug(const list<string> &paralist);
 
@@ -246,7 +253,14 @@ private:
 
     //HCE: Handle VM module commands
     void handleVM(const list<string> &vmcmdlist);
-   
+
+    void getChainAddr(const list<string> &vmcmdlist);
+
+    //HCE: create a cross chain transaction, from Para to ethereum
+    void swap2Eth(const list<string> &vmcmdlist);
+    void swap2Para(const list<string> &vmcmdlist);
+    void swap(const list<string> &vmcmdlist);
+
     //HCE: Handle specified app module commands
     void appConsoleCmd(const string& appname, const list<string>& cmdlist, string& savingcommand);
 
@@ -255,16 +269,15 @@ private:
 
     //HCE: Handle paracoin module commands
     void handleCoin(const list<string>& cmdlist, string& savingcommand);
-    
+
     //HCE: Handle eth module commands
     void handleEth(const list<string>& cmdlist, string& savingcommand);
 
     //HCE: use to test paracoin and ledger
     void simulateHyperBlkUpdated(const list<string>& cmdlist);
 
-    //HCE: Update HC program 
+    //HCE: Update HC program
     bool UpdateProgram();
-
 };
 
 class ProgramConfigFile
@@ -280,5 +293,7 @@ public:
     //HCE: @returns void
     static void LoadSettings(const string& cfgfile = "hc.cfg");
 };
+
+
 
 

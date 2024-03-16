@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -609,7 +609,7 @@ _tp2pprotocolonchainrsp& _tp2pprotocolonchainrsp::operator = (const _tp2pprotoco
         tResult = arRes.tResult;
         uiHyperBlockNum = arRes.uiHyperBlockNum;
         uiBlockCount = arRes.uiBlockCount;
-        memset(strHash, 0, DEF_STR_HASH256_LEN + 1);
+        memset(strHash, 0, DEF_STR_HASH256_LEN);
         memcpy(strHash, arRes.strHash, DEF_STR_HASH256_LEN);
     }
     return *this;
@@ -620,7 +620,7 @@ void _tp2pprotocolonchainrsp::SetP2pprotocolonchainrsp(T_P2PPROTOCOLRSP Result, 
     tResult = Result;
     uiHyperBlockNum = HyperBlockNum;
     uiBlockCount = BlockCount;
-    memset(strHash, 0, DEF_STR_HASH256_LEN + 1);
+    memset(strHash, 0, DEF_STR_HASH256_LEN);
     memcpy(strHash, Hash, DEF_STR_HASH256_LEN);
 }
 

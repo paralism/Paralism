@@ -14,7 +14,7 @@ using namespace dev;
 using namespace dev::eth;
 
 TransactionBase::TransactionBase(TransactionSkeleton const& _ts, Secret const& _s):
-    m_type(_ts.creation ? ContractCreation : MessageCall),
+    m_type(_ts.creation ? Type::ContractCreation : Type::MessageCall),
     m_nonce(_ts.nonce),
     m_value(_ts.value),
     m_receiveAddress(_ts.to),
@@ -23,17 +23,35 @@ TransactionBase::TransactionBase(TransactionSkeleton const& _ts, Secret const& _
     m_data(_ts.data),
     m_sender(_ts.from)
 {
+    if (_ts.crosschain_recv) {
+        m_type = Type::CrossChainPara2Eth;
+    }
+
+    if (_ts.crosschain_send) {
+        m_type = Type::CrossChainEth2Para;
+    }
+
     if (_s)
         sign(_s);
 }
 
 TransactionBase::TransactionBase(bytesConstRef _rlpData, CheckTransaction _checkSig)
 {
-    RLP const rlp(_rlpData);
+    RLP rlp(_rlpData);
     try
     {
-        if (!rlp.isList())
-            BOOST_THROW_EXCEPTION(InvalidTransactionFormat() << errinfo_comment("transaction RLP must be a list"));
+        //HC: 交易格式按照 EIP-2718 进行了改造，并且支持传统交易格式
+        bool TxIsEIP2718 = false;
+        if (rlp.isString()) {
+            //格式为EIP-2718, 带交易类型
+            bytesConstRef txData = rlp.toBytesConstRef(); //提取交易数据部分
+            m_type = (Type)(txData[0]);
+            rlp = RLP(txData.cropped(1));               //不含交易类型的交易数据
+
+            TxIsEIP2718 = true;
+
+        } else if (!rlp.isList())
+            BOOST_THROW_EXCEPTION(InvalidTransactionFormat() << errinfo_comment("transaction RLP must be a list or string"));
 
         m_nonce = rlp[0].toInt<u256>();
         m_gasPrice = rlp[1].toInt<u256>();
@@ -41,8 +59,12 @@ TransactionBase::TransactionBase(bytesConstRef _rlpData, CheckTransaction _check
         if (!rlp[3].isData())
             BOOST_THROW_EXCEPTION(InvalidTransactionFormat()
                                   << errinfo_comment("recepient RLP must be a byte array"));
-        m_type = rlp[3].isEmpty() ? ContractCreation : MessageCall;
+
+        if(!TxIsEIP2718)
+            m_type = rlp[3].isEmpty() ? Type::ContractCreation : Type::MessageCall;
+
         m_receiveAddress = rlp[3].isEmpty() ? Address() : rlp[3].toHash<Address>(RLP::VeryStrict);
+
         m_value = rlp[4].toInt<u256>();
 
         if (!rlp[5].isData())
@@ -81,8 +103,17 @@ TransactionBase::TransactionBase(bytesConstRef _rlpData, CheckTransaction _check
                 BOOST_THROW_EXCEPTION(InvalidSignature());
         }
 
+        //HC: get sender
         if (_checkSig == CheckTransaction::Everything)
             m_sender = sender();
+
+        //HC: To cross chain transaction, first byte of address of sender is 1, more see function 'makeswapkey'
+        //if (m_sender && m_sender->data()[0] == 1) {
+        if(m_type == Type::CrossChainPara2Eth) {
+            if (m_nonce != 0) {
+                BOOST_THROW_EXCEPTION(InvalidNonce() << errinfo_comment("nonce shoule be zero for cross-chain transaction"));
+            }
+        }
 
         if (rlp.itemCount() > 9)
             BOOST_THROW_EXCEPTION(InvalidTransactionFormat() << errinfo_comment("too many fields in the transaction RLP"));
@@ -106,6 +137,7 @@ Address const& TransactionBase::safeSender() const noexcept
     }
 }
 
+//HC: 从v r s 中计算交易发送者账户地址
 Address const& TransactionBase::sender() const
 {
     if (!m_sender.is_initialized())
@@ -127,7 +159,7 @@ Address const& TransactionBase::sender() const
 }
 
 SignatureStruct const& TransactionBase::signature() const
-{ 
+{
     if (!m_vrs)
         BOOST_THROW_EXCEPTION(TransactionIsUnsigned());
 
@@ -146,25 +178,42 @@ u256 TransactionBase::rawV() const
 
 void TransactionBase::sign(Secret const& _priv)
 {
-    	    auto sig = dev::sign(_priv, sha3(WithoutSignature));
+    auto sig = dev::sign(_priv, sha3(WithoutSignature));
     SignatureStruct sigStruct = *(SignatureStruct const*)&sig;
     if (sigStruct.isValid())
         m_vrs = sigStruct;
 }
 
-void TransactionBase::streamRLP(RLPStream& _s, IncludeSignature _sig, bool _forEip155hash) const
+void TransactionBase::streamRLP(RLPStream& _s, IncludeSignature _sig, bool _forEip155hash, bool _forsha3) const
 {
-    if (m_type == NullTransaction)
+    if (m_type == Type::NullTransaction)
         return;
 
-    _s.appendList((_sig || _forEip155hash ? 3 : 0) + 6);
-    _s << m_nonce << m_gasPrice << m_gas;
+    RLPStream _s_legacy;
 
-	    if (m_type == MessageCall)
-        _s << m_receiveAddress;
+    _s_legacy.appendList((_sig || _forEip155hash ? 3 : 0) + 6);
+    _s_legacy << m_nonce << m_gasPrice << m_gas;
+
+    if (m_type == Type::MessageCall || m_type == Type::CrossChainPara2Eth || m_type == Type::CrossChainEth2Para)
+        _s_legacy << m_receiveAddress;
     else
-        _s << "";
-    _s << m_value << m_data;
+        _s_legacy << "";
+
+    _s_legacy << m_value;
+    if (!_forsha3) {
+        _s_legacy << m_data;
+    }
+    else {
+        //HC: 如果用于计算hash，需要区分交易类型
+        if (m_type != TransactionBase::Type::CrossChainPara2Eth) {
+            _s_legacy << m_data;
+        }
+        else {
+            //HC: push only hash into RLP stream
+            string paratxhash = parseCrossChainData();
+            _s_legacy << toHex(paratxhash);
+        }
+    }
 
     if (_sig)
     {
@@ -172,14 +221,27 @@ void TransactionBase::streamRLP(RLPStream& _s, IncludeSignature _sig, bool _forE
             BOOST_THROW_EXCEPTION(TransactionIsUnsigned());
 
         if (hasZeroSignature())
-            _s << *m_chainId;
+            _s_legacy << *m_chainId;
         else
-            _s << rawV();
+            _s_legacy << rawV();
 
-        _s << (u256)m_vrs->r << (u256)m_vrs->s;
+        _s_legacy << (u256)m_vrs->r << (u256)m_vrs->s;
     }
     else if (_forEip155hash)
-        _s << *m_chainId << 0 << 0;
+        _s_legacy << *m_chainId << 0 << 0;
+
+    if (m_type != Type::MessageCall && m_type != Type::ContractCreation) {
+        const bytes &legacytx = _s_legacy.out();
+        bytes rawtx;
+        rawtx.push_back((char)m_type);
+        rawtx.insert(rawtx.end(), legacytx.begin(), legacytx.end());
+        _s.append(rawtx);
+    }
+    else {
+        //It is legacy transaction
+        bytes ret(_s_legacy.invalidate());
+        _s.swapOut(ret);
+    }
 }
 
 static const u256 c_secp256k1n("115792089237316195423570985008687907852837564279074904382605163141518161494337");
@@ -217,10 +279,56 @@ h256 TransactionBase::sha3(IncludeSignature _sig) const
         return m_hashWith;
 
     RLPStream s;
-    streamRLP(s, _sig, isReplayProtected() && _sig == WithoutSignature);
+    streamRLP(s, _sig, isReplayProtected() && _sig == WithoutSignature, true);
 
     auto ret = dev::sha3(s.out());
     if (_sig == WithSignature)
         m_hashWith = ret;
     return ret;
+}
+
+std::string TransactionBase::parseCrossChainData() const
+{
+    int hid;
+    int chainid;
+    int localid;
+
+    string paratxhash = parseCrossChainData(hid, chainid, localid);
+    return paratxhash;
+}
+
+
+std::string TransactionBase::parseCrossChainData(int& hid, int& chainid, int& localid) const
+{
+    hid = -1;
+    chainid = -1;
+    localid = -1;
+    if (!isCrossChainParaToEth()) {
+        return "";
+    }
+
+    RLP rlp(data());
+    if (!rlp.isList())
+        BOOST_THROW_EXCEPTION(RLPException());
+
+    string paratxhash = rlp[0].toString();  //HC: 与Eth交易对应的Para交易hash
+    hid = rlp[1].toInt();                   //HC: Para交易所在超块号
+    chainid = rlp[2].toInt();
+    localid = rlp[3].toInt();
+    return paratxhash;
+}
+
+std::string TransactionBase::parseCrossChainData(string& triaddr) const
+{
+    int hid;
+    int chainid;
+    int localid;
+
+    string paratxhash = parseCrossChainData(hid, chainid, localid);
+
+    std::stringstream stream;
+    stream << "[" << hid << " " << chainid << " " << localid << "]";
+    triaddr = stream.str();
+
+    return paratxhash;
 }

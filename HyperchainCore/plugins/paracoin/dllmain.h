@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -143,7 +143,6 @@ bool IsInitialBlockDownload();
 std::string GetWarnings(std::string strFor);
 
 bool ProcessBlock(CNode* pfrom, CBlock* pblock);
-bool ProcessBlock(CNode* pfrom, CBlock* pblock, T_LOCALBLOCKADDRESS* pblockaddr);
 bool ProcessBlockWithTriaddr(CNode* pfrom, CBlock* pblock, BLOCKTRIPLEADDRESS* pblockaddr);
 
 bool GetWalletFile(CWallet* pwallet, std::string& strWalletFileOut);
@@ -231,7 +230,7 @@ using CBlockIndexSSP = std::shared_ptr<CBlockIndexSimplified>;
 class CBlockIndexSimplified : public std::enable_shared_from_this<CBlockIndexSimplified>
 {
 public:
-    uint256 hashBlock; 
+    uint256 hashBlock;
     uint32_t nHeight = -1;
 
     BLOCKTRIPLEADDRESS addr;
@@ -658,6 +657,7 @@ public:
             }
             return _hid;
         }
+        return 0;
     }
 private:
     static uint32_t _hid;
@@ -679,17 +679,20 @@ typedef struct BackTrackingProgress
 
 typedef struct SyncingChainProgress
 {
-    string pullingInvnodeinfo;
-    vector<string> vecPullingDatanode;
-    int64_t pullingtm = 0;
+    
+    CNode* pPullingInvNode = nullptr; 
+    vector<string> vecPullingDataNode;
+
+    int64_t startPullingTm = 0;
     int nPullingRetry = 0;
-    CInv pullinginvStart;
-    CInv pullinginvEnd;
+    CInv pullingInvStart;
+    CInv pullingInvEnd;
+
     int nGotNum;
 
     string ToString(int indentation) const
     {
-        if (pullingtm == 0) {
+        if (startPullingTm == 0) {
             return "preparing";
         }
         string strindent;
@@ -698,16 +701,24 @@ typedef struct SyncingChainProgress
         }
 
         string nodes;
-        for (auto& n : vecPullingDatanode) {
+        for (auto& n : vecPullingDataNode) {
             nodes += strprintf("%s\n%s\t\t", n.c_str(), strindent.c_str());
         }
 
+        string pullingInvNodeInfo;
+        if (pPullingInvNode) {
+            pullingInvNodeInfo = strprintf("%s", pPullingInvNode->addr.ToString().c_str());
+        }
+        else {
+            pullingInvNodeInfo = "No any available peer to sync block data";
+        }
+
         return strprintf("pulling inventory: %s [%d(%s)...%d(%s) got:%d] (%s, retry:%d)" "\n%s"
-            "pulling data: %s", pullingInvnodeinfo.c_str(),
-            pullinginvStart.height, pullinginvStart.hash.ToPreViewString().c_str(),
-            pullinginvEnd.height, pullinginvEnd.hash.ToPreViewString().c_str(),
+            "pulling data: %s", pullingInvNodeInfo.c_str(),
+            pullingInvStart.height, pullingInvStart.hash.ToPreViewString().c_str(),
+            pullingInvEnd.height, pullingInvEnd.hash.ToPreViewString().c_str(),
             nGotNum,
-            time2string(pullingtm).c_str(), nPullingRetry,
+            time2string(startPullingTm).c_str(), nPullingRetry,
             strindent.c_str(),
             nodes.c_str());
     }
@@ -720,45 +731,11 @@ class SeedServers;
 class LatestParaBlock {
 
 public:
-    static void Load();
-    static void CompareAndUpdate(const vector<BLOCKTRIPLEADDRESS>& vecAddrIn, const vector<CBlock>& vecBlockIn, bool isLatest);
-
-    static CBlockIndexSSP Get()
-    {
-        return _pindexLatest;
-    }
-
-    static int GetHeight()
-    {
-        if (_pindexLatest)
-            return _pindexLatest->nHeight;
-        return 0;
-    }
-
-    static string GetMemoryInfo();
-
-    static bool Count(const uint256& hastblock);
-
-    static void AddBlockTripleAddress(const uint256& hastblock, const BLOCKTRIPLEADDRESS& tripleaddr);
-
-    static bool GetBlockTripleAddr(const uint256& hashblock, BLOCKTRIPLEADDRESS& tripleaddr);
-    static bool GetBlock(const uint256& hastblock, CBlock& block, BLOCKTRIPLEADDRESS& tripleaddr);
-
     static void PullingNextBlocks(std::function<void(const SyncingChainProgress&)> notiprogress);
 
 private:
     LatestParaBlock(const LatestParaBlock&) = delete;
     LatestParaBlock& operator=(const LatestParaBlock&) = delete;
-
-    static bool LoadLatestBlock(uint32& maxhid);
-
-    static CBlockIndexSSP AddBlockIndex(const BLOCKTRIPLEADDRESS& addrIn, const CBlock& block);
-
-    static void HandleBlock(const BLOCKTRIPLEADDRESS& addrIn, const CBlock& block);
-private:
-    //HCE: The latest block is contained by latest hyper block
-    static CBlockIndexSSP _pindexLatest;
-    static CBlockDiskLocator _mapBlockAddressOnDisk;
 };
 
 
@@ -780,7 +757,6 @@ public:
     void SyncingProgressChanged(const SyncingChainProgress& progress)
     {
         _syncingChainProgress = progress;
-        _eStatusCode = miningstatuscode::SyncingChain;
     }
 
     //HCE: Evaluate whether mining meets the criteria
@@ -819,7 +795,8 @@ private:
     {
         string rs;
 
-        if (_eStatusCode == miningstatuscode::SyncingChain) {
+        if (_eStatusCode == miningstatuscode::SyncingChain ||
+            _eStatusCode == miningstatuscode::MiningAndSyncingChain ) {
             rs = strprintf("%s \n%s \nSync details: \n\t%s", _mapStatusDescription.at(_eStatusCode).c_str(),
                 _mapSSDescription.at(_eSSStatusCode).c_str(),
                 _syncingChainProgress.ToString(1).c_str());
@@ -840,14 +817,15 @@ private:
 
     enum class seedserverstatuscode : char {
         chain_data_same = 0,
-        seed_server_unknown = -1,
+        seed_server_offline= -1,
         height_too_less = -2,
         local_chain_fork = -3,
-        non_seed_server = -4,
+        seed_server_null = -4,
     };
 
 public:
     enum class miningstatuscode : char {
+        MiningAndSyncingChain = 4,
         Mining = 2,
         ManyBlocksNonChained = 1,
         Switching = 0,
@@ -870,7 +848,7 @@ public:
 
 private:
     miningstatuscode _eStatusCode = miningstatuscode::GenDisabled;
-    seedserverstatuscode _eSSStatusCode = seedserverstatuscode::seed_server_unknown;
+    seedserverstatuscode _eSSStatusCode = seedserverstatuscode::seed_server_offline;
 
     const map<miningstatuscode, string> _mapStatusDescription = {
         {miningstatuscode::Mining,              "Mining"},
@@ -882,17 +860,18 @@ private:
         {miningstatuscode::ManyBlocksNonChained, "Many blocks is non-chained"}, //"More than 40 blocks is non-chained"},
         {miningstatuscode::ChainIncomplete,     "The chain is incomplete"},
         {miningstatuscode::SyncingChain,        "Synchronizing chain data"},
+        {miningstatuscode::MiningAndSyncingChain, "Mining and Synchronizing chain data"},
         {miningstatuscode::MiningThreadExit,     "Mining thread has exited"},
         {miningstatuscode::UnloadWallet,         "Wallet unloaded"},
         {miningstatuscode::VersionLow,           "Mining stopped because version is too low"},
     };
 
     const map<seedserverstatuscode, string> _mapSSDescription = {
-       {seedserverstatuscode::chain_data_same,       "Chain data is basically consistent with seed server"},
-       {seedserverstatuscode::seed_server_unknown,  "Retrieving seed server's chain information"},
+       {seedserverstatuscode::chain_data_same,       "Chain data is basically consistent with seed servers"},
+       {seedserverstatuscode::seed_server_offline,  "Warning: seed servers maybe be offline or your network error"},
+       {seedserverstatuscode::seed_server_null,  "Warning: no seed servers are provided"},
        {seedserverstatuscode::height_too_less,  "Warning: local block height less than seed server's"},
        {seedserverstatuscode::local_chain_fork,  "Warning: local chain is different from seed server's"},
-       {seedserverstatuscode::non_seed_server,  "Warning: seed server is none"},
     };
 
 
@@ -906,6 +885,20 @@ typedef struct SSState
     ChkPoint chkp;
     bool online = false;
 } SSState;
+
+
+class VisibleFriends
+{
+public:
+    static bool ChkPontLeftIsBest(const ChkPoint& left, const ChkPoint& right);
+    static bool bestChain(CBlockLocatorEx** bestloc, vector<CNode*>& vNodesCopy);
+
+    static bool checkChainData();
+
+    //HC: 返回值为匹配度, 0：不匹配，>0：2条链为正包含关系, <0: 为反包含关系
+    //HCE: The return value is matching, 0: mismatch, >0:2 chains are positive containment relations, and <0: are anti-inclusion relationships
+    static int containChain(const ChkPoint& leftcp, const ChkPoint& rightcp);
+};
 
 class SeedServers
 {
@@ -922,7 +915,7 @@ public:
 
     size_t size();
 
-    bool checkData(MiningCondition::seedserverstatuscode& StatusCode);
+    bool checkChainData(MiningCondition::seedserverstatuscode& StatusCode);
 
     static bool getMyCheckPoint(ChkPoint& chkpoint);
 
@@ -937,8 +930,8 @@ public:
                 *bestloc = &(best->second.chkp.chainloc);
                 return true;
             }
-            return false;
         }
+        return false;
     }
 
     bool isBestServer(const CAddress& netaddr)
@@ -951,8 +944,8 @@ public:
                     return true;
                 }
             }
-            return false;
         }
+        return false;
     }
 
     void RefreshOnlineState()
@@ -984,39 +977,6 @@ private:
     CCriticalSection _cs_seedserver;
 };
 
-
-class CBlockDiskLocator
-{
-public:
-    CBlockDiskLocator() {}
-    ~CBlockDiskLocator() {}
-
-    bool contain(const uint256& hashBlock);
-
-    size_t size()
-    {
-        return _sizeInserted;
-    }
-
-    bool insert(CBlockTripleAddressDB& btadb, const uint256& hashBlock, const BLOCKTRIPLEADDRESS& addr);
-    bool insert(const uint256& hashBlock, const BLOCKTRIPLEADDRESS& addr);
-
-    void clear();
-
-    //HCE: how to clean the bit flag?
-    bool erase(const uint256& hashBlock);
-
-    const BLOCKTRIPLEADDRESS& operator[](const uint256& hashBlock);
-
-private:
-
-    const size_t _capacity = 3000;
-
-    size_t _sizeInserted = 0;
-    std::map<uint256, BLOCKTRIPLEADDRESS> _mapBlockTripleAddr;
-    std::map<int64, uint256> _mapTmJoined;
-
-};
 
 //HCE: LRU policy
 //T is non-pointer type
@@ -1251,6 +1211,10 @@ public:
         _isStarted = false;
     }
 
+    bool isStarted() {
+        return _isStarted;
+    }
+
     std::string MQID()
     {
         return _msghandler.details();
@@ -1269,6 +1233,7 @@ public:
     void MTC_ComputeDiff(const uint256& hash_end_vhave, const uint256& hash_end_vhavetail, CBlockLocatorExIncr& incr);
 
     int MTC_GetChkPoint(uint256& hashchkp);
+    bool MTC_CompareChainWithLocal(const ChkPoint& cp);
 
     int MTC_GetChain(vector<uint256>& chains);
 
@@ -1292,6 +1257,7 @@ private:
         MTC_ToString,
         MTC_ToDetailString,
         MTC_GetChain,
+        MTC_CompareChainWithLocal,
     };
 
     MsgHandler _msghandler;

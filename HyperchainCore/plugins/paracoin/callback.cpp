@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -80,46 +80,23 @@ bool ResolveBlock(CBlock& block, const char* payload, size_t payloadlen);
 //HCE: Pull Hyperblock asynchronously
 //HCE: @param hid Hyperblock ID that will be pulled.
 //HCE: @param nodeid Node ID which will be pulled from.
-std::map<uint32_t, time_t> mapPullingHyperBlock;
-CCriticalSection cs_pullingHyperBlock;
+
 void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "")
 {
-    CRITICAL_BLOCK(cs_pullingHyperBlock)
-    {
-        time_t now = time(nullptr);
-        if (mapPullingHyperBlock.count(hid) == 0) {
-            mapPullingHyperBlock.insert({ hid, now });
-        } else {
-            if (now - mapPullingHyperBlock[hid] < 60) {
-                //HCE: already pulled
-                return;
-            } else {
-                mapPullingHyperBlock[hid] = now;
-            }
-        }
-        auto bg = mapPullingHyperBlock.begin();
-        for (; bg != mapPullingHyperBlock.end();) {
-            if (bg->second + 300 < now) {
-                bg = mapPullingHyperBlock.erase(bg);
-            } else {
-                ++bg;
-            }
-        }
+    CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
+    if (hyperchainspace) {
+        hyperchainspace->GetRemoteHyperBlockByID_UntilSuccess(hid, hid + 1, nodeid);
     }
-    std::thread t([hid, nodeid]() {
-        CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
-        if (hyperchainspace) {
-            if (nodeid.empty()) {
-                hyperchainspace->GetRemoteHyperBlockByID(hid);
-                INFO_FL("GetRemoteHyperBlockByID: %d", hid);
-            } else {
-                hyperchainspace->GetRemoteHyperBlockByID(hid, nodeid);
-                INFO_FL("GetRemoteHyperBlockByID: %d, from node: %s", hid, nodeid.c_str());
-            }
-        }
-        });
-    t.detach();
 }
+
+void RSyncRemotePullHyperBlock(uint32_t starthid, uint32_t endhid, string nodeid = "")
+{
+    CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
+    if (hyperchainspace) {
+        hyperchainspace->GetRemoteHyperBlockByID_UntilSuccess(starthid, endhid, nodeid);
+    }
+}
+
 
 bool IsGenesisBlock(const T_APPTYPE& t)
 {
@@ -349,7 +326,7 @@ bool FindBlkInMainFromBlock(const Array& params, bool fHelp)
             }
             hashPrev = block.hashPrevBlock;
         }
-    } 
+    }
     throw runtime_error(StringFormat("Failed to read block %s from Hyper chain space", addr.tostring()));
 }
 
@@ -420,7 +397,7 @@ static string CheckMainChain_fixhlp(vector<BLOCKWITHADDR>& vecFixingBlocks)
     }
     return "Fixed completed\n";
 }
-//HCE: Traverse the Hyperchain in reverse, reading each of its Para subblocks and checking their legitimacy
+//HCE: Traverse the Hyperchain in reverse, reading each of its Para local blocks and checking their legitimacy
 //HCE: @param stopheight The height of the Hyperblock that reverses stop traversal
 //HCE: @param isbreak True means when error occurs function will stop traversal
 string CheckMainChain(int stopheight, bool isfix, bool ischecktriaddr, bool isbreak)
@@ -578,8 +555,7 @@ bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, const uint256& hhash, bool isLat
         vecBlockAddr.push_back(btriaddr);
     }
 
-    LatestParaBlock::CompareAndUpdate(vecBlockAddr, vecBlock, isLatest);
-    for (size_t i = 0; i < vecBlock.size(); i++) {
+    for (size_t i = 0; i < vecBlock.size() && !fShutdown; i++) {
         if (ProcessBlockWithTriaddr(nullptr, &vecBlock[i], &vecBlockAddr[i])) {
             uint256 hash = vecBlock[i].GetHash();
             TRACE_FL("AcceptBlocks() : (%s) %s is accepted\n\n", vecPA[i].addr.tostring().c_str(),
@@ -594,7 +570,7 @@ bool AcceptBlocks(vector<T_PAYLOADADDR>& vecPA, const uint256& hhash, bool isLat
 }
 
 extern HyperBlockMsgs hyperblockMsgs;
-//HCE: Accept validated subchains that chain type is Paracoin contained by a Hyperblock or multiple Hyperblocks
+//HCE: Accept validated solo chains that chain type is Paracoin contained by a Hyperblock or multiple Hyperblocks
 bool AcceptChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t& hidFork, uint32_t& hid, T_SHA256& thhash, bool isLatest)
 {
     CHAINCBDATA cbdata(mapPayload, hidFork, hid, thhash, isLatest);
@@ -774,8 +750,10 @@ bool ValidateLedgerDataCb(T_PAYLOADADDR& payloadaddr,
 
             //HCE: Check against previous transactions
             map<uint256, std::tuple<CTxIndex, CTransaction>> mapUnused;
+            map<uint256, CCrossChainTxIndex> mapCCUnused;
+
             int64 nFees = 0;
-            if (!tx.ConnectInputs(txdb, mapUnused, CDiskTxPos(1), pindexBest, nFees, false, false)) {
+            if (!tx.ConnectInputs(txdb, mapUnused, mapCCUnused, CDiskTxPos(1), pindexBest, nFees, false, false)) {
                 return ERROR_FL("ConnectInputs failed %s",
                     payloadaddr.addr.tostring().c_str());
             }
@@ -1005,12 +983,12 @@ void ThreadGetNeighbourChkBlockInfo(void* parg)
                         }
 
                         g_seedserver.updateSSCheckPoint(node->addr, node->chkpoint);
-                        node->PushMessage("ping", currentMillisecond());
+                        node->Ping();
                     }
                 }
             }
         }
-        SleepFn(30);
+        SleepFn(15);
     }
 }
 
@@ -1034,46 +1012,12 @@ void AppRunningArg(int& app_argc, string& app_argv)
 
 extern MsgHandler paramsghandler;
 //HCE: Query the status of this module through the console 'rs' command
-//HCE: @param info Status of this module 
+//HCE: @param info Status of this module
 void AppInfo(string& info)
 {
-    ostringstream oss;
-    oss << "Paracoin module's current coin name: " << g_cryptoCurrency.GetName() << " - "
-        << g_cryptoCurrency.GetHashPrefixOfGenesis() << endl
-        << "block message: " << g_cryptoCurrency.GetDesc() << endl
-        << "model: " << g_cryptoCurrency.GetModel() << endl
-        << "Genesis block address: " << g_cryptoCurrency.GetHID() << " "
-        << g_cryptoCurrency.GetChainNum() << " "
-        << g_cryptoCurrency.GetLocalID() << endl
-        << "Version: " << VERSION << endl
-        << "Neighbor node amounts: " << vNodes.size() << ", 'coin n' for details" << endl;
-
-    oss << "Para MQID: " << paramsghandler.details() << endl;
-    oss << "ParaMQCenter MQID: " << paramqcenter.MQID() << endl << endl;
-
-    bool isAllowed;
-    string reason = g_miningCond.GetMiningStatus(&isAllowed);
-    oss << "Mining status: " << (isAllowed ? "mining" : "stopped");
-
-    if (!isAllowed && !reason.empty()) {
-        oss << ", " << reason;
-    }
-    oss << endl;
-
-    if (fGenerateBitcoins) {
-        oss << "Block generate enabled\n";
-    } else {
-        oss << "Block generate disabled, use command 'coin e' to enable\n";
-    }
-
-    if (fShutdown) {
-        oss << "Paracoin module has been in shutdown state, please restart\n";
-    }
-    info = oss.str();
-
     //TRY_CRITICAL_BLOCK_T_MAIN(cs_main)
     try {
-        info += "Best block's ";
+        info += "Para best block's ";
         if (pindexBest) {
             info += pindexBest->ToString();
         } else {
@@ -1093,15 +1037,6 @@ void AppInfo(string& info)
             }
         }
 
-        info += "Latest Para block's(HyperChainSpace) ";
-        CBlockIndexSSP p = LatestParaBlock::Get();
-        if (p) {
-            info += p->ToString();
-        } else {
-            info += "CBlockIndex: null\n";
-        }
-        info += LatestParaBlock::GetMemoryInfo();
-
         info += strprintf("OrphanBlocks: %u\n", mapOrphanBlocks.size());
         return;
     }
@@ -1114,15 +1049,14 @@ void AppInfo(string& info)
         return;
     }
 
-    info += strprintf("Best block height: %d, Latest Para block height: %d\n", nBestHeight, LatestParaBlock::GetHeight());
     info += strprintf("Cannot retrieve the details informations for best block and latest Para block,\n\tbecause the lock: %s, try again after a while",
         CCriticalBlockT<pcstName>::ToString().c_str());
 }
 
 //HCE: Parses a stream of characters into block object of Para
 //HCE: @param block A output block object parsed from streaming data
-//HCE: @param payload A binary stream of block data 
-//HCE: @param payloadlen Byte length of the stream 
+//HCE: @param payload A binary stream of block data
+//HCE: @param payloadlen Byte length of the stream
 //HCE: @returns If true parsed successfully
 bool ResolveBlock(CBlock& block, const char* payload, size_t payloadlen)
 {
@@ -1199,7 +1133,7 @@ bool ResolveHeight(int height, string& info)
         return true;
     }
 
-    info += strprintf("Best block height: %d, Latest Para block height: %d\n", nBestHeight, LatestParaBlock::GetHeight());
+    info += strprintf("Best block height: %d\n", nBestHeight);
     info += strprintf("Cannot retrieve the details informations for best block and latest Para block,\n\tbecause the lock: %s, try again after a while",
         CCriticalBlockT<pcstName>::ToString().c_str());
     return false;
@@ -1225,6 +1159,30 @@ bool ResolvePayload(const string& payload, string& info)
 }
 
 
+Value IsMyAddress(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() < 1) {
+        throw runtime_error("coin myaddr <address> : check <address> if it is in my wallet or not");
+    }
+
+    CTxDestination address = DecodeDestination(params[0].get_str());
+    if (!IsValidDestination(address)) {
+        throw runtime_error("Invalid address");
+    }
+
+    CKey keyPair;
+    string error;
+    CBitcoinAddress paraaddr = pwalletMain->GetKeyFromDestination(address, keyPair, error);
+
+    Array ret;
+    if (!paraaddr.IsValid()) {
+        ret.push_back("No");
+    } else {
+        ret.push_back("Yes");
+    }
+    return ret;
+}
+
 Value IsMyPublickey(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() < 1) {
@@ -1235,7 +1193,7 @@ Value IsMyPublickey(const Array& params, bool fHelp)
     CBitcoinAddress paraaddr(ParseHex(pubkey));
 
     Array ret;
-    ret.push_back(paraaddr.ToString());
+    //ret.push_back(paraaddr.ToString());
 
     if (pwalletMain->HaveKey(paraaddr)) {
         ret.push_back("Yes");
@@ -1599,6 +1557,7 @@ string showCoinUsage()
     oss << "       coin addr [account]                : query account addresses\n";
     oss << "       coin sendfrom <fromaccount> <toaddress> <amount> : transfer\n";
     oss << "       coin sendtoaddr <address> <amount> : transfer\n";
+    oss << "       coin s                             : query running status \n";
     oss << "       coin e                             : enable mining\n";
     oss << "       coin d                             : disable mining\n";
     oss << "       coin tx <txid>                     : get detailed information about <txid>\n";
@@ -1812,6 +1771,48 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return ss.str();
             } },
 
+            { "s",[](const list<string>& l, bool fhelp) ->string {
+
+                ostringstream oss;
+                oss << "Paracoin module's current coin name: " << g_cryptoCurrency.GetName() << " - "
+                    << g_cryptoCurrency.GetHashPrefixOfGenesis() << endl
+                    << "block message: " << g_cryptoCurrency.GetDesc() << endl
+                    << "model: " << g_cryptoCurrency.GetModel() << endl
+                    << "Genesis block address: " << g_cryptoCurrency.GetHID() << " "
+                    << g_cryptoCurrency.GetChainNum() << " "
+                    << g_cryptoCurrency.GetLocalID() << endl
+                    << "Version: " << VERSION << endl
+                    << "Neighbor node amounts: " << vNodes.size() << ", 'coin n' for details" << endl;
+
+                oss << "Para MQID: " << paramsghandler.details() << endl;
+                oss << "ParaMQCenter MQID: " << paramqcenter.MQID() << endl << endl;
+
+                string info = "Para best block's ";
+                if (pindexBest) {
+                    info += pindexBest->ToString();
+                }
+                else {
+                    info += "CBlockIndex: null\n";
+                }
+                oss << info;
+
+                bool isAllowed;
+                string status = g_miningCond.GetMiningStatus(&isAllowed);
+                oss << "Mining status: " << status << endl;
+
+                if (fGenerateBitcoins) {
+                    oss << "Block generate enabled\n";
+                }
+                else {
+                    oss << "Block generate disabled, use command 'coin e' to enable\n";
+                }
+
+                if (fShutdown) {
+                    oss << "Paracoin module has been in shutdown state, please restart\n";
+                }
+                return oss.str();
+            } },
+
             { "e",[](const list<string>& l, bool fhelp) ->string {
                 Array arr;
                 arr.push_back(true);
@@ -2011,8 +2012,10 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                     //cp.chainloc = maintrunkchain;
                     if (bExChk) {
                         strExInfo = paramqcenter.MTC_ToString(idx);//cp.chainloc.ToString(idx);
+                        strMy += strprintf("%s ex: %s", mychkp.ToString().c_str(), strExInfo.c_str());
                     }
-                    strMy += strprintf("%s ex: %s", mychkp.ToString().c_str(), strExInfo.c_str());
+                    else
+                        strMy += strprintf("%s", mychkp.ToString().c_str());
                 }
 
                 string strNodes;
@@ -2033,12 +2036,15 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                             strExInfo = " ";
                         }
 
-                        string details = strprintf("  %s(%s)\t\tversion: %d    pingpong: %u(ms) \n\t\t%s ex: %s\n",
+                        string details = strprintf("  %s(%s)\tversion: %d \n\t\t%s rating: %lld \n\t\t%s",
                             node->addr.ToStringIPPort().c_str(),
                             node->nodeid.c_str(),
-                            node->nVersion, node->nAvgPingCost,
-                            node->chkpoint.ToString().c_str(),
-                            strExInfo.c_str());
+                            node->nVersion, node->PingPongInfo().c_str(), node->GetRating(),
+                            node->chkpoint.ToString().c_str());
+                        if (bExChk)
+                            details += strprintf(" ex:%s\n", strExInfo.c_str());
+                        else
+                            details += "\n";
 
                         if (isss) {
                             details[0] = '*';
@@ -2209,16 +2215,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 if (mapOrphanBlocks.count(hashblock)) {
                     block = *(mapOrphanBlocks[hashblock]);
                     isgot = true;
-                    if (COrphanBlockTripleAddressDB().ReadBlockTripleAddress(hashblock, tripleaddr)) {
-                        strWhere += strprintf("Triaddr: %s Where: mapOrphanBlocks\n", tripleaddr.ToString().c_str());
-                    }
-                }
-
-                if (LatestParaBlock::Count(hashblock)) {
-                    if (LatestParaBlock::GetBlock(hashblock, block, tripleaddr)) {
-                        isgot = true;
-                        strWhere += strprintf("Triaddr: %s Where: LatestParaBlock\n", tripleaddr.ToString().c_str());
-                    }
+                    strWhere += strprintf("Triaddr: %s Where: mapOrphanBlocks\n", block.tripleaddr.ToString().c_str());
                 }
 
                 if (isgot) {
@@ -2616,6 +2613,10 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return doAction(IsMyPublickey, l, fhelp, false);
             } },
 
+            { "myaddr",[](const list<string>& l, bool fhelp) ->string {
+                return doAction(IsMyAddress, l, fhelp, false);
+            } },
+
             { "db",[](const list<string>& l, bool fhelp) ->string {
                 if (fhelp) {
                     return "coin db: only for developers";
@@ -2623,6 +2624,15 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 return getdbenv();
             } },
 
+            //{ "getchainaddr", [](const list<string>& l, bool fhelp) ->string {
+
+            //    if (fhelp) {
+            //        return "coin getchainaddr <child block hash> <addr>: get a address of cross chain";
+            //    }
+
+            //    return doAction(getchainaddress, l, fhelp, false);
+
+            //} },
     };
 
     list<string> cpycmdlist;
@@ -2655,4 +2665,5 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
     info = strprintf("Child command '%s' doesn't exist\n", childcmd.c_str());
     return true;
 }
+
 

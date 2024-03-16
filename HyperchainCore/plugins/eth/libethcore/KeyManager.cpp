@@ -146,7 +146,7 @@ string KeyManager::getPassword(h256 const& _passHash, function<string()> const& 
 		return it->second;
 	for (unsigned i = 0; i < 10; ++i)
 	{
-		string p = _pass();
+		string p = _pass(); //HC: here '_pass' is alethmain.cpp::getAccountPassword
 		if (p.empty())
 			break;
 		if (_passHash == UnknownPassword || hashPassword(p) == _passHash)

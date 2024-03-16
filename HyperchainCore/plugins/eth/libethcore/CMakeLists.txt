@@ -7,4 +7,4 @@ add_library(ethcore ${sources})
 target_include_directories(ethcore PRIVATE "${UTILS_INCLUDE_DIR}" "${ETHASH_ROOT}/include")
 target_include_directories(ethcore PRIVATE ${CMAKE_SOURCE_DIR})
 
-target_link_libraries(ethcore PUBLIC hyperchainspace ethereum devcrypto devcore)
+target_link_libraries(ethcore PUBLIC ethereum devcrypto devcore)

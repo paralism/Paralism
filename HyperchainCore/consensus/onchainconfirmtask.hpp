@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -56,7 +56,7 @@ public:
     {
         g_consensus_console_logger->info("Send OnChainConfirmRspTask to {}\n", _peerid.ToHexString().c_str());
 
-        //HC: Run to here, buddy is formed
+        //HCE: Run to here, buddy is formed
         T_PP2PPROTOCOLONCHAINCONFIRMRSP pP2pProtocolOnChainConfirmRsp = nullptr;
 
         int ipP2pProtocolOnChainConfirmRspLen = sizeof(T_P2PPROTOCOLONCHAINCONFIRMRSP);
@@ -220,15 +220,19 @@ public:
 
                 //HC: 我没和任何节点在进行buddy确认，所以可以结成buddy
                 //HC: 或者我正和一个节点在进行buddy确认，但是正好就是同一个节点，所以可以结成buddy
+                //HCE: I have never make buddy with any nodes, so I can make buddy with the node.
+                //HCE: or I am making buddy with a node, but it's just the same node, so I can make buddy with this node
                 g_consensus_console_logger->info("confirm from {}: will makebuddy, isconfirming:{}", _sentnodeid.ToHexString(), isconfirming);
 
                 if (pEng->MakeBuddy(confirmbuddyhash)) {
                     //HC: 结BUDDY成功
+                    //HCE: success to make buddy
                     SendConfirmRsp(confirmbuddyhash, pP2pProtocolOnChainConfirmRecv->uiHyperBlockNum);
                     return;
                 }
 
                 //HC: 结BUDDY失败，删除该BUDDY
+                //HCE: failed to make buddy, delete this buddy
                 if (currBuddyHash == confirmbuddyhash) {
                     auto itrRsp = pConsensusStatus->listCurBuddyRsp.begin();
                     for (; itrRsp != pConsensusStatus->listCurBuddyRsp.end(); itrRsp++) {
@@ -242,6 +246,7 @@ public:
         }
 
         //HC: 没找到，或者结BUDDY失败
+        //HCE: don't find the buddy, or failed to make buddy
         g_consensus_console_logger->info("Confirm refused: make buddy failed, buddy hash from {} ",
             _sentnodeid.ToHexString().c_str());
         SendRefuseReq(_sentnodeid, confirmbuddyhash, RECV_RSP);
@@ -267,7 +272,7 @@ private:
     int _state;
 };
 
-//HC: Copy local block to peer
+//HCE: Copy local block to peer
 class CopyBlockTask : public ITask, public std::integral_constant<TASKTYPE, TASKTYPE::COPY_BLOCK> {
 public:
     using ITask::ITask;
@@ -292,6 +297,7 @@ public:
 
         uint16 num = 0;
         list<CUInt128> listNodeID;      //HC: 要发送的节点
+                                        //HCE: list of the nodes to send
         ITR_LIST_T_LOCALCONSENSUS itr = pConsensusStatus->listLocalBuddyChainInfo.begin();
         for (; itr != pConsensusStatus->listLocalBuddyChainInfo.end(); itr++) {
             if ((*itr).tLocalBlock.GetUUID() == strUUID) {
@@ -306,6 +312,7 @@ public:
         }
 
         //HC: 没有要发送的节点
+        //HCE: no nodes to send
         if (listNodeID.empty())
             return;
 
@@ -326,10 +333,11 @@ public:
             oa << localconsensus;
 
             //HC: 增加共识周期校验
+            //HCE: add verify to consensus circle 
             oa << ConsensusEngine::GetConsensusCircle();
 
             //HC: 必须重新遍历序列化，两段序列化的数据不能拼接
-
+            //HCE: must be serialized.Two serialized data cannot be put together
             for (auto& b : pConsensusStatus->listLocalBuddyChainInfo) {
                 if ((b.GetLocalBlock().GetUUID() == strUUID)) {
                     continue;
@@ -414,7 +422,7 @@ public:
         }
         g_consensus_console_logger->info("CopyBlockTask: recv {} copy block data,{} block is same.",
             P2pProtocolCopyBlockReqRecv.uiBuddyNum, num);
-        //HC: At lease the same block number is 2.
+        //HCE: At lease the same block number is 2.
         if (num < 2) {
             g_consensus_console_logger->warn("CopyBlockTask: cannot accept the copy data,maybe I have entered next phase.");
             return;

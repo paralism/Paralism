@@ -210,6 +210,7 @@ private:
     std::atomic<size_t> m_size = {0};   ///< Tracks total size in bytes
 };
 
+
 /**
  * @brief A queue of blocks. Sits between network or other I/O and the BlockChain.
  * Sorts them ready for blockchain insertion (with the BlockChain::sync() method).
@@ -238,13 +239,19 @@ public:
     bool doneDrain(h256s const& _knownBad = h256s());
 
     /// Notify the queue that the chain has changed and a new block has attained 'ready' status (i.e. is in the chain).
-    void noteReady(h256 const& _b) { WriteGuard l(m_lock); noteReady_WITH_LOCK(_b); }
+    void noteReady(h256 const& _b) { 
+        WriteGuard l(m_lock);
+        noteReady_WITH_LOCK(_b); 
+    }
 
     /// Force a retry of all the blocks with unknown parents.
     void retryAllUnknown();
 
     /// Get information on the items queued.
-    std::pair<unsigned, unsigned> items() const { ReadGuard l(m_lock); return std::make_pair(m_readySet.size(), m_unknownSet.size()); }
+    std::pair<unsigned, unsigned> items() const { 
+        ReadGuard l(m_lock); 
+        return std::make_pair(m_readySet.size(), m_unknownSet.size()); 
+    }
 
     /// Clear everything.
     void clear();
@@ -253,17 +260,27 @@ public:
     void stop();
 
     /// Return first block with an unknown parent.
-    h256 firstUnknown() const { ReadGuard l(m_lock); return m_unknownSet.size() ? *m_unknownSet.begin() : h256(); }
+    h256 firstUnknown() const { 
+        ReadGuard l(m_lock); 
+        return m_unknownSet.size() ? *m_unknownSet.begin() : h256(); 
+    }
 
     /// Get some infomration on the current status.
     BlockQueueStatus status() const;
-        BlockQueueStatus status(size_t& readySet) const;
+    BlockQueueStatus status(size_t& readySet) const;
 
     /// Get some infomration on the given block's status regarding us.
     QueueStatus blockStatus(h256 const& _h) const;
 
-    Handler<> onReady(std::function<void(void)> _t) { return m_onReady.add(_t); }
-    Handler<> onBlocksDrained(std::function<void(void)> _t) { return m_onBlocksDrained.add(_t); }
+    Handler<> onReady(std::function<void(void)> _t) { 
+        return m_onReady.add(_t); 
+    }
+
+    Handler<> onBlocksDrained(std::function<void(void)> _t) { 
+        return m_onBlocksDrained.add(_t); 
+    }
+
+    void onLatestHyperBlockChanged(uint32_t hid, const h256& hhash);
 
     template <class T> void setOnBad(T const& _t) { m_onBad = _t; }
 
@@ -301,7 +318,11 @@ private:
     h256Hash m_readySet;                                                ///< All blocks ready for chain import.
     h256Hash m_unknownSet;                                              ///< Set of all blocks whose parents are not ready/in-chain.
     SizedBlockMap<h256> m_unknown;                                      ///< For blocks that have an unknown parent; we map their parent hash to the block stuff, and insert once the block appears.
+
     h256Hash m_knownBad;                                                ///< Set of blocks that we know will never be valid.
+
+    std::unordered_set<uint32_t> m_knownBadInvalidHBlock;               ///< Set of blocks for invalid hyper block.
+
     SizedBlockMap<time_t> m_future;                                     ///< Set of blocks that are not yet valid. Ordered by timestamp
     h256Hash m_futureSet;  ///< Set of all blocks that are not yet valid.
     Signal<> m_onReady;                                                 ///< Called when a subsequent call to import blocks will return a non-empty container. Be nice and exit fast.

@@ -6,7 +6,17 @@
 #include "TransactionBase.h"
 #include <libethcore/CommonJS.h>
 
+#include "node/Singleton.h"
+#include "headers/commonstruct.h"
+#include "consensus/consensus_engine.h"
+#include "HyperChain/HyperChainSpace.h"
+#include "sysexceptions.h"
+
+
 using namespace std;
+
+extern void verifyParaTxOfCrossChainParaToEth(dev::eth::TransactionBase const& _t, dev::eth::BlockHeader const& _header);
+
 namespace dev
 {
 namespace eth
@@ -120,9 +130,16 @@ void SealEngineFace::populateFromParent(BlockHeader& _bi, BlockHeader const& _pa
     _bi.populateFromParent(_parent);
 }
 
+
+
 void SealEngineFace::verifyTransaction(ImportRequirements::value _ir, TransactionBase const& _t,
                                        BlockHeader const& _header, u256 const& _gasUsed) const
 {
+    //HC:
+    if (_t.isCrossChainParaToEth()) {
+        verifyParaTxOfCrossChainParaToEth(_t, _header);
+    }
+
     if ((_ir & ImportRequirements::TransactionSignatures) && _header.number() < chainParams().EIP158ForkBlock && _t.isReplayProtected())
         BOOST_THROW_EXCEPTION(InvalidSignature());
 

@@ -29,7 +29,10 @@ DEALINGS IN THE SOFTWARE.
 #include "ApplicationChainTask.hpp"
 #include "db/HyperchainDB.h"
 #include "db/dbmgr.h"
+#include "node/defer.h"
 #include "consensus/buddyinfo.h"
+#include "util/threadname.h"
+
 #include "AppPlugins.h"
 #include <algorithm>
 #include <thread>
@@ -38,30 +41,48 @@ DEALINGS IN THE SOFTWARE.
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 
+/*
+//HC: 表说明：
+//HC: header 所有的块头信息
+//HC: headerhashinfo 主链块头信息
+//HC: headerindex： 所有链的块头信息索引，
+//HC: singleheaders: 孤立的块头信息
+
+//HC: hblocks 所有收到的生成的超块
+//HC: hyperblock：主链超块
+
+//HC: lblocks 所有子块
+//HC: localblock： 主链子块
+
+//HC: 2023年十一期间节点61链空间无法同步数据的问题：
+//HC: header，headerhashinfo和headerindex 不一致导致的
+*/
+
 void GetHeaderIDSection(uint64 headerHID, vector<uint16>& locationSection);
 uint64 BinarySearch(uint64 startid, uint64 endid, map<uint64, T_SHA256>& headerhashmap1, map<uint64, T_SHA256>& headerhashmap2);
 
 
-void _headerinfo::Set(uint64 hid)
+void _headers_mtroot::Set(uint64 hid)
 {
     id = hid;
     GetHeaderIDSection(id, section);
 }
 
-void _headerinfo::Set(vector <T_SHA256>& hashMTRootlist)
+void _headers_mtroot::Set(vector <T_SHA256>& hashMTRootlist)
 {
     if (section.size() == hashMTRootlist.size())
-        hashMTRootList = hashMTRootlist;
+        hash_MTRoots = hashMTRootlist;
 }
 
-bool _headerinfo::IsSameChain(_headerinfo other)
+//HC: 二条链是否大部分(短链50%以上)区块相同
+bool _headers_mtroot::hasCommonPart(_headers_mtroot other)
 {
     if (id == other.id) {
         if (section.size() != other.section.size())
             return false;
 
         for (size_t i = 0; i != section.size(); ++i) {
-            if (section[i] == other.section[i] && hashMTRootList[i] != other.hashMTRootList[i])
+            if (section[i] == other.section[i] && hash_MTRoots[i] != other.hash_MTRoots[i])
                 return false;
         }
 
@@ -73,7 +94,7 @@ bool _headerinfo::IsSameChain(_headerinfo other)
         if (section[0] != other.section[0])
             return false;
 
-        if (section[k] == other.section[k] && hashMTRootList[k] != other.hashMTRootList[k])
+        if (section[k] == other.section[k] && hash_MTRoots[k] != other.hash_MTRoots[k])
             return false;
     }
 
@@ -83,8 +104,9 @@ bool _headerinfo::IsSameChain(_headerinfo other)
 
 CHyperChainSpace::CHyperChainSpace(string nodeid)
 {
-    sync_time = system_clock::now();
     m_mynodeid = nodeid;
+
+    HC_MAIN_PROGRAM_ARGS;
 
     if (mapHCArgs.count("-fullnode"))
         m_FullNode = true;
@@ -99,12 +121,13 @@ void CHyperChainSpace::startMQHandler()
     _msghandler.registerTaskWorker(HYPERCHAINSPACE_T_SERVICE);
 
     //HCE: Create sockets used internally by hyperchainspace
-    _msghandler.registerTimer(30 * 1000, std::bind(&CHyperChainSpace::PullChainSpace, this));
+    _msghandler.registerTimer(29 * 1000, std::bind(&CHyperChainSpace::PullChainSpace, this));
     _msghandler.registerTimer(20 * 1000, std::bind(&CHyperChainSpace::PullHeaderHashMTRootInfo, this));
     _msghandler.registerTimer(20 * 1000, std::bind(&CHyperChainSpace::DealwithChainInfo, this));
     _msghandler.registerTimer(20 * 1000, std::bind(&CHyperChainSpace::PullHeaderHashInfo, this));
-    _msghandler.registerTimer(20 * 1000, std::bind(&CHyperChainSpace::PullBlockHeader, this));
-    _msghandler.registerTimer(20 * 1000, std::bind(&CHyperChainSpace::PullHyperBlock, this));
+    _msghandler.registerTimer(21 * 1000, std::bind(&CHyperChainSpace::PullBlockHeader, this));
+    _msghandler.registerTimer(19 * 1000, std::bind(&CHyperChainSpace::PullHyperBlock, this));
+    _msghandler.registerTimer(3 * 1000, std::bind(&CHyperChainSpace::PullHyperBlockRepeatly, this));
     if (m_FullNode) {
         _msghandler.registerTimer(300 * 1000, std::bind(&CHyperChainSpace::PullAllHyperBlock, this));
     }
@@ -129,6 +152,11 @@ void CHyperChainSpace::startMQHandler()
     _msghandler.registerTaskType<NoBlockHeaderRspTask>(TASKTYPE::NO_BLOCKHEADER_RSP);
     _msghandler.registerTaskType<NoBlockHeaderRspTask>(TASKTYPE::NO_HEADERHASHMTROOT_RSP);
 
+    SERVICEForEach([this](SERVICE i) {
+            m_chainactioncoststt.AddAction((int32_t)i, SERVICEValueName(i));
+        });
+
+    _msghandler.enableStatis(true);
     _msghandler.start("CHyperChainSpace");
     cout << "CHyperChainSpace MQID: " << MQID() << endl;
 }
@@ -136,11 +164,11 @@ void CHyperChainSpace::startMQHandler()
 void CHyperChainSpace::GetHyperBlockHealthInfo(map<uint64, uint32>& out_BlockHealthInfo)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
-        if (m_Chainspace.empty())
+        if (m_hyperblocks_nodes.empty())
             return;
 
         out_BlockHealthInfo.clear();
-        for (auto& elem : m_Chainspace) {
+        for (auto& elem : m_hyperblocks_nodes) {
             out_BlockHealthInfo[elem.first] = elem.second.size();
         }
         return;
@@ -247,11 +275,25 @@ void CHyperChainSpace::GetAppBlocksByAddr(const T_LOCALBLOCKADDRESS& low_addr, c
 
 int CHyperChainSpace::GetRemoteLocalBlockByAddr(const T_LOCALBLOCKADDRESS& addr)
 {
-    if (!m_localHID.count(addr.hid)) {
+    if (!m_bestChainLocalHID.count(addr.hid)) {
         //HCE: fix me: get only a local block, not a whole hyper block
         return GetRemoteHyperBlockByID(addr.hid);
     }
     return 0;
+}
+
+int CHyperChainSpace::GetRemoteBlockHeader(uint64 startHID, uint16 range, string nodeid)
+{
+    if (_msghandler.getID() == std::this_thread::get_id()) {
+        PullBlockHeaderData(startHID, range, nodeid);
+        g_daily_logger->info("PullBlockHeaderData() starthid: [{}], range: [{}], nodeid: [{}]", startHID, range, nodeid);
+        g_console_logger->info("PullBlockHeaderData() starthid: [{}], range: [{}], nodeid: [{}]", startHID, range, nodeid);
+        return 0;
+    }
+    else {
+        MQRequestNoWaitResult(HYPERCHAINSPACE_SERVICE, (int)SERVICE::GetRemoteBlockHeaderFromNode, startHID, range, nodeid);
+        return 0;
+    }
 }
 
 int CHyperChainSpace::GetRemoteHyperBlockByID(uint64 globalHID, const string& nodeid)
@@ -280,24 +322,11 @@ int CHyperChainSpace::BatchGetRemoteHyperBlockByID(uint64 globalHID, uint32 nblk
     }
 }
 
-int CHyperChainSpace::GetRemoteBlockHeader(uint64 startHID, uint16 range, string nodeid)
-{
-    if (_msghandler.getID() == std::this_thread::get_id()) {
-        PullBlockHeaderData(startHID, range, nodeid);
-        g_daily_logger->info("PullBlockHeaderData() starthid: [{}], range: [{}], nodeid: [{}]", startHID, range, nodeid);
-        g_console_logger->info("PullBlockHeaderData() starthid: [{}], range: [{}], nodeid: [{}]", startHID, range, nodeid);
-        return 0;
-    }
-    else {
-        MQRequestNoWaitResult(HYPERCHAINSPACE_SERVICE, (int)SERVICE::GetRemoteBlockHeaderFromNode, startHID, range, nodeid);
-        return 0;
-    }
-}
 
 int CHyperChainSpace::GetRemoteHyperBlockByID(uint64 globalHID)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
-        if (m_Chainspace.empty() || m_Chainspace.find(globalHID) == m_Chainspace.end())
+        if (m_hyperblocks_nodes.empty() || m_hyperblocks_nodes.find(globalHID) == m_hyperblocks_nodes.end())
             return -1;
 
         //HCE: Get the list of active nodes
@@ -325,9 +354,30 @@ int CHyperChainSpace::GetRemoteHyperBlockByID(uint64 globalHID)
     }
 }
 
+int CHyperChainSpace::GetRemoteHyperBlockByID_UntilSuccess(uint64 startHID, uint64 endHID, const string& nodeid)
+{
+    if (_msghandler.getID() == std::this_thread::get_id()) {
+
+        for (uint64 i = startHID; i < endHID; ++i) {
+            if (m_mapPullingHyperBlock.count(i) == 0) {
+                PullHB_RECORD record;
+                record.firstrequest = std::time(nullptr);
+                record.lastrequest = record.firstrequest;
+                m_mapPullingHyperBlock.insert({ i, record });
+            }
+        }
+        return 0;
+    }
+    else {
+        MQRequestNoWaitResult(HYPERCHAINSPACE_SERVICE, (int)SERVICE::GetRemoteHyperBlockByID_UntilSuccess, startHID, endHID, nodeid);
+        return 0;
+    }
+}
+
+
 int CHyperChainSpace::GetRemoteHyperBlockByPreHash(uint64 syncHID, std::set<CUInt128>& activeNodes)
 {
-    if (m_Chainspace.empty() || m_Chainspace.find(syncHID) == m_Chainspace.end()) {
+    if (m_hyperblocks_nodes.empty() || m_hyperblocks_nodes.find(syncHID) == m_hyperblocks_nodes.end()) {
         g_daily_logger->error("GetRemoteHyperBlockByPreHash failed! Can't find hid: [{}] in m_Chainspace", syncHID);
         g_console_logger->warn("GetRemoteHyperBlockByPreHash failed! Can't find hid: [{}] in m_Chainspace", syncHID);
         return -1;
@@ -352,6 +402,14 @@ int CHyperChainSpace::GetRemoteHyperBlockByPreHash(uint64 syncHID, std::set<CUIn
     T_SHA256 prehash = m_HeaderIndexMap[headerhash].prehash;
     string nodeid = m_HeaderIndexMap[headerhash].from_id;
 
+    //HC: 最优链上检查是否存在
+    if (m_bestChainBlocksHash.find(syncHID) != m_bestChainBlocksHash.end() &&
+        m_bestChainBlocksHash.find(syncHID - 1) != m_bestChainBlocksHash.end() &&
+        m_bestChainBlocksHash[syncHID - 1] == prehash) {
+        //HCE: HyperBlock(syncHID) already exists
+        return 0;
+    }
+
     int ret = GetRemoteHyperBlockByPreHash(syncHID, prehash, nodeid, hhash, activeNodes);
     if (ret < 0) {
         char PreHash[FILESIZEL] = { 0 };
@@ -365,7 +423,25 @@ int CHyperChainSpace::GetRemoteHyperBlockByPreHash(uint64 syncHID, std::set<CUIn
 
 int CHyperChainSpace::GetRemoteHyperBlockByPreHash(uint64 globalHID, T_SHA256 prehash, string nodeid, T_SHA256 headerhash, std::set<CUInt128>& activeNodes)
 {
-    if (m_Chainspace.empty() || m_Chainspace.find(globalHID) == m_Chainspace.end()) {
+    bool inSyncBlockMap = false;
+    system_clock::time_point synctime;
+    system_clock::time_point curr;
+    using seconds = std::chrono::duration<double, ratio<1>>;
+    seconds timespan;
+
+    if (!m_SyncBlockMap.empty() && m_SyncBlockMap.find(globalHID) != m_SyncBlockMap.end()) {
+        inSyncBlockMap = true;
+        synctime = m_SyncBlockMap[globalHID].sync_block_time;
+        curr = system_clock::now();
+        timespan = std::chrono::duration_cast<seconds>(curr - synctime);
+
+        if (timespan.count() < 3) {
+            //HCE: the same HID only sync once in 3 seconds
+            return 0;
+        }
+    } 
+
+    if (m_hyperblocks_nodes.empty() || m_hyperblocks_nodes.find(globalHID) == m_hyperblocks_nodes.end()) {
         g_daily_logger->error("GetRemoteHyperBlockByPreHash failed! Can't find hid: [{}] in m_Chainspace", globalHID);
         g_console_logger->warn("GetRemoteHyperBlockByPreHash failed! Can't find hid: [{}] in m_Chainspace", globalHID);
         return -1;
@@ -377,42 +453,92 @@ int CHyperChainSpace::GetRemoteHyperBlockByPreHash(uint64 globalHID, T_SHA256 pr
         return -1;
     }
 
-    if (!nodeid.empty() && nodeid != "myself" &&
-        activeNodes.count(CUInt128(nodeid)) &&
-        m_Chainspace[globalHID].count(nodeid)) {
+    if (inSyncBlockMap) {
+        bool findnew = false;
+        T_SYNCBLOCKINFO sinfo = m_SyncBlockMap[globalHID];
+        for (set<string>::iterator iter = m_hyperblocks_nodes[globalHID].begin(); iter != m_hyperblocks_nodes[globalHID].end(); iter++) {
+            //HC: 检查该nodeid是否在活跃节点列表中
+            if (!activeNodes.count(CUInt128(*iter)))
+                continue;
+
+            //HC: 向未请求过的节点发送超块获取请求
+            if (find(sinfo.nodelist.begin(), sinfo.nodelist.end(), *iter) == sinfo.nodelist.end()) {
+                findnew = true;
+
+                PullHyperDataByPreHash(globalHID, prehash, *iter);
+
+                sinfo.sync_block_time = system_clock::now();
+                sinfo.nodelist.push_back(*iter);
+                sinfo.retry_times++;
+
+                m_SyncBlockMap[globalHID] = std::move(sinfo);
+
+                return 0;
+            }
+        }
+
+        if (!findnew) {
+            //HC: 已经向所有的活跃邻居节点都发送过同步超块请求。当间隔超过10秒钟后，清空缓存数据，重新发送请求。
+            //HCE: Synchronous hyperblock requests have been sent to all active neighbor nodes.
+            //HCE: When the interval exceeds 10 seconds, clear the cached data and resend the request.
+            if (timespan.count() < 10)
+                return 0;
+
+            m_SyncBlockMap.erase(globalHID);
+        }
+    }
+
+    if (!nodeid.empty() && nodeid != "myself" && activeNodes.count(CUInt128(nodeid)) && m_hyperblocks_nodes[globalHID].count(nodeid)) {
         PullHyperDataByPreHash(globalHID, prehash, nodeid);
+
+        T_SYNCBLOCKINFO sinfo;
+        sinfo.nodelist.push_back(nodeid);
+        sinfo.retry_times++;
+
+        //HC: 登记该hid请求过的节点信息
+        m_SyncBlockMap[globalHID] = std::move(sinfo);
+
         return 0;
     }
 
-    if (!m_chainInfoMap.empty()) {
-        auto iter = m_chainInfoMap.begin();
-        for (; iter != m_chainInfoMap.end(); iter++) {
+    if (!m_alternatechains.empty()) {
+        auto iter = m_alternatechains.begin();
+        for (; iter != m_alternatechains.end(); iter++) {
             map<uint64, T_SHA256> hashmap = iter->second.headerhash;
             auto itr = hashmap.find(globalHID);
             if (itr == hashmap.end() || itr->second != headerhash)
                 continue;
 
             for (auto ir : iter->second.nodelist) {
-                if (activeNodes.count(CUInt128(ir)) && m_Chainspace[globalHID].count(ir)) {
+                if (activeNodes.count(CUInt128(ir)) && m_hyperblocks_nodes[globalHID].count(ir)) {
                     PullHyperDataByPreHash(globalHID, prehash, ir);
+
+                    T_SYNCBLOCKINFO sinfo;
+                    sinfo.nodelist.push_back(ir);
+                    sinfo.retry_times++;
+
+                    m_SyncBlockMap[globalHID] = std::move(sinfo);
+
                     return 0;
                 }
             }
         }
     }
 
-    int i;
-    set<string>::iterator iter = m_Chainspace[globalHID].begin();
-    for (i = 0; (i < 3) && (iter != m_Chainspace[globalHID].end()); iter++) {
+    for (set<string>::iterator iter = m_hyperblocks_nodes[globalHID].begin(); iter != m_hyperblocks_nodes[globalHID].end(); iter++) {
         //HCE: Check whether the nodeid is in the list of active nodes
         if (activeNodes.count(CUInt128(*iter))) {
             PullHyperDataByPreHash(globalHID, prehash, *iter);
-            i++;
+
+            T_SYNCBLOCKINFO sinfo;
+            sinfo.nodelist.push_back(*iter);
+            sinfo.retry_times++;
+
+            m_SyncBlockMap[globalHID] = std::move(sinfo);
+
+            return 0;
         }
     }
-
-    if (i > 0)
-        return 0;
 
     g_daily_logger->error("GetRemoteHyperBlockByPreHash failed! Can't find hid: [{}] in ActiveNodes", globalHID);
     g_console_logger->warn("GetRemoteHyperBlockByPreHash failed! Can't find hid: [{}] in ActiveNodes", globalHID);
@@ -422,8 +548,8 @@ int CHyperChainSpace::GetRemoteHyperBlockByPreHash(uint64 globalHID, T_SHA256 pr
 
 bool CHyperChainSpace::GetHyperBlockHeaderHash(uint64 hid, T_SHA256& headerhash)
 {
-    if (m_HeaderHashMap.count(hid)) {
-        headerhash = m_HeaderHashMap[hid];
+    if (m_bestChainHeadersHash.count(hid)) {
+        headerhash = m_bestChainHeadersHash[hid];
         return true;
     }
 
@@ -443,8 +569,8 @@ bool CHyperChainSpace::GetHyperBlockHeaderHash(uint64 id, uint32 range, vector<T
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
         for (uint64 hid = id; hid < id + range; hid++) {
-            if (m_HeaderHashMap.count(hid)) {
-                vecheaderhash.push_back(m_HeaderHashMap[hid]);
+            if (m_bestChainHeadersHash.count(hid)) {
+                vecheaderhash.push_back(m_bestChainHeadersHash[hid]);
             }
             else {
                 g_daily_logger->error("GetHyperBlockHeaderHash failed! Can't find block [{}] in m_HeaderHashMap", hid);
@@ -485,13 +611,13 @@ void CHyperChainSpace::PutHyperBlockHeaderHash(uint64 hid, uint32 range, vector<
             return;
         }
 
-        if (m_chainInfoMap.empty())
+        if (m_alternatechains.empty())
             return;
 
         uint8 chainNum = 0;
         bool found = false;
 
-        for (auto it = m_chainInfoMap.begin(); !found && it != m_chainInfoMap.end(); it++) {
+        for (auto it = m_alternatechains.begin(); !found && it != m_alternatechains.end(); it++) {
             if (find(it->second.nodelist.begin(), it->second.nodelist.end(), from_nodeid) != it->second.nodelist.end()) {
                 chainNum = it->first;
                 found = true;
@@ -505,34 +631,34 @@ void CHyperChainSpace::PutHyperBlockHeaderHash(uint64 hid, uint32 range, vector<
             return;
         }
 
-        g_daily_logger->info("PutHyperBlockHeaderHash hid: [{}], range: [{}], nodeid: [{}]", hid, range, from_nodeid);
-        g_console_logger->info("PutHyperBlockHeaderHash hid: [{}], range: [{}], nodeid: [{}]", hid, range, from_nodeid);
 
+        //HC: 保存请求结果
         int id = hid;
         for (auto& hh : headerhash) {
-            m_chainInfoMap[chainNum].headerhash.insert(make_pair(id, hh));
+            m_alternatechains[chainNum].headerhash.insert(make_pair(id, hh));
             id++;
         }
 
-        m_chainInfoMap[chainNum].sync_hash_hid = --id;
+        m_alternatechains[chainNum].sync_hash_hid = --id;
 
         g_daily_logger->info("PutHyperBlockHeaderHash sync_hash_hid: [{}], headerinfo.id: [{}]",
-            m_chainInfoMap[chainNum].sync_hash_hid, m_chainInfoMap[chainNum].headerinfo.id);
+            m_alternatechains[chainNum].sync_hash_hid, m_alternatechains[chainNum].headerMTRootinfo.id);
         g_console_logger->info("PutHyperBlockHeaderHash sync_hash_hid: [{}], headerinfo.id: [{}]",
-            m_chainInfoMap[chainNum].sync_hash_hid, m_chainInfoMap[chainNum].headerinfo.id);
+            m_alternatechains[chainNum].sync_hash_hid, m_alternatechains[chainNum].headerMTRootinfo.id);
 
-        if (m_chainInfoMap[chainNum].sync_hash_hid < m_chainInfoMap[chainNum].headerinfo.id) {
+        if (m_alternatechains[chainNum].sync_hash_hid < m_alternatechains[chainNum].headerMTRootinfo.id) {
             _msghandler.registerTimer(2 * 1000, std::bind(&CHyperChainSpace::PullHeaderHashInfo, this), true);
             return;
         }
 
-        if (m_chainInfoMap[chainNum].sync_hash_hid == m_chainInfoMap[chainNum].headerinfo.id) {
+        //HC: 计算收到的超块头hash数据的hash根，并检查与之前收到的是否一致
+        if (m_alternatechains[chainNum].sync_hash_hid == m_alternatechains[chainNum].headerMTRootinfo.id) {
             //HCE: Verify HashMTRoot
             vector<T_SHA256> hashMTRootlist;
-            GenerateHeaderHashMTRootList(m_chainInfoMap[chainNum].headerinfo.section, hashMTRootlist, m_chainInfoMap[chainNum].headerhash);
+            GenerateHeaderHashMTRootList(m_alternatechains[chainNum].headerMTRootinfo.section, hashMTRootlist, m_alternatechains[chainNum].headerhash);
 
             bool isSame = true;
-            vector<T_SHA256> hMTRootlist = m_chainInfoMap[chainNum].headerinfo.hashMTRootList;
+            vector<T_SHA256> hMTRootlist = m_alternatechains[chainNum].headerMTRootinfo.hash_MTRoots;
             if (hMTRootlist.size() == hashMTRootlist.size()) {
                 for (int i = 0; i < hMTRootlist.size(); i++) {
                     if (hMTRootlist[i] != hashMTRootlist[i]) {
@@ -542,11 +668,11 @@ void CHyperChainSpace::PutHyperBlockHeaderHash(uint64 hid, uint32 range, vector<
                 }
 
                 if (isSame)
-                    m_chainInfoMap[chainNum].checked = true;
+                    m_alternatechains[chainNum].checked = true;
             }
 
-            g_daily_logger->info("PutHyperBlockHeaderHash m_chainInfoMap[{}].checked={}", chainNum, m_chainInfoMap[chainNum].checked);
-            g_console_logger->info("PutHyperBlockHeaderHash m_chainInfoMap[{}].checked={}", chainNum, m_chainInfoMap[chainNum].checked);
+            g_daily_logger->info("PutHyperBlockHeaderHash m_chainInfoMap[{}].checked={}", chainNum, m_alternatechains[chainNum].checked);
+            g_console_logger->info("PutHyperBlockHeaderHash m_chainInfoMap[{}].checked={}", chainNum, m_alternatechains[chainNum].checked);
         }
     }
     else {
@@ -642,11 +768,11 @@ CHECK_RESULT CHyperChainSpace::CheckDependency(const T_HYPERBLOCK& hyperblock, s
 
 int CHyperChainSpace::GetRemoteHeaderHash(uint64 startHID, uint32 range)
 {
-    if (m_Chainspace.empty())
+    if (m_hyperblocks_nodes.empty())
         return -1;
 
-    map<uint64, set<string>>::iterator it = m_Chainspace.find(startHID);
-    if (it == m_Chainspace.end())
+    map<uint64, set<string>>::iterator it = m_hyperblocks_nodes.find(startHID);
+    if (it == m_hyperblocks_nodes.end())
         return -1;
 
     //HCE: Get the list of active nodes
@@ -873,7 +999,7 @@ void CHyperChainSpace::loadHyperBlockCache()
 
 void CHyperChainSpace::loadHyperBlockIDCache()
 {
-    int ret = m_db->getAllHyperblockNumInfo(m_localHID);
+    int ret = m_db->getAllHyperblockNumInfo(m_bestChainLocalHID);
     if (ret != 0) {
         g_daily_logger->error("loadHyperBlockIDCache failed!");
         g_console_logger->error("loadHyperBlockIDCache failed!");
@@ -882,16 +1008,16 @@ void CHyperChainSpace::loadHyperBlockIDCache()
 
 void CHyperChainSpace::loadHeaderIDCache()
 {
-    if (m_HeaderHashMap.empty())
+    if (m_bestChainHeadersHash.empty())
         return;
 
-    for (auto it = m_HeaderHashMap.begin(); it != m_HeaderHashMap.end(); it++)
+    for (auto it = m_bestChainHeadersHash.begin(); it != m_bestChainHeadersHash.end(); it++)
         m_localHeaderID.insert(it->first);
 }
 
 void CHyperChainSpace::loadHyperBlockHashCache()
 {
-    int ret = m_db->getAllBlockHashInfo(m_BlockHashMap);
+    int ret = m_db->getAllBlockHashInfo(m_bestChainBlocksHash);
     if (ret != 0) {
         g_daily_logger->error("loadHyperBlockHashCache failed!");
         g_console_logger->error("loadHyperBlockHashCache failed!");
@@ -963,17 +1089,17 @@ uint64 CHyperChainSpace::GetMaxHeaderID()
 void CHyperChainSpace::NoHyperBlock(uint64 hid, string nodeid)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
-        if (m_Chainspace.empty())
+        if (m_hyperblocks_nodes.empty())
             return;
 
-        map<uint64, set<string>>::iterator it = m_Chainspace.find(hid);
-        if (it == m_Chainspace.end())
+        map<uint64, set<string>>::iterator it = m_hyperblocks_nodes.find(hid);
+        if (it == m_hyperblocks_nodes.end())
             return;
 
         set<string> nodeset = it->second;
         nodeset.erase(nodeid);
         if (nodeset.empty()) {
-            m_Chainspace.erase(it);
+            m_hyperblocks_nodes.erase(it);
 
             if (hid == uiGlobalMaxBlockNum)
                 uiGlobalMaxBlockNum--;
@@ -990,15 +1116,15 @@ void CHyperChainSpace::NoHyperBlock(uint64 hid, string nodeid)
 void CHyperChainSpace::NoHyperBlockHeader(uint64 hid, string nodeid)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
-        if (m_chainspaceheader.empty())
+        if (m_nodes_MTRoots.empty())
             return;
 
-        auto it = m_chainspaceheader.find(nodeid);
-        if (it == m_chainspaceheader.end())
+        auto it = m_nodes_MTRoots.find(nodeid);
+        if (it == m_nodes_MTRoots.end())
             return;
 
         if (hid <= it->second.id)
-            m_chainspaceheader.erase(it);
+            m_nodes_MTRoots.erase(it);
     }
     else {
         zmsg* rspmsg = MQRequest(HYPERCHAINSPACE_SERVICE, (int)SERVICE::NoHyperBlockHeader, hid, nodeid);
@@ -1017,7 +1143,7 @@ bool CHyperChainSpace::GetHeaderHashMTRootData(uint64 headerid, string& msgbuf)
         vector<uint16> locationSection;
         vector<T_SHA256> hashMTRootlist;
         GetHeaderIDSection(headerid, locationSection);
-        GenerateHeaderHashMTRootList(locationSection, hashMTRootlist, m_HeaderHashMap);
+        GenerateHeaderHashMTRootList(locationSection, hashMTRootlist, m_bestChainHeadersHash);
 
         msgbuf += "HeaderID=";
         msgbuf += to_string(headerid);
@@ -1065,8 +1191,8 @@ void CHyperChainSpace::AnalyzeHeaderHashMTRootData(string strbuf, string nodeid)
         string buf = strbuf.substr(no + 9, nr - no - 9);
         uint64 id = stoull(buf);
 
-        auto it = m_chainspaceheader.find(nodeid);
-        if (it == m_chainspaceheader.end() || (it->second.id != id)) {
+        auto it = m_nodes_MTRoots.find(nodeid);
+        if (it == m_nodes_MTRoots.end() || (it->second.id != id)) {
             g_daily_logger->error("AnalyzeHeaderHashMTRootData() failed! hid: [{}], nodeid: [{}]", id, nodeid);
             g_console_logger->warn("AnalyzeHeaderHashMTRootData() failed! hid: [{}], nodeid: [{}]", id, nodeid);
             return;
@@ -1176,7 +1302,7 @@ void CHyperChainSpace::AnalyzeChainSpaceData(string strbuf, string nodeid)
         }
         else {
             string buf = strbuf.substr(no + 9);
-            m_chainspaceheaderID[nodeid] = stoull(buf);
+            m_nodes_latest_height[nodeid] = stoull(buf);
 
             strbuf = strbuf.substr(np + 8, no - np - 8);
         }
@@ -1199,26 +1325,26 @@ void CHyperChainSpace::AnalyzeChainSpaceData(string strbuf, string nodeid)
 
                 for (ID = nstart; ID <= nend; ID++) {
                     //if (!FindIDExistInChainIDList(ID))
-                    m_Chainspace[ID].insert(nodeid);
+                    m_hyperblocks_nodes[ID].insert(nodeid);
                 }
 
             }
             else {
                 ID = stoull(strIDtoID);
                 //if (!FindIDExistInChainIDList(ID))
-                m_Chainspace[ID].insert(nodeid);
+                m_hyperblocks_nodes[ID].insert(nodeid);
             }
         }
 
-        map<uint64, set<string>>::reverse_iterator it = m_Chainspace.rbegin();
-        if (it == m_Chainspace.rend())
+        map<uint64, set<string>>::reverse_iterator it = m_hyperblocks_nodes.rbegin();
+        if (it == m_hyperblocks_nodes.rend())
             return;
 
         if (uiGlobalMaxBlockNum < it->first)
             uiGlobalMaxBlockNum = it->first;
 
-        if (!m_ChainspaceReady)
-            m_ChainspaceReady = true;
+        if (!m_atleast_onenode_chainspace_ready)
+            m_atleast_onenode_chainspace_ready = true;
     }
     else {
         zmsg* rspmsg = MQRequest(HYPERCHAINSPACE_SERVICE, (int)SERVICE::AnalyzeChainSpaceData, strbuf, nodeid);
@@ -1343,14 +1469,17 @@ bool CHyperChainSpace::GetLocalBlockPayload(const T_LOCALBLOCKADDRESS& addr, str
 void CHyperChainSpace::start(DBmgr* db)
 {
     m_db = db;
+
+
     //HC: 加载本地超块号到内存缓存
     //HCE: Load the local hyperblock number into the memory cache
     cout << "HyperChainSpace::loadHyperBlockIDCache... " << endl;
     loadHyperBlockIDCache();
 
+
     //HC: 生成本地超块号区间段格式
     //HCE: Generates a local hyperblock number interval segment format
-    GenerateHIDSection(m_localHID, m_localHIDsection);
+    GenerateHIDSection(m_bestChainLocalHID, m_localHIDsection);
 
     //HC: 加载本地最新超块到内存缓存
     //HCE: Load the latest local hyperblock into the memory cache
@@ -1370,9 +1499,9 @@ void CHyperChainSpace::start(DBmgr* db)
     //HC: 加载本地最优链HeaderHash到内存缓存
     //HCE: Load all local HeaderHash of the optimal chain into the memory cache
     cout << "HyperChainSpace::loadBestChainHeaderHashInfo... " << endl;
-    m_db->getAllHeaderHashInfo(m_HeaderHashMap);
+    m_db->getAllHeaderHashInfo(m_bestChainHeadersHash);
 
-    if (!m_HeaderHashMap.empty()) {
+    if (!m_bestChainHeadersHash.empty()) {
         //HC: 加载本地超块头ID到内存缓存
         //HCE: Load the local hyperblock header ID into the memory cache
         loadHeaderIDCache();
@@ -1383,6 +1512,9 @@ void CHyperChainSpace::start(DBmgr* db)
 
         uiMaxHeaderID = GetMaxHeaderID();
     }
+
+
+    //this_thread::sleep_for(chrono::seconds(20));
 
     //HC: 加载创始块ID和Hash
     //HCE: Load genesis block ID and Hash
@@ -1399,12 +1531,12 @@ void CHyperChainSpace::start(DBmgr* db)
     else if (pro_ver == ProtocolVer::NET::SAND_BOX) {
         m_gensisblockID = 0;
 
-        if (!m_HeaderHashMap.empty() && m_HeaderHashMap.find(0) != m_HeaderHashMap.end()) {
-            m_gensisblockHeaderhash = m_HeaderHashMap[0];
+        if (!m_bestChainHeadersHash.empty() && m_bestChainHeadersHash.find(0) != m_bestChainHeadersHash.end()) {
+            m_gensisblockHeaderhash = m_bestChainHeadersHash[0];
 
             //HC: NodeManager模块，用来区分不同创始块网络
             //HCE: NodeManager module, used to distinguish between different genesis block networks
-            genesis_block_header_hash = m_HeaderHashMap[0];
+            genesis_block_header_hash = m_bestChainHeadersHash[0];
         }
     }
 
@@ -1496,6 +1628,8 @@ void CHyperChainSpace::PullBlockHeaderData(uint64 hid, uint16 range, string node
 
 void CHyperChainSpace::PullChainSpace()
 {
+    auto acss = m_chainactioncoststt.NewStatt("PullChainSpace");
+
     if (_isstop) {
         return;
     }
@@ -1559,8 +1693,8 @@ void CHyperChainSpace::GetLatestHyperBlock(T_HYPERBLOCK& hyperblock)
 void CHyperChainSpace::GetLocalHIDs(uint64 nStartHID, set<uint64>& setHID)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
-        auto iter = m_localHID.lower_bound(nStartHID);
-        for (; iter != m_localHID.end(); ++iter) {
+        auto iter = m_bestChainLocalHID.lower_bound(nStartHID);
+        for (; iter != m_bestChainLocalHID.end(); ++iter) {
             setHID.insert(*iter);
         }
     }
@@ -1588,7 +1722,7 @@ void CHyperChainSpace::GetHyperChainShow(map<string, string>& chainspaceshow)
 void CHyperChainSpace::GetHyperChainData(map<uint64, set<string>>& chainspacedata)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
-        chainspacedata = m_Chainspace;
+        chainspacedata = m_hyperblocks_nodes;
     }
     else {
         zmsg* rspmsg = MQRequest(HYPERCHAINSPACE_SERVICE, (int)SERVICE::GetHyperChainData, &chainspacedata);
@@ -1614,7 +1748,7 @@ void CHyperChainSpace::GetLocalHIDsection(vector <string>& hidsection)
 size_t CHyperChainSpace::GetLocalChainIDSize()
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
-        return m_localHID.size();
+        return m_bestChainLocalHID.size();
     }
     else {
         zmsg* rspmsg = MQRequest(HYPERCHAINSPACE_SERVICE, (int)SERVICE::GetLocalChainIDSize);
@@ -1647,6 +1781,7 @@ uint64 CHyperChainSpace::GetHeaderHashCacheLatestHID()
     }
 }
 
+
 void CHyperChainSpace::DispatchService(void* wrk, zmsg* msg)
 {
     HCMQWrk* realwrk = reinterpret_cast<HCMQWrk*>(wrk);
@@ -1656,6 +1791,13 @@ void CHyperChainSpace::DispatchService(void* wrk, zmsg* msg)
 
     int service_t = 0;
     memcpy(&service_t, u.c_str(), sizeof(service_t));
+
+    m_currentHandlingService = (SERVICE)service_t;
+    defer{
+        m_currentHandlingService = SERVICE::DoNothing;
+    };
+
+    auto acss = m_chainactioncoststt.NewStatt(service_t);
 
     switch ((SERVICE)service_t) {
     case SERVICE::GetMaxBlockID: {
@@ -1670,11 +1812,6 @@ void CHyperChainSpace::DispatchService(void* wrk, zmsg* msg)
 
         GetLatestHyperBlockIDAndHash(id, hash, ctm);
         MQMsgPush(msg, id, hash, ctm);
-        break;
-    }
-    case SERVICE::IsLatestHyperBlockReady: {
-        bool ret = IsLatestHyperBlockReady();
-        MQMsgPush(msg, ret);
         break;
     }
     case SERVICE::GetLatestHyperBlock: {
@@ -1713,10 +1850,11 @@ void CHyperChainSpace::DispatchService(void* wrk, zmsg* msg)
     }
     case SERVICE::CheckHyperBlockHash: {
         uint64_t blockid;
+        bool needdownload;
         T_SHA256* hash;
-        MQMsgPop(msg, blockid, hash);
+        MQMsgPop(msg, blockid, hash, needdownload);
 
-        bool ret = CheckHyperBlockHash(blockid, *hash);
+        bool ret = CheckHyperBlockHash(blockid, *hash, needdownload);
         MQMsgPush(msg, ret);
         break;
     }
@@ -1726,6 +1864,17 @@ void CHyperChainSpace::DispatchService(void* wrk, zmsg* msg)
         MQMsgPop(msg, blockid, hash);
 
         bool ret = GetHyperBlockHash(blockid, *hash);
+        MQMsgPush(msg, ret);
+        break;
+    }
+    case SERVICE::GetHyperBlocksHashs: {
+        uint64_t blockid;
+        uint32 num;
+        bool needdownload;
+        vector<T_SHA256>* vechash;
+        MQMsgPop(msg, blockid, num, vechash, needdownload);
+
+        bool ret = GetHyperBlocksHashs(blockid, num, *vechash, needdownload);
         MQMsgPush(msg, ret);
         break;
     }
@@ -1893,6 +2042,15 @@ void CHyperChainSpace::DispatchService(void* wrk, zmsg* msg)
         MQMsgPush(msg, ret);
         break;
     }
+    case SERVICE::GetRemoteHyperBlockByID_UntilSuccess: {
+        uint64 startHID = 0;
+        uint64 endHID = 0;
+        string nodeid;
+        MQMsgPop(msg, startHID, endHID, nodeid);
+
+        GetRemoteHyperBlockByID_UntilSuccess(startHID, endHID, nodeid);
+        return;
+    }
     case SERVICE::GetRemoteHyperBlockByIDFromNode: {
         uint64 blockid = 0;
         string nodeid;
@@ -1970,6 +2128,11 @@ void CHyperChainSpace::DispatchService(void* wrk, zmsg* msg)
         NoHyperBlockHeader(blockid, nodeid);
         break;
     }
+    case SERVICE::MQCostStatistics: {
+        string info = GetMQCostStatistics();
+        MQMsgPush(msg, info);
+        break;
+    }
 
     default:
         break;
@@ -1979,7 +2142,7 @@ void CHyperChainSpace::DispatchService(void* wrk, zmsg* msg)
 
 void CHyperChainSpace::SyncBlockHeaderData(std::set<CUInt128>& activeNodes)
 {
-    if (m_chainspaceheaderID.empty())
+    if (m_nodes_latest_height.empty())
         return;
 
     uint64 startHID = 0;
@@ -1994,7 +2157,7 @@ void CHyperChainSpace::SyncBlockHeaderData(std::set<CUInt128>& activeNodes)
     bool haveNewHeader = false;
     uint64 sync_header_hid = 0;
 
-    for (auto it = m_chainspaceheaderID.begin(); it != m_chainspaceheaderID.end(); it++) {
+    for (auto it = m_nodes_latest_height.begin(); it != m_nodes_latest_height.end(); it++) {
         sync_header_hid = startHID;
 
         if (!m_chainspacesyncheaderID.empty() &&
@@ -2008,9 +2171,6 @@ void CHyperChainSpace::SyncBlockHeaderData(std::set<CUInt128>& activeNodes)
             nums = it->second - sync_header_hid;
             if (nums <= 0)
                 continue;
-
-            g_daily_logger->info("SyncBlockHeaderData() ---111---");
-            g_console_logger->info("SyncBlockHeaderData() ---111---");
 
             range = (uint16)(nums > MAX_BLOCKHEADER_NUMS ? MAX_BLOCKHEADER_NUMS : nums);
             GetRemoteBlockHeader(sync_header_hid + 1, range, it->first);
@@ -2045,15 +2205,12 @@ void CHyperChainSpace::SyncBlockHeaderData(std::set<CUInt128>& activeNodes, T_CH
                 m_chainspacesyncheaderID.find(ir) != m_chainspacesyncheaderID.end())
                 sync_header_hid = m_chainspacesyncheaderID[ir];
 
-            if (sync_header_hid >= m_chainspaceheaderID[ir])
+            if (sync_header_hid >= m_nodes_latest_height[ir])
                 continue;
 
-            nums = m_chainspaceheaderID[ir] - sync_header_hid;
+            nums = m_nodes_latest_height[ir] - sync_header_hid;
             if (nums <= 0)
                 continue;
-
-            g_daily_logger->info("SyncBlockHeaderData() ---222---");
-            g_console_logger->info("SyncBlockHeaderData() ---222---");
 
             range = (uint16)(nums > MAX_BLOCKHEADER_NUMS ? MAX_BLOCKHEADER_NUMS : nums);
             GetRemoteBlockHeader(sync_header_hid + 1, range, ir);
@@ -2089,7 +2246,7 @@ void CHyperChainSpace::SyncBlockHeaderData(std::set<CUInt128>& activeNodes, T_CH
 
         if (headerHID > 0) {
             //HCE: Rebooted node
-            chainInfo.sync_header_hid = CheckDiffPos(startHID, headerHID, chainInfo.headerhash, chainInfo.headerinfo);
+            chainInfo.sync_header_hid = CheckDiffPos(startHID, headerHID, chainInfo.headerhash, chainInfo.headerMTRootinfo);
             g_daily_logger->info("SyncBlockHeaderData(), uiMaxHeaderID: [{}]，CheckDiffPos() return [{}]", headerHID, chainInfo.sync_header_hid);
             g_console_logger->info("SyncBlockHeaderData(), uiMaxHeaderID: [{}]，CheckDiffPos() return [{}]", headerHID, chainInfo.sync_header_hid);
 
@@ -2120,9 +2277,6 @@ void CHyperChainSpace::SyncBlockHeaderData(std::set<CUInt128>& activeNodes, T_CH
     uint64 nums = chainInfo.sync_hash_hid - chainInfo.sync_header_hid;
     if (nums <= 0)
         return;
-
-    g_daily_logger->info("SyncBlockHeaderData() ---333---");
-    g_console_logger->info("SyncBlockHeaderData() ---333---");
 
     uint16 range = (uint16)(nums > MAX_BLOCKHEADER_NUMS ? MAX_BLOCKHEADER_NUMS : nums);
     for (auto& ir : chainInfo.nodelist) {
@@ -2159,10 +2313,7 @@ void CHyperChainSpace::SyncAllHyperBlockData()
     uint64 syncHID = m_gensisblockID;
 
     for (; num < 20 && syncHID <= uiMaxBlockNum; syncHID++) {
-        if (m_localHID.count(syncHID))
-            continue;
-
-        if (m_Chainspace.empty() || m_Chainspace.find(syncHID) == m_Chainspace.end())
+        if (m_bestChainLocalHID.count(syncHID))
             continue;
 
         int ret = GetRemoteHyperBlockByPreHash(syncHID, ActiveNodes);
@@ -2204,31 +2355,20 @@ void CHyperChainSpace::SyncHyperBlockData()
     }
 
     uint64 syncHID = uiMaxHeaderID;
-
-    using seconds = std::chrono::duration<double, ratio<1>>;
-    system_clock::time_point curr = system_clock::now();
-    seconds timespan = std::chrono::duration_cast<seconds>(curr - sync_time);
-
-    if ((sync_hid == syncHID) && timespan.count() < 2) {
-        //HCE: the same HID only sync once in 2 seconds
-        return;
-    }
-
     int ret = GetRemoteHyperBlockByPreHash(syncHID, ActiveNodes);
     if (ret < 0)
         return;
 
-    sync_hid = syncHID;
-    sync_time = system_clock::now();
 }
 
 void CHyperChainSpace::PullHeaderHashMTRootInfo()
 {
+    auto acss = m_chainactioncoststt.NewStatt("PullHeaderHashMTRootInfo");
     if (_isstop) {
         return;
     }
 
-    if (!m_ChainspaceReady || m_chainspaceheaderID.empty()) {
+    if (!m_atleast_onenode_chainspace_ready || m_nodes_latest_height.empty()) {
         return;
     }
 
@@ -2239,47 +2379,56 @@ void CHyperChainSpace::PullHeaderHashMTRootInfo()
     uint64 headerid;
     vector<uint16> locationSection;
 
-    for (auto it = m_chainspaceheaderID.begin(); it != m_chainspaceheaderID.end(); it++) {
-        if (it->second < m_gensisblockID + 2 * MATURITY_SIZE)
+    //HC: 遍历找出所有节点中超块链块头高度ID的最小的值，并保存到m_minheaderinfo
+    for (auto it = m_nodes_latest_height.begin(); it != m_nodes_latest_height.end(); it++) {
+        if (it->second < m_gensisblockID + MAX_BLOCKHEADER_NUMS)
             continue;
-
-        m_HaveFixedData = true;
 
         headerid = it->second - MATURITY_SIZE;
 
-        T_HEADERINFO headerinfo;
+        T_HEADERS_MTROOTS headerinfo;
         headerinfo.Set(headerid);
 
-        if (m_chainspaceheader.empty()) {
-            m_minheaderinfo = headerinfo;
-            m_chainspaceheader[it->first] = std::move(headerinfo);
+        if (m_nodes_MTRoots.empty()) {
+            m_minMTRoots = headerinfo;
+            m_nodes_MTRoots[it->first] = std::move(headerinfo);
             continue;
         }
 
         //HCE: Each node is assigned a value only once
-        if (m_chainspaceheader.find(it->first) != m_chainspaceheader.end())
+        if (m_nodes_MTRoots.find(it->first) != m_nodes_MTRoots.end())
             continue;
 
-        if (headerinfo.section[0] == m_minheaderinfo.section[0]) {
-            m_chainspaceheader[it->first] = std::move(headerinfo);
-            continue;
-        }
-
-        if (headerinfo.section[0] > m_minheaderinfo.section[0]) {
-            headerinfo.Set(m_minheaderinfo.id);
-            m_chainspaceheader[it->first] = std::move(headerinfo);
+        if (headerinfo.section[0] == m_minMTRoots.section[0]) {
+            m_nodes_MTRoots[it->first] = std::move(headerinfo);
             continue;
         }
 
-        if (headerinfo.section[0] < m_minheaderinfo.section[0]) {
-            m_minheaderinfo = headerinfo;
-            m_chainspaceheader[it->first] = std::move(headerinfo);
+        if (headerinfo.section[0] > m_minMTRoots.section[0]) {
+            headerinfo.Set(m_minMTRoots.id);
+            m_nodes_MTRoots[it->first] = std::move(headerinfo);
+            continue;
+        }
+
+        if (headerinfo.section[0] < m_minMTRoots.section[0]) {
+            m_minMTRoots = headerinfo;
+            m_nodes_MTRoots[it->first] = std::move(headerinfo);
             continue;
         }
     }
 
-    if (m_chainspaceheader.empty())
+    //HC: 当所有邻居节点的链空间数据高度小于MAX_BLOCKHEADER_NUMS时，m_HaveFixedData赋值为CHECK_RESULT::INVALID_DATA，
+    //HC: 程序跳过PullHeaderHashMTRootInfo和PullHeaderHashInfo逻辑，直接进入PullBlockHeader逻辑；
+    //HC: 否则m_HaveFixedData赋值为CHECK_RESULT::VALID_DATA
+    //HCE: When the chain space data height of all neighbor nodes is less than MAX_BLOCKHEADER_NUMS, m_HaveFixedData is assigned CHECK_RESULT::INVALID_DATA, 
+    //HCE: The program skips PullHeaderHashMTRootInfo and PullHeaderHashInfo and goes directly to PullBlockHeader;
+    //HCE: Otherwise, m_HaveFixedData is assigned CHECK_RESULT::VALID_DATA
+    if (m_nodes_MTRoots.empty()) {
+        m_HaveFixedData = CHECK_RESULT::INVALID_DATA;
         return;
+    }
+    
+    m_HaveFixedData = CHECK_RESULT::VALID_DATA;
 
     std::set<CUInt128> ActiveNodes;
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
@@ -2290,7 +2439,7 @@ void CHyperChainSpace::PullHeaderHashMTRootInfo()
         return;
     }
 
-    for (auto iter = m_chainspaceheader.begin(); iter != m_chainspaceheader.end(); iter++) {
+    for (auto iter = m_nodes_MTRoots.begin(); iter != m_nodes_MTRoots.end(); iter++) {
         if (iter->second.ready)
             continue;
 
@@ -2301,8 +2450,8 @@ void CHyperChainSpace::PullHeaderHashMTRootInfo()
         if (timespan.count() < 2)
             continue;
 
-        if (iter->second.section[0] > m_minheaderinfo.section[0])
-            (iter->second).Set(m_minheaderinfo.id);
+        if (iter->second.section[0] > m_minMTRoots.section[0])
+            (iter->second).Set(m_minMTRoots.id);
 
         if (ActiveNodes.count(CUInt128(iter->first))) {
             PullHeaderHashMTRoot(iter->second.id, iter->first);
@@ -2316,39 +2465,42 @@ void CHyperChainSpace::PullHeaderHashMTRootInfo()
 
 void CHyperChainSpace::DealwithChainInfo()
 {
+    auto acss = m_chainactioncoststt.NewStatt("DealwithChainInfo");
     if (_isstop) {
         return;
     }
 
-    if (!m_ChainspaceReady) {
+    if (!m_atleast_onenode_chainspace_ready) {
         return;
     }
 
-    if (!m_HaveFixedData || m_chainspaceheader.empty()) {
+    if (CHECK_RESULT::VALID_DATA != m_HaveFixedData || m_nodes_MTRoots.empty()) {
         return;
     }
 
+    //HC: 构建可选链
     bool found;
-    for (auto it = m_chainspaceheader.begin(); it != m_chainspaceheader.end(); it++) {
+    for (auto it = m_nodes_MTRoots.begin(); it != m_nodes_MTRoots.end(); it++) {
         found = false;
 
         if (!it->second.ready)
             continue;
 
-        if (m_chainInfoMap.empty()) {
+        if (m_alternatechains.empty()) {
             T_CHAININFO cinfo;
             cinfo.nodelist.push_back(it->first);
-            cinfo.headerinfo = it->second;
-            m_chainInfoMap[0] = std::move(cinfo);
+            cinfo.headerMTRootinfo = it->second;
+            m_alternatechains[0] = std::move(cinfo);
 
             continue;
         }
 
-        for (auto iter = m_chainInfoMap.begin(); iter != m_chainInfoMap.end(); iter++) {
-            T_HEADERINFO hinfo = iter->second.headerinfo;
-            if (it->second.IsSameChain(hinfo)) {
+        for (auto iter = m_alternatechains.begin(); iter != m_alternatechains.end(); iter++) {
+            T_HEADERS_MTROOTS hinfo = iter->second.headerMTRootinfo;
+            if (it->second.hasCommonPart(hinfo)) {
+                //HC: 2条链从创世块开始有共同部分
                 if (it->second.id > hinfo.id && !iter->second.checked) {
-                    iter->second.headerinfo = it->second;
+                    iter->second.headerMTRootinfo = it->second;
                     if (*iter->second.nodelist.begin() != it->first) {
                         iter->second.nodelist.remove(it->first);
                         iter->second.nodelist.push_front(it->first);
@@ -2367,29 +2519,30 @@ void CHyperChainSpace::DealwithChainInfo()
         if (!found) {
             T_CHAININFO cinfo;
 
-            uint8 n = m_chainInfoMap.size();
+            uint8 n = m_alternatechains.size();
             cinfo.nodelist.push_back(it->first);
-            cinfo.headerinfo = it->second;
-            m_chainInfoMap[n] = std::move(cinfo);
+            cinfo.headerMTRootinfo = it->second;
+            m_alternatechains[n] = std::move(cinfo);
         }
     }
 
-    if (!m_chainInfoMap.empty() && !m_ChainInfoReady)
+    if (!m_alternatechains.empty() && !m_ChainInfoReady)
         m_ChainInfoReady = true;
 
-    g_daily_logger->info("DealwithChainInfo() m_chainInfoMap.size: [{}], m_ChainInfoReady: [{}]", m_chainInfoMap.size(), m_ChainInfoReady);
-    g_console_logger->info("DealwithChainInfo() m_chainInfoMap.size: [{}], m_ChainInfoReady: [{}]", m_chainInfoMap.size(), m_ChainInfoReady);
+    g_daily_logger->info("DealwithChainInfo() m_chainInfoMap.size: [{}], m_ChainInfoReady: [{}]", m_alternatechains.size(), m_ChainInfoReady);
+    g_console_logger->info("DealwithChainInfo() m_chainInfoMap.size: [{}], m_ChainInfoReady: [{}]", m_alternatechains.size(), m_ChainInfoReady);
 }
 
 void CHyperChainSpace::PullHeaderHashInfo()
 {
+    auto acss = m_chainactioncoststt.NewStatt("PullHeaderHashInfo");
     if (_isstop)
         return;
 
     if (!m_ChainInfoReady)
         return;
 
-    if (!m_HaveFixedData || m_chainInfoMap.empty()) {
+    if (CHECK_RESULT::VALID_DATA != m_HaveFixedData || m_alternatechains.empty()) {
         return;
     }
 
@@ -2415,16 +2568,16 @@ void CHyperChainSpace::PullHeaderHashInfo()
         }
     }*/
 
-    for (auto iter = m_chainInfoMap.begin(); iter != m_chainInfoMap.end(); iter++) {
+    for (auto iter = m_alternatechains.begin(); iter != m_alternatechains.end(); iter++) {
         if (iter->second.sync_hash_hid < startHID)
             iter->second.sync_hash_hid = startHID;
 
         g_daily_logger->info("PullHeaderHashInfo() m_chainInfoMap[{}], sync_hash_hid: [{}], headerinfo.id: [{}]",
-            iter->first, iter->second.sync_hash_hid, iter->second.headerinfo.id);
+            iter->first, iter->second.sync_hash_hid, iter->second.headerMTRootinfo.id);
         g_console_logger->info("PullHeaderHashInfo() m_chainInfoMap[{}], sync_hash_hid: [{}], headerinfo.id: [{}]",
-            iter->first, iter->second.sync_hash_hid, iter->second.headerinfo.id);
+            iter->first, iter->second.sync_hash_hid, iter->second.headerMTRootinfo.id);
 
-        if (iter->second.sync_hash_hid < iter->second.headerinfo.id) {
+        if (iter->second.sync_hash_hid < iter->second.headerMTRootinfo.id) {
             //TODO: 链数据同步过程中，邻居节点发生了链切换如何处理
             if (iter->second.checked) {
                 iter->second.checked = false;
@@ -2437,7 +2590,7 @@ void CHyperChainSpace::PullHeaderHashInfo()
             if (timespan.count() < 2)
                 return;
 
-            uint64 nums = iter->second.headerinfo.id - iter->second.sync_hash_hid;
+            uint64 nums = iter->second.headerMTRootinfo.id - iter->second.sync_hash_hid;
             uint32 range = (uint32)(nums > MAX_BLOCKHEADERHASH_NUMS ? MAX_BLOCKHEADERHASH_NUMS : nums);
 
             for (auto& ir : iter->second.nodelist) {
@@ -2469,11 +2622,12 @@ void CHyperChainSpace::CheckLocalHeaderReady()
 
 void CHyperChainSpace::PullBlockHeader()
 {
+    auto acss = m_chainactioncoststt.NewStatt("PullBlockHeader");
     if (_isstop) {
         return;
     }
 
-    if (!m_ChainspaceReady) {
+    if (!m_atleast_onenode_chainspace_ready) {
         return;
     }
 
@@ -2488,14 +2642,18 @@ void CHyperChainSpace::PullBlockHeader()
 
     CheckLocalHeaderReady();
 
-    if (!m_HaveFixedData) {
+    if (CHECK_RESULT::INVALID_DATA == m_HaveFixedData) {
         SyncBlockHeaderData(ActiveNodes);
         return;
     }
 
-    if (m_chainInfoMap.size() > 1) {
-        for (auto iter = m_chainInfoMap.begin(); iter != m_chainInfoMap.end(); iter++) {
-            if (iter->second.checked && iter->second.nodelist.size() > (m_chainspaceheader.size() / 2)) {
+    if (m_alternatechains.empty())
+        return;
+
+    //HC: 链同步选优，选择半数以上，也就是说大部分节点(>50%)跟随的链
+    if (m_alternatechains.size() > 1) {
+        for (auto iter = m_alternatechains.begin(); iter != m_alternatechains.end(); iter++) {
+            if (iter->second.checked && iter->second.nodelist.size() > (m_nodes_MTRoots.size() / 2)) {
                 m_bestchainID = iter->first;
                 break;
             }
@@ -2504,19 +2662,20 @@ void CHyperChainSpace::PullBlockHeader()
 
     uint64 headerHID = uiMaxHeaderID;
 
+    //HC: 选优后，同步该链的块头数据
     if (m_bestchainID != UINT8_MAX) {
-        if (m_chainInfoMap[m_bestchainID].checked) {
-            if (m_chainInfoMap[m_bestchainID].sync_header_hid < m_chainInfoMap[m_bestchainID].sync_hash_hid) {
-                SyncBlockHeaderData(ActiveNodes, m_chainInfoMap[m_bestchainID], headerHID);
+        if (m_alternatechains[m_bestchainID].checked) {
+            if (m_alternatechains[m_bestchainID].sync_header_hid < m_alternatechains[m_bestchainID].sync_hash_hid) {
+                SyncBlockHeaderData(ActiveNodes, m_alternatechains[m_bestchainID], headerHID);
                 return;
             }
 
-            SyncBlockHeaderData(ActiveNodes, m_chainInfoMap[m_bestchainID], true);
+            SyncBlockHeaderData(ActiveNodes, m_alternatechains[m_bestchainID], true);
             return;
         }
     }
 
-    for (auto iter = m_chainInfoMap.begin(); iter != m_chainInfoMap.end(); iter++) {
+    for (auto iter = m_alternatechains.begin(); iter != m_alternatechains.end(); iter++) {
         if (iter->second.checked) {
             if (iter->second.sync_header_hid < iter->second.sync_hash_hid) {
                 SyncBlockHeaderData(ActiveNodes, iter->second, headerHID);
@@ -2529,9 +2688,61 @@ void CHyperChainSpace::PullBlockHeader()
     }
 }
 
+string CHyperChainSpace::GetPullingHyperBlock()
+{
+    std::lock_guard<boost::fibers::mutex> guard(m_pullingHBfibermtx);
+
+    stringstream ss;
+    for (auto& elm : m_mapPullingHyperBlock) {
+        ss << StringFormat("HID: %d   %s   %s   %d\n", elm.first,
+            toReadableTime(elm.second.firstrequest),
+            toReadableTime(elm.second.lastrequest),
+            elm.second.nTimes);
+    }
+    if (ss.str().empty()) {
+        ss << "No any hyper block is pulling\n";
+    }
+    return ss.str();
+}
+
+void CHyperChainSpace::PullHyperBlockRepeatly()
+{
+    auto acss = m_chainactioncoststt.NewStatt("PullHyperBlockRepeatly");
+    if (!m_pullingHBfibermtx.try_lock())
+        return;
+
+    defer{
+        m_pullingHBfibermtx.unlock();
+    };
+
+    auto now = std::time(nullptr);
+    int nTotalNum = 0;
+    std::list<uint32_t> waitingremove;
+    for (auto &elm : m_mapPullingHyperBlock) {
+        if (_isstop || nTotalNum >= 5) {
+            break;
+        }
+
+        if (m_bestChainLocalHID.count(elm.first)) {
+            waitingremove.push_back(elm.first);
+            continue;
+        }
+        if (elm.second.nTimes == 0 || now - elm.second.lastrequest > 18) {
+            elm.second.lastrequest = now;
+            elm.second.nTimes++;
+            GetRemoteHyperBlockByID(elm.first);
+            nTotalNum++;
+        }
+    }
+
+    for (auto hid : waitingremove) {
+        m_mapPullingHyperBlock.erase(hid);
+    }
+}
 
 void CHyperChainSpace::PullHyperBlock()
 {
+    auto acss = m_chainactioncoststt.NewStatt("PullHyperBlock");
     if (_isstop) {
         return;
     }
@@ -2582,6 +2793,7 @@ void CHyperChainSpace::GetMulticastNodes(vector<CUInt128>& nodes)
     }
 }
 
+//HC: 保存邻居广播过来的或者共识产生的超块到数据库和cache
 void CHyperChainSpace::PutHyperBlock(T_HYPERBLOCK& hyperblock, string from_nodeid, vector<CUInt128>& multicastnodes)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
@@ -2603,6 +2815,17 @@ void CHyperChainSpace::PutHyperBlock(T_HYPERBLOCK& hyperblock, string from_nodei
         if (CHECK_RESULT::VALID_DATA == ret) {
             //HCE: put hyper block into hyper block cache
             updateHyperBlockCache(hyperblock);
+
+            //HCE: clear m_SyncBlockMap data
+            if (!m_SyncBlockMap.empty()) {
+                auto it = m_SyncBlockMap.find(blockid);
+                if (it == m_SyncBlockMap.end())
+                    return;
+
+                if (find(it->second.nodelist.begin(), it->second.nodelist.end(), from_nodeid) != it->second.nodelist.end()) {
+                    m_SyncBlockMap.erase(it);
+                }
+            }
             return;
         }
 
@@ -2680,8 +2903,8 @@ bool CHyperChainSpace::GetHyperBlockHeader(uint64 hid, uint16 range, vector<T_HY
     }
 }
 
-//HCE: We choose the hyper block chain whose total_weight(subblocks counts) is more.
-//HCE: If total_weight(subblocks counts) is same, we choose the hyper block chain whose ctime earlier.
+//HCE: We choose the hyper block chain whose total_weight(local blocks counts) is more.
+//HCE: If total_weight(local blocks counts) is same, we choose the hyper block chain whose ctime earlier.
 //HCE: When total_weight and ctime both are same, we choose the hyper block chain whose hash is more less.
 bool CHyperChainSpace::isBetterThanLocalChain(const T_HEADERINDEX& localHeaderIndex, const T_HEADERINDEX& HeaderIndex)
 {
@@ -2841,6 +3064,8 @@ void CHyperChainSpace::CollatingChainSpaceDate()
     }
 }
 
+//HC: Flag: true 能加到某备选链或最优链尾部
+//HC: 返回值为true，表示找到了更优链
 bool CHyperChainSpace::SaveHeaderListIndex(map<pair<uint64, T_SHA256>, T_HYPERBLOCKHEADER>& headerMap, string from_nodeid, bool& Flag)
 {
     int ret;
@@ -2979,9 +3204,9 @@ bool CHyperChainSpace::SaveHeaderListIndex(map<pair<uint64, T_SHA256>, T_HYPERBL
     //HC: 检查超块头是否可以加入本地最优链
     //HCE: Check whether the superblock can join the local optimal chain
     if (IsGensisBlock == true ||
-        (!m_HeaderHashMap.empty() &&
+        (!m_bestChainHeadersHash.empty() &&
             uiMaxHeaderID == begin_hid - 1 &&
-            m_HeaderHashMap[uiMaxHeaderID] == begin_preheaderhash)) {
+            m_bestChainHeadersHash[uiMaxHeaderID] == begin_preheaderhash)) {
 
         //system_clock::time_point time5 = system_clock::now();
 
@@ -2991,7 +3216,7 @@ bool CHyperChainSpace::SaveHeaderListIndex(map<pair<uint64, T_SHA256>, T_HYPERBL
             headerhash = it->first.second;
             //HC: 加入最优链末尾
             //HCE: Add to the end of the optimal chain
-            m_HeaderHashMap[hid] = headerhash;
+            m_bestChainHeadersHash[hid] = headerhash;
             m_db->updateHeaderHashInfo(hid, headerhash);
             m_localHeaderID.insert(hid);
         }
@@ -3064,7 +3289,7 @@ bool CHyperChainSpace::SaveHeaderListIndex(map<pair<uint64, T_SHA256>, T_HYPERBL
         m_HashChain = m_BlocksHeaderHash.end() - 1;
     }
 
-    T_HEADERINDEX LBestHeaderIndex = m_HeaderIndexMap[m_HeaderHashMap[uiMaxHeaderID]];
+    T_HEADERINDEX LBestHeaderIndex = m_HeaderIndexMap[m_bestChainHeadersHash[uiMaxHeaderID]];
     T_HEADERINDEX headerindex = m_HeaderIndexMap[(*m_HashChain).rbegin()->second];
 
     if (isBetterThanLocalChain(LBestHeaderIndex, headerindex)) {
@@ -3187,9 +3412,9 @@ bool CHyperChainSpace::SaveHeaderIndex(T_SHA256 headerhash, T_SHA256 preheaderha
     //HC: 检查超块头是否可以加入本地最优链
     //HCE: Check whether the superblock can join the local optimal chain
     if (IsGensisBlock == true ||
-        (!m_HeaderHashMap.empty() && uiMaxHeaderID == hid - 1 && m_HeaderHashMap[uiMaxHeaderID] == preheaderhash)) {
+        (!m_bestChainHeadersHash.empty() && uiMaxHeaderID == hid - 1 && m_bestChainHeadersHash[uiMaxHeaderID] == preheaderhash)) {
 
-        m_HeaderHashMap[hid] = headerhash;
+        m_bestChainHeadersHash[hid] = headerhash;
         m_db->updateHeaderHashInfo(hid, headerhash);
         m_localHeaderID.insert(hid);
 
@@ -3243,7 +3468,7 @@ bool CHyperChainSpace::SaveHeaderIndex(T_SHA256 headerhash, T_SHA256 preheaderha
         m_HashChain = m_BlocksHeaderHash.end() - 1;
     }
 
-    T_HEADERINDEX LBestHeaderIndex = m_HeaderIndexMap[m_HeaderHashMap[uiMaxHeaderID]];
+    T_HEADERINDEX LBestHeaderIndex = m_HeaderIndexMap[m_bestChainHeadersHash[uiMaxHeaderID]];
     T_HEADERINDEX headerindex = m_HeaderIndexMap[(*m_HashChain).rbegin()->second];
 
     if (isBetterThanLocalChain(LBestHeaderIndex, headerindex)) {
@@ -3275,13 +3500,13 @@ bool CHyperChainSpace::SwitchLocalBestChain()
     uint64 begin_hid = 0;
     T_SHA256 begin_hash = T_SHA256(1);
 
-    //HC: 前向依赖检查
+    //HC: 检查备选链的前一个超块头是否在最优链上，否则备选链不合法
     //HCE: Do a forward dependency check
     while (1) {
         begin_hid = (*m_HashChain).begin()->first;
         begin_hash = (*m_HashChain).begin()->second;
 
-        if (m_HeaderHashMap.find(begin_hid - 1) == m_HeaderHashMap.end()) {
+        if (m_bestChainHeadersHash.find(begin_hid - 1) == m_bestChainHeadersHash.end()) {
             g_daily_logger->error("SwitchLocalBestChain failed! Can't find hid: [{}] in m_HeaderHashMap", begin_hid - 1);
             g_console_logger->warn("SwitchLocalBestChain failed! Can't find hid : [{}] in m_HeaderHashMap", begin_hid - 1);
             return false;
@@ -3302,7 +3527,7 @@ bool CHyperChainSpace::SwitchLocalBestChain()
         }
 
         T_SHA256 preheaderhash = m_HeaderIndexMap[begin_hash].preheaderhash;
-        if (preheaderhash == m_HeaderHashMap[begin_hid - 1]) {
+        if (preheaderhash == m_bestChainHeadersHash[begin_hid - 1]) {
             //HC: 与最优链超块头Hash一致
             //HCE: Consistent with the optimal chain
             break;
@@ -3313,11 +3538,11 @@ bool CHyperChainSpace::SwitchLocalBestChain()
         g_console_logger->info("SwitchLocalBestChain, hid: [{}], preheaderhash not same with m_HeaderHashMap", begin_hid - 1);
     }
 
-    //HC: 去重
+    //HC: 从分叉点比对与主链相同的块，如有删除，并且后移备选链头指针
     //HCE: Remove duplicate data
     for (auto itr = (*m_HashChain).begin(); itr != (*m_HashChain).end(); ) {
-        if (m_HeaderHashMap.find(itr->first) == m_HeaderHashMap.end() ||
-            m_HeaderHashMap[itr->first] != itr->second)
+        if (m_bestChainHeadersHash.find(itr->first) == m_bestChainHeadersHash.end() ||
+            m_bestChainHeadersHash[itr->first] != itr->second)
             break;
 
         char HeaderHash[FILESIZEL] = { 0 };
@@ -3333,15 +3558,16 @@ bool CHyperChainSpace::SwitchLocalBestChain()
     uint64 hid = (*m_HashChain).begin()->first;
 
     //HCE: Notify consensus layer to switch.
+    //HC: 通知共识层超块发生链切换
     T_HYPERBLOCK hblk;
     if (CHyperchainDB::getHyperBlock(hblk, hid - 1)) {
         publishNewHyperBlock(hid - 2, hblk, true, true);
     }
 
-    if (m_BlockHashMap.rbegin() != m_BlockHashMap.rend() &&
-        m_BlockHashMap.rbegin()->first >= hid/*m_db->isBlockExistedOnBestChain(hid)*/) {
-        //HC: 本地有需要进行数据回滚的超块
-        //HCE: Rollback the hyperblock data
+    //HC: 删除旧最优链上分叉点开始的后续超块 以及清理相应的内存数据
+    if (m_bestChainBlocksHash.rbegin() != m_bestChainBlocksHash.rend() &&
+        m_bestChainBlocksHash.rbegin()->first >= hid/*m_db->isBlockExistedOnBestChain(hid)*/) {
+        //HC: 删除旧链上分叉点开始的后续超块
         DBmgr::Transaction t = m_db->beginTran();
         m_db->rollbackHyperblockAndLocalblock(hid);
         m_db->rollbackHashInfo(hid);
@@ -3349,16 +3575,19 @@ bool CHyperChainSpace::SwitchLocalBestChain()
 
         g_daily_logger->info("rollbackHyperBlockCache, starting hid:{}", hid);
 
+        //HC: 清除内存
         for (uint64 currblockid = hid; currblockid <= uiMaxHeaderID; currblockid++) {
-            m_localHID.erase(currblockid);
+            m_bestChainLocalHID.erase(currblockid);
 
             //HCE: update m_BlockHashMap
-            m_BlockHashMap.erase(currblockid);
+            m_bestChainBlocksHash.erase(currblockid);
         }
 
-        GenerateHIDSection(m_localHID, m_localHIDsection);
+        //HC: 更新超块链展示信息
+        GenerateHIDSection(m_bestChainLocalHID, m_localHIDsection);
 
-        //HCE: update MaxBlockNum and previous hyper block
+        //HCE: update MaxBlockNum and latest hyper block
+        //HC: 更新最新块号以及最新块
         uint64 nHyperId = GetLocalLatestHID();
         T_HYPERBLOCK hyperBlock;
         if (CHyperchainDB::getHyperBlock(hyperBlock, nHyperId)) {
@@ -3370,11 +3599,13 @@ bool CHyperChainSpace::SwitchLocalBestChain()
         //found = true;
     }
 
+    //HC: 清理旧最优链的超块头信息
     //HCE: rollback headerhashinfo table
     m_db->rollbackHeaderHashInfo(hid);
 
+    //HC: 清理旧最优链的超块头内存信息
     list<pair<uint64, T_SHA256>> listhash;
-    for (auto ir = m_HeaderHashMap.find(hid); ir != m_HeaderHashMap.end();) {
+    for (auto ir = m_bestChainHeadersHash.find(hid); ir != m_bestChainHeadersHash.end();) {
         listhash.emplace_back(make_pair(ir->first, ir->second));
 
         char HeaderHash[FILESIZEL] = { 0 };
@@ -3382,10 +3613,10 @@ bool CHyperChainSpace::SwitchLocalBestChain()
         g_daily_logger->info("SwitchLocalBestChain, m_HeaderHashMap, delete hid:[{}], headerhash: [{}]", ir->first, HeaderHash);
 
         m_localHeaderID.erase(ir->first);
-        m_HeaderHashMap.erase(ir++);
+        m_bestChainHeadersHash.erase(ir++);
     }
 
-    //HC: 将当前最优链数据保存到m_HeaderHashMap
+    //HC: 将当前新的最优链数据保存到m_HeaderHashMap, m_localHeaderID, 并提取新最优链上将要保存到超块表的超块信息
     //HCE: Save the current optimal chain data to m_HeaderHashMap
     list<pair<uint64, T_SHA256>> blockexistlist;
 
@@ -3393,7 +3624,7 @@ bool CHyperChainSpace::SwitchLocalBestChain()
     for (auto itr = (*m_HashChain).begin(); itr != (*m_HashChain).end(); itr++) {
         m_db->updateHeaderHashInfo(itr->first, itr->second);
 
-        m_HeaderHashMap[itr->first] = itr->second;
+        m_bestChainHeadersHash[itr->first] = itr->second;
         m_localHeaderID.insert(itr->first);
 
 
@@ -3419,6 +3650,7 @@ bool CHyperChainSpace::SwitchLocalBestChain()
     //t.set_trans_succ();
 
     GenerateHIDSection(m_localHeaderID, m_localHeaderIDsection);
+
     uiMaxHeaderID = GetMaxHeaderID();
 
     g_daily_logger->info("SwitchLocalBestChain, uiMaxHeaderID:{}", uiMaxHeaderID);
@@ -3426,8 +3658,8 @@ bool CHyperChainSpace::SwitchLocalBestChain()
     g_daily_logger->info("SwitchLocalBestChain, clear m_HashChain");
     (*m_HashChain).clear();
 
-    //HC: 从备选链中删除最优链数据，将m_HeaderHashMap中的旧链数据保存到备选链
-    //HCE: Remove the optimal chain data from the alternative chain, 
+    //HC: 从备选链集合中删除最优链数据，将m_HeaderHashMap中的旧最优链数据保存到备选链
+    //HCE: Remove the optimal chain data from the alternative chain,
     //HCE: Save the old chain data from the m_HeaderHashMap to the alternate chain
     m_BlocksHeaderHash.erase(m_HashChain);
     m_BlocksHeaderHash.push_back(listhash);
@@ -3456,7 +3688,11 @@ void CHyperChainSpace::PutHyperBlockHeader(vector<T_HYPERBLOCKHEADER>& hyperbloc
     int ret = 0;
     uint64 hid = 0;
     T_SHA256 headerhash;
+
+    //HC: 保存表里不存在的块头信息
     map<pair<uint64, T_SHA256>, T_HYPERBLOCKHEADER> nonheaderMap;
+
+    //HC: 存放非最优链上的头信息
     map<pair<uint64, T_SHA256>, T_HYPERBLOCKHEADER> headerMap;
 
     //using seconds = std::chrono::duration<double, ratio<1>>;
@@ -3535,12 +3771,14 @@ RETRY:
         isSingle = true;
     }
 
+    //HC: isBetter CheckFlag 不可能同时为true 
     if (isBetter) {
         //HCE: better than local chain, need switch
         m_LatestBlockReady = false;
         SwitchLocalBestChain();
     }
 
+    //HC: 处理孤块，是否有块不再孤立，如果是，提取并延长链
     if (CheckFlag) {
         hid = headerMap.rbegin()->first.first;
 
@@ -3593,7 +3831,7 @@ RETRY:
                 break;
             }
 
-            //HC: 处理分叉数据
+            //HC: 孤块集合里，多个满足块依赖条件，处理分叉数据
             //HCE: Process forked data first
             for (auto ir = headerhashSet.begin(); ir != headerhashSet.end(); ir++) {
                 //HCE: get header
@@ -3648,8 +3886,8 @@ void CHyperChainSpace::PutHyperBlockHeaderList(vector<T_HYPERBLOCKHEADER>& hyper
         uint8 chainNum = 0;
         bool found = false;
 
-        if (!m_chainInfoMap.empty()) {
-            for (auto it = m_chainInfoMap.begin(); !found && it != m_chainInfoMap.end(); it++) {
+        if (!m_alternatechains.empty()) {
+            for (auto it = m_alternatechains.begin(); !found && it != m_alternatechains.end(); it++) {
                 if (find(it->second.nodelist.begin(), it->second.nodelist.end(), from_nodeid) != it->second.nodelist.end()) {
                     chainNum = it->first;
                     found = true;
@@ -3665,7 +3903,7 @@ void CHyperChainSpace::PutHyperBlockHeaderList(vector<T_HYPERBLOCKHEADER>& hyper
                 return;
             }
 
-            if (!m_chainInfoMap[chainNum].checked) {
+            if (!m_alternatechains[chainNum].checked) {
                 //HC: 该链的HeaderHash没有完成MTRoot校验
                 //HCE: The chain's HeaderHash did not complete the MTRoot checksum
                 g_daily_logger->error("PutHyperBlockHeaderList failed! This chainInfo [{}] not checked!", chainNum);
@@ -3707,7 +3945,7 @@ void CHyperChainSpace::PutHyperBlockHeaderList(vector<T_HYPERBLOCKHEADER>& hyper
             gensisHID = hid;
         }
 
-        if (m_chainInfoMap.empty() || hid > m_chainInfoMap[chainNum].sync_hash_hid) {
+        if (m_alternatechains.empty() || hid > m_alternatechains[chainNum].sync_hash_hid) {
             //HCE: Process hot data
             if (!IsGensisBlock && !m_chainheaderhashSet.count(make_pair(hid - 1, iter->GetPreHeaderHash()))) {
                 //HC: 收到的超块头PreHeaderHash与前一个超块头HeaderHash数据不一致
@@ -3716,7 +3954,7 @@ void CHyperChainSpace::PutHyperBlockHeaderList(vector<T_HYPERBLOCKHEADER>& hyper
                 g_console_logger->warn("PutHyperBlockHeaderList 111 failed! hid [{}] PreHeaderhash not same!", hid - 1);
 
                 //HC: 前一个块头不存在，可能出现链切换情况，向来源节点要前MATURITY_SIZE个块头
-                //HCE: The previous block header does not exist, and there may be a chain switch, 
+                //HCE: The previous block header does not exist, and there may be a chain switch,
                 //HCE: and the first MATURITY_SIZE block header is asked from the source node
                 uint64 blockid = hid > MATURITY_SIZE ? hid - MATURITY_SIZE : m_gensisblockID;
                 m_chainspacesyncheaderID[from_nodeid] = blockid;
@@ -3750,9 +3988,9 @@ void CHyperChainSpace::PutHyperBlockHeaderList(vector<T_HYPERBLOCKHEADER>& hyper
         }
 
         {
-            //HCE: Process cold data 
-            auto itr = m_chainInfoMap[chainNum].headerhash.find(hid);
-            if (itr == m_chainInfoMap[chainNum].headerhash.end()) {
+            //HCE: Process cold data
+            auto itr = m_alternatechains[chainNum].headerhash.find(hid);
+            if (itr == m_alternatechains[chainNum].headerhash.end()) {
                 //HC: hashmap里没有与hid一致的数据
                 //HCE: There is no data in the hashmap that is consistent with HID
                 g_daily_logger->error("PutHyperBlockHeaderList failed! Can't find hid [{}] in headerhashMap!", hid);
@@ -3760,7 +3998,7 @@ void CHyperChainSpace::PutHyperBlockHeaderList(vector<T_HYPERBLOCKHEADER>& hyper
                 return;
             }
 
-            for (; iter != hyperblockheaders.end() && itr != m_chainInfoMap[chainNum].headerhash.end(); iter++, itr++) {
+            for (; iter != hyperblockheaders.end() && itr != m_alternatechains[chainNum].headerhash.end(); iter++, itr++) {
                 hid = iter->GetID();
                 if (hid == itr->first && iter->calculateHeaderHashSelf() != itr->second) {
                     //HC: 收到的超块头HeaderHash与Hash列表里的数据不一致
@@ -3770,7 +4008,7 @@ void CHyperChainSpace::PutHyperBlockHeaderList(vector<T_HYPERBLOCKHEADER>& hyper
                     return;
                 }
 
-                if (!IsGensisBlock && iter->GetPreHeaderHash() != m_chainInfoMap[chainNum].headerhash[hid - 1]) {
+                if (!IsGensisBlock && iter->GetPreHeaderHash() != m_alternatechains[chainNum].headerhash[hid - 1]) {
                     //HC: 收到的超块头PreHeaderHash与Hash列表里的数据不一致
                     //HCE: The received hyperheader's PreHeaderHash does not match the data in the Hash list
                     g_daily_logger->error("PutHyperBlockHeaderList failed! hid: [{}] PreHeaderhash not same!", hid);
@@ -3796,7 +4034,7 @@ void CHyperChainSpace::PutHyperBlockHeaderList(vector<T_HYPERBLOCKHEADER>& hyper
             g_daily_logger->info("PutHyperBlockHeaderList isSingleHeader=[{}]", isSingleHeader);
             g_console_logger->info("PutHyperBlockHeaderList isSingleHeader=[{}]", isSingleHeader);
 
-            if (m_chainInfoMap.empty() || hid > m_chainInfoMap[chainNum].sync_hash_hid) {
+            if (m_alternatechains.empty() || hid > m_alternatechains[chainNum].sync_hash_hid) {
                 //HC: 热数据，可能出现链切换情况，向来源节点要前MATURITY_SIZE个块头
                 //HCE: Hot data, there may be chain switching, to the source node to ask for the first MATURITY_SIZE blocks
                 uint64 blockid = hid > MATURITY_SIZE ? hid - MATURITY_SIZE : m_gensisblockID;
@@ -3811,13 +4049,13 @@ void CHyperChainSpace::PutHyperBlockHeaderList(vector<T_HYPERBLOCKHEADER>& hyper
         //timespan = std::chrono::duration_cast<seconds>(time2 - time1);
         //g_basic_logger->info("PutHyperBlockHeaderList() spend [{}] second", timespan.count());
 
-        if (m_chainInfoMap.empty() || hid > m_chainInfoMap[chainNum].sync_hash_hid) {
+        if (m_alternatechains.empty() || hid > m_alternatechains[chainNum].sync_hash_hid) {
             m_chainspacesyncheaderID[from_nodeid] = hid;
         }
 
-        if (!m_chainInfoMap.empty() && m_chainInfoMap[chainNum].sync_header_hid < m_chainInfoMap[chainNum].sync_hash_hid) {
+        if (!m_alternatechains.empty() && m_alternatechains[chainNum].sync_header_hid < m_alternatechains[chainNum].sync_hash_hid) {
             //HCE: Update sync_header_hid
-            m_chainInfoMap[chainNum].sync_header_hid = hid;
+            m_alternatechains[chainNum].sync_header_hid = hid;
 
             _msghandler.registerTimer(2 * 1000, std::bind(&CHyperChainSpace::PullBlockHeader, this), true);
         }
@@ -3955,7 +4193,7 @@ void CHyperChainSpace::PutHyperBlockHeader(T_HYPERBLOCKHEADER& hyperblockheader,
 bool CHyperChainSpace::getHyperBlock(uint64 hid, T_HYPERBLOCK& hyperblock)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
-        if (m_localHID.empty() || !m_localHID.count(hid))
+        if (m_bestChainLocalHID.empty() || !m_bestChainLocalHID.count(hid))
             return false;
 
         if (m_LatestHyperBlock.GetID() == hid) {
@@ -4006,13 +4244,13 @@ bool CHyperChainSpace::getHyperBlock(const T_SHA256& hhash, T_HYPERBLOCK& hyperb
 bool CHyperChainSpace::getHyperBlockByPreHash(uint64 hid, T_SHA256& prehash, T_HYPERBLOCK& hyperblock)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
-        if (m_BlockHashMap.find(hid) == m_BlockHashMap.end()) {
+        if (m_bestChainBlocksHash.find(hid) == m_bestChainBlocksHash.end()) {
             g_daily_logger->error("getHyperBlockByPreHash failed! Can't find block [{}] in m_BlockHashMap", hid);
             g_console_logger->warn("getHyperBlockByPreHash failed! Can't find block [{}] in m_BlockHashMap", hid);
             return false;
         }
 
-        if (m_BlockHashMap.find(hid - 1) != m_BlockHashMap.end() && m_BlockHashMap[hid - 1] != prehash) {
+        if (m_bestChainBlocksHash.find(hid - 1) != m_bestChainBlocksHash.end() && m_bestChainBlocksHash[hid - 1] != prehash) {
             g_daily_logger->error("getHyperBlockByPreHash failed! Prehash not same");
             g_console_logger->warn("getHyperBlockByPreHash failed! Prehash not same");
             return false;
@@ -4039,19 +4277,23 @@ bool CHyperChainSpace::getHyperBlockByPreHash(uint64 hid, T_SHA256& prehash, T_H
     }
 }
 
-bool CHyperChainSpace::CheckHyperBlockHash(uint64 hid, const T_SHA256& hash)
+bool CHyperChainSpace::CheckHyperBlockHash(uint64 hid, const T_SHA256& hash, bool needdownload)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
         if (hid > uiMaxHeaderID)
             return false;
 
-        if (m_BlockHashMap.find(hid) != m_BlockHashMap.end() && hash == m_BlockHashMap[hid])
+        if (needdownload) {
+            GetRemoteHyperBlockByID_UntilSuccess(hid, hid + 1, "");
+        }
+
+        if (m_bestChainBlocksHash.find(hid) != m_bestChainBlocksHash.end() && hash == m_bestChainBlocksHash[hid])
             return true;
 
-        if (m_HeaderHashMap.find(hid + 1) == m_HeaderHashMap.end())
+        if (m_bestChainHeadersHash.find(hid + 1) == m_bestChainHeadersHash.end())
             return false;
 
-        T_SHA256& headerhash = m_HeaderHashMap[hid + 1];
+        T_SHA256& headerhash = m_bestChainHeadersHash[hid + 1];
 
         if (m_HeaderIndexMap.find(headerhash) == m_HeaderIndexMap.end())
             return false;
@@ -4062,7 +4304,8 @@ bool CHyperChainSpace::CheckHyperBlockHash(uint64 hid, const T_SHA256& hash)
         return false;
     }
     else {
-        zmsg* rspmsg = MQRequest(HYPERCHAINSPACE_SERVICE, (int)SERVICE::CheckHyperBlockHash, hid, &hash);
+
+        zmsg* rspmsg = MQRequest(HYPERCHAINSPACE_SERVICE, (int)SERVICE::CheckHyperBlockHash, hid, &hash, needdownload);
 
         bool ret = false;
         if (rspmsg) {
@@ -4081,15 +4324,15 @@ bool CHyperChainSpace::GetHyperBlockHash(uint64 hid, T_SHA256& hash)
         if (hid > uiMaxHeaderID)
             return false;
 
-        if (m_BlockHashMap.find(hid) != m_BlockHashMap.end()) {
-            hash = m_BlockHashMap[hid];
+        if (m_bestChainBlocksHash.find(hid) != m_bestChainBlocksHash.end()) {
+            hash = m_bestChainBlocksHash[hid];
             return true;
         }
 
-        if (m_HeaderHashMap.find(hid + 1) == m_HeaderHashMap.end())
+        if (m_bestChainHeadersHash.find(hid + 1) == m_bestChainHeadersHash.end())
             return false;
 
-        T_SHA256& headerhash = m_HeaderHashMap[hid + 1];
+        T_SHA256& headerhash = m_bestChainHeadersHash[hid + 1];
         if (m_HeaderIndexMap.find(headerhash) == m_HeaderIndexMap.end())
             return false;
 
@@ -4098,6 +4341,43 @@ bool CHyperChainSpace::GetHyperBlockHash(uint64 hid, T_SHA256& hash)
     }
     else {
         zmsg* rspmsg = MQRequest(HYPERCHAINSPACE_SERVICE, (int)SERVICE::GetHyperBlockHash, hid, &hash);
+
+        bool ret = false;
+        if (rspmsg) {
+            MQMsgPop(rspmsg, ret);
+            delete rspmsg;
+        }
+        return ret;
+    }
+}
+
+//HCE: Get a batch hash of Hyperblocks in main chain
+bool CHyperChainSpace::GetHyperBlocksHashs(uint64 hid, uint32 num, vector<T_SHA256>& vechash, bool needdownload)
+{
+    if (_msghandler.getID() == std::this_thread::get_id()) {
+
+        for (uint64 i = hid; i < hid + num && i <= uiMaxHeaderID; i++) {
+            if (m_bestChainBlocksHash.find(i) != m_bestChainBlocksHash.end()) {
+                vechash.push_back(m_bestChainBlocksHash[i]);
+                continue;
+            }
+
+            if (needdownload) {
+                GetRemoteHyperBlockByID_UntilSuccess(i, i + 1, "");
+            }
+
+            if (m_bestChainHeadersHash.find(i + 1) == m_bestChainHeadersHash.end())
+                break;
+
+            T_SHA256& headerhash = m_bestChainHeadersHash[i + 1];
+            if (m_HeaderIndexMap.find(headerhash) == m_HeaderIndexMap.end())
+                break;
+            vechash.push_back(m_HeaderIndexMap[headerhash].prehash);
+        }
+        return true;
+    }
+    else {
+        zmsg* rspmsg = MQRequest(HYPERCHAINSPACE_SERVICE, (int)SERVICE::GetHyperBlocksHashs, hid, num, &vechash, needdownload);
 
         bool ret = false;
         if (rspmsg) {
@@ -4139,7 +4419,7 @@ bool CHyperChainSpace::updateHyperBlockCache(T_HYPERBLOCK& hyperblock)
         uint64_t blockcount = hyperblock.GetChildBlockCount();
 
         //HCE: Notice To Do:
-        //HCE: Even if select another branch, we do nothing for my subblocks they are already in old chain.
+        //HCE: Even if select another branch, we do nothing for my local blocks they are already in old chain.
 
         char HyperblockHash[FILESIZEL] = { 0 };
         CCommonStruct::Hash256ToStr(HyperblockHash, hyperblock.GetHashSelf());
@@ -4167,12 +4447,12 @@ bool CHyperChainSpace::updateHyperBlockCache(T_HYPERBLOCK& hyperblock)
         m_db->updateHashInfo(currblockid, headerhash, hyperblock.GetHashSelf());
 
         //HCE: update m_BlockHashMap
-        m_BlockHashMap[currblockid] = hyperblock.GetHashSelf();
+        m_bestChainBlocksHash[currblockid] = hyperblock.GetHashSelf();
 
         if (!isBlockAlreadyExisted) {
             //HCE: update m_localHID and m_localHIDsection
-            m_localHID.insert(currblockid);
-            GenerateHIDSection(m_localHID, m_localHIDsection);
+            m_bestChainLocalHID.insert(currblockid);
+            GenerateHIDSection(m_bestChainLocalHID, m_localHIDsection);
         }
 
         if (uiMaxBlockNum <= currblockid) {
@@ -4230,8 +4510,8 @@ void CHyperChainSpace::publishNewHyperBlock(uint32_t hidFork, const T_HYPERBLOCK
     msg.send(*_hyperblock_pub);
 }
 
-//HCE: When block id is same, we choose the hyper block whose subblocks counts is more.
-//HCE: When block id and subblock counts both are same, we choose the hyper block whose hash is more less.
+//HCE: When block id is same, we choose the hyper block whose local blocks counts is more.
+//HCE: When block id and local block counts both are same, we choose the hyper block whose hash is more less.
 bool CHyperChainSpace::isMoreWellThanLocal(const T_HYPERBLOCK& localHyperBlock,
     uint64 blockid, uint64 blockcount, const T_SHA256& hhashself)
 {
@@ -4347,6 +4627,8 @@ void putStream(boost::archive::binary_oarchive& oa, uint64_t hid, uint32 range, 
     }
 }
 
+//HC: 如果headerHID = 1025， locationSection结果为[10, 0]
+//HC: 如果headerHID = 1026， locationSection结果为[10, 1]
 void GetHeaderIDSection(uint64 headerHID, vector<uint16>& locationSection)
 {
     uint64 startid = 0;
@@ -4436,7 +4718,7 @@ uint64 BinarySearch(uint64 startid, uint64 endid, map<uint64, T_SHA256>& headerh
     return BinarySearch(startid, endid, headerhashmap1, headerhashmap2);
 }
 
-uint64 CHyperChainSpace::CheckDiffPos(uint64 startid, uint64 endid, map<uint64, T_SHA256>& headerhash, T_HEADERINFO& headerinfo)
+uint64 CHyperChainSpace::CheckDiffPos(uint64 startid, uint64 endid, map<uint64, T_SHA256>& headerhash, T_HEADERS_MTROOTS& headerinfo)
 {
     vector <uint16> hashMTRootSection;
     vector<T_SHA256> hashMTRootlist;
@@ -4445,13 +4727,13 @@ uint64 CHyperChainSpace::CheckDiffPos(uint64 startid, uint64 endid, map<uint64, 
     uint64 headerid = endid < headerinfo.id ? endid : headerinfo.id;
     if (headerid == headerinfo.id) {
         hashMTRootSection = headerinfo.section;
-        hashMTRootlist = headerinfo.hashMTRootList;
-        GenerateHeaderHashMTRootList(hashMTRootSection, localhashMTRootlist, m_HeaderHashMap);
+        hashMTRootlist = headerinfo.hash_MTRoots;
+        GenerateHeaderHashMTRootList(hashMTRootSection, localhashMTRootlist, m_bestChainHeadersHash);
     }
     else {
         GetHeaderIDSection(headerid, hashMTRootSection);
         GenerateHeaderHashMTRootList(hashMTRootSection, hashMTRootlist, headerhash);
-        GenerateHeaderHashMTRootList(hashMTRootSection, localhashMTRootlist, m_HeaderHashMap);
+        GenerateHeaderHashMTRootList(hashMTRootSection, localhashMTRootlist, m_bestChainHeadersHash);
     }
 
     int i = 0;
@@ -4479,9 +4761,9 @@ uint64 CHyperChainSpace::CheckDiffPos(uint64 startid, uint64 endid, map<uint64, 
 
     uint64 hid = blockid;
     for (; hid <= headerid; hid++) {
-        if (m_HeaderHashMap.find(hid) != m_HeaderHashMap.end() &&
+        if (m_bestChainHeadersHash.find(hid) != m_bestChainHeadersHash.end() &&
             headerhash.find(hid) != headerhash.end() &&
-            m_HeaderHashMap[hid] != headerhash[hid]) {
+            m_bestChainHeadersHash[hid] != headerhash[hid]) {
             hid--;
             break;
         }
@@ -4500,3 +4782,28 @@ uint64 CHyperChainSpace::CheckDiffPos(uint64 startid, uint64 endid, map<uint64, 
 
     return hid;
 }
+
+
+std::string CHyperChainSpace::GetMQCostStatistics()
+{
+    if (_msghandler.getID() == std::this_thread::get_id()) {
+
+        //return m_chainactioncoststt.Statistics("HyperChainSpace MQ cost statistics: ");
+        ostringstream oss;
+        oss << m_chainactioncoststt.Statistics("HyperChainSpace MQ cost statistics: ");
+        oss << endl;
+        oss << _msghandler.getStatistics("HyperChainSpace Task cost statistics: ");
+        return oss.str();
+    }
+    else {
+        zmsg* rspmsg = MQRequest(HYPERCHAINSPACE_SERVICE, (int)SERVICE::MQCostStatistics);
+
+        string ret;
+        if (rspmsg) {
+            MQMsgPop(rspmsg, ret);
+            delete rspmsg;
+        }
+        return ret;
+    }
+}
+

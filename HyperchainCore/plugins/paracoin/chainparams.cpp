@@ -68,6 +68,9 @@ public:
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,239);
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0x87, 0xCF};
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
+
+        base58Prefixes[CROSS_CHAIN_ADDRESS] = std::vector<unsigned char>(1, 166);
+
         bech32_hrp = "tb";
 
         //HCE: The following prefixes belong to Bitcoin main net
@@ -160,6 +163,9 @@ public:
         base58Prefixes[EXT_PUBLIC_KEY] = { 0x04, 0x88, 0xB2, 0x1E };
         base58Prefixes[EXT_SECRET_KEY] = { 0x04, 0x88, 0xAD, 0xE4 };
 
+        base58Prefixes[CROSS_CHAIN_ADDRESS] = std::vector<unsigned char>(1, 8);
+
+
         bech32_hrp = "bc";
 
 
@@ -205,6 +211,8 @@ public:
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,239);
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0x87, 0xCF};
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
+
+        base58Prefixes[CROSS_CHAIN_ADDRESS] = std::vector<unsigned char>(1, 166);
 
         bech32_hrp = "tb";
 
@@ -268,6 +276,7 @@ public:
 
         bech32_hrp = "bcrt";
 
+        base58Prefixes[CROSS_CHAIN_ADDRESS] = std::vector<unsigned char>(1, 166);
 
     }
 

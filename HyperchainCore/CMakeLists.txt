@@ -1,4 +1,4 @@
-#Copyright 2016-2022 hyperchain.net (Hyperchain)
+#Copyright 2016-2024 hyperchain.net (Hyperchain)
 #Distributed under the MIT software license, see the accompanying
 #file COPYING or https://opensource.org/licenses/MIT.
 
@@ -40,7 +40,6 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Zi /Od /MDd")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /utf-8")
 
 ADD_DEFINITIONS(/D__WXMSW__ /DNOMINMAX /DUDT_EXPORTS -DWIN32)
-
 
 endif()
 
@@ -87,10 +86,17 @@ if(cppzmq_FOUND)
     message(STATUS "Found ZeroMQ")
 endif()
 
+#refer to: https://www.boost.org/doc/libs/1_73_0/doc/html/stacktrace/configuration_and_build.html
+ADD_DEFINITIONS(-DBOOST_STACKTRACE_LINK)
+if(UNIX)
+	set(STACKTRACE stacktrace_addr2line)
+elseif(WIN32)
+	set(STACKTRACE stacktrace_windbg)
+endif()
+
 #set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_MULTITHREADED ON)
-find_package (Boost REQUIRED COMPONENTS system program_options date_time filesystem thread serialization fiber iostreams log)
-
+find_package (Boost REQUIRED COMPONENTS system program_options date_time filesystem thread serialization fiber iostreams log ${STACKTRACE})
 
 if(UNIX)
     find_package(breakpad REQUIRED)
@@ -126,86 +132,21 @@ configure_file (
 "${PROJECT_SOURCE_DIR}/globalconfig.h.in"
 "${PROJECT_BINARY_DIR}/globalconfig.h")
 
-set(main_SRC Log.cpp newLog.cpp NodeInfo.cpp globalconfig.cpp main.cpp colorprompt.hpp consolecommandhandler.cpp AppPlugins.cpp ntpclient.cpp UpdateInfo.cpp)
-set(main_HEAD Log.h newLog.h NodeInfo.h Types.h consolecommandhandler.h AppPlugins.h plugins/PluginContext.h ${PROJECT_BINARY_DIR}/globalconfig.h ntpclient.h UpdateInfo.h)
-
-FILE(GLOB crypto_SRC "crypto/*.cpp")
-FILE(GLOB crypto_HEAD "crypto/*.h")
-
-FILE(GLOB data_SRC "data/*.cpp")
-
-FILE(GLOB db_SRC "db/*.cpp")
-FILE(GLOB db_HEAD "db/*.h")
-
-FILE(GLOB headers_SRC "headers/*.cpp")
-FILE(GLOB headers_HEAD "headers/*.h")
-
-FILE(GLOB HttpUnit_SRC "HttpUnit/*.cpp")
-FILE(GLOB HttpUnit_HEAD "HttpUnit/*.h")
-
-FILE(GLOB HyperChain_SRC "HyperChain/*.cpp")
-FILE(GLOB HyperChain_HEAD "HyperChain/*.h")
-FILE(GLOB HyperChain_HPP "HyperChain/*.hpp")
-
-FILE(GLOB node_SRC "node/*.cpp")
-FILE(GLOB node_HEAD "node/*.h")
-FILE(GLOB node_HPP "node/*.hpp")
-
-FILE(GLOB spdlog_HEAD "thirdparty/spdlog/*")
-
-FILE(GLOB udt_SRC "thirdparty/udt/*.cpp")
-FILE(GLOB udt_HEAD "thirdparty/udt/*.h")
-
-FILE(GLOB util_SRC "util/*.cpp")
-FILE(GLOB util_HEAD "util/*.h")
-
-FILE(GLOB utility_SRC "utility/*.cpp")
-FILE(GLOB utility_HEAD "utility/*.h")
-
-FILE(GLOB wnd_SRC "wnd/*.cpp")
-FILE(GLOB wnd_HEAD "wnd/*.h")
-
-FILE(GLOB consensus_SRC "consensus/*.cpp" "consensus/*.hpp")
-FILE(GLOB consensus_HEAD "consensus/*.h")
+set(main_SRC main.cpp newLog.cpp)
+set(main_HEAD newLog.h ${PROJECT_BINARY_DIR}/globalconfig.h) 
 
 FILE(GLOB linenoise_SRC "thirdparty/linenoise-ng/*.cpp")
 FILE(GLOB linenoise_HEAD "thirdparty/linenoise-ng/*.h")
-
-
 #All source files
-set(final_HEAD
-    ${main_HEAD}
-	${crypto_HEAD}
-	${headers_HEAD}
-	${HttpUnit_HEAD}
-	${HyperChain_HEAD}
-	${HyperChain_HPP}
-	${node_HEAD}
-	${node_HPP}
-	${utility_HEAD}
-	${wnd_HEAD}
-	${db_HEAD}
-	${udt_HEAD}
-	${util_HEAD}
-	${spdlog_HEAD}
-	${consensus_HEAD}
-	)
-
-set(final_SRC
-    ${main_SRC}
-	${crypto_SRC}
-	${data_SRC}
-	${headers_SRC}
-	${HttpUnit_SRC}
-	${HyperChain_SRC}
-	${node_SRC}
-	${utility_SRC}
-	${wnd_SRC}
-	${db_SRC}
-	${udt_SRC}
-	${util_SRC}
-	${consensus_SRC}
-	)
+#
+#
+# 特别提示，非常重要！！！
+# hyperchainspace.lib 已经包含了依赖代码，所以hc工程不能再次重复引入。
+# 原因是Linux下的实测发现，如果重复包含，全局对象会创建二个实例，如UDT实例，引发程序运行异常
+#
+#
+set(final_HEAD ${main_HEAD})
+set(final_SRC ${main_SRC})
 
 if(WIN32)
 	set(resource_SRC ${CMAKE_BINARY_DIR}/logo.rc)
@@ -226,20 +167,25 @@ add_subdirectory(genmd5)
 
 # build liblinenoise
 add_library(linenoise STATIC ${linenoise_SRC} ${linenoise_HEAD})
+if(NOT WIN32)
+target_compile_options(linenoise PRIVATE -fPIC)
+endif()
+
 add_executable(${PROJECT_NAME} ${resource_SRC} ${final_SRC} ${final_HEAD} ${WRAP_FILES})
 
 if(WIN32)
-target_link_libraries(${PROJECT_NAME} bcrypt.lib)
+	target_link_libraries(${PROJECT_NAME} bcrypt.lib)
 else()
-target_link_libraries(${PROJECT_NAME} dl ssl)
+	target_link_libraries(${PROJECT_NAME} dl ssl)
+	set_target_properties(${PROJECT_NAME} PROPERTIES BUILD_RPATH "$ORIGIN;$ORIGIN/lib")
+	set_target_properties(${PROJECT_NAME} PROPERTIES INSTALL_RPATH "$ORIGIN;$ORIGIN/lib")
 endif()
 
 
 target_link_libraries(${PROJECT_NAME} cpprestsdk::cpprest OpenSSL::Crypto ${SQLITE3_LIBRARIES})
 target_link_libraries(${PROJECT_NAME} Boost::system Boost::program_options Boost::serialization Boost::iostreams Boost::filesystem Boost::thread Boost::fiber)
 target_link_libraries(${PROJECT_NAME} unofficial::breakpad::libbreakpad_client)
-target_link_libraries(${PROJECT_NAME} cppzmq libzmq cppzmq-static libzmq-static linenoise)
-target_link_libraries(${PROJECT_NAME} vm)
+target_link_libraries(${PROJECT_NAME} hyperchainspace Boost::${STACKTRACE})
 
 target_include_directories(${PROJECT_NAME} PRIVATE
 	${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/thirdparty ${breakpad_INCLUDE_DIRS})

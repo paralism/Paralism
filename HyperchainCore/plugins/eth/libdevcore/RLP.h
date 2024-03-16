@@ -87,6 +87,9 @@ public:
     /// String value.
     bool isData() const { return !isNull() && m_data[0] < c_rlpListStart; }
 
+    //HC:
+    bool isString() const { return !isNull() && m_data[0] > c_rlpDataImmLenStart && m_data[0] < c_rlpListStart; }
+
     /// List value.
     bool isList() const { return !isNull() && m_data[0] >= c_rlpListStart; }
 

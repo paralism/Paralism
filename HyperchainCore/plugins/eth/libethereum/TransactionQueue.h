@@ -14,6 +14,8 @@
 #include <deque>
 #include <functional>
 #include <thread>
+#include <iostream>
+#include <sstream>
 
 namespace dev
 {
@@ -92,6 +94,14 @@ public:
     };
     /// @returns the status of the transaction queue.
     Status status() const { Status ret; DEV_GUARDED(x_queue) { ret.unverified = m_unverified.size(); } ReadGuard l(m_lock); ret.dropped = m_dropped.size(); ret.current = m_currentByHash.size(); ret.future = m_future.size(); return ret; }
+
+    struct StatusDetails {
+        std::vector<h256> vCurrent;
+        std::vector<h256> vUnverified;
+        std::vector<h256> vDropped;
+    };
+
+    StatusDetails statusDetails() const;
 
     /// @returns the transacrtion limits on current/future.
     Limits limits() const { return Limits{m_limit, m_futureLimit}; }
@@ -179,13 +189,13 @@ private:
     ///< the number of transaction hashes stored.
     LruCache<h256, bool> m_dropped;
 
-	    PriorityQueue m_current;
+    PriorityQueue m_current;
     std::unordered_map<h256, PriorityQueue::iterator> m_currentByHash;			///< Transaction hash to set ref
     std::unordered_map<Address, std::map<u256, PriorityQueue::iterator>> m_currentByAddressAndNonce; ///< Transactions grouped by account and nonce
 
-	    std::unordered_map<Address, std::map<u256, VerifiedTransaction>> m_future;	/// Future transactions
+    std::unordered_map<Address, std::map<u256, VerifiedTransaction>> m_future;	/// Future transactions
 
-	    Signal<> m_onReady;															///< Called when a subsequent call to import transactions will return a non-empty container. Be nice and exit fast.
+    Signal<> m_onReady;															///< Called when a subsequent call to import transactions will return a non-empty container. Be nice and exit fast.
     Signal<ImportResult, h256 const&, h512 const&> m_onImport;					///< Called for each import attempt. Arguments are result, transaction id an node id. Be nice and exit fast.
     Signal<h256 const&> m_onReplaced;											///< Called whan transction is dropped during a call to import() to make room for another transaction.
     unsigned m_limit;															///< Max number of pending transactions
@@ -210,6 +220,29 @@ inline std::ostream& operator<<(std::ostream& _out, dev::eth::TransactionQueue::
         << " future:" << _s.future
         << " unverified:" << _s.unverified
         << " dropped:" << _s.dropped;
+    return _out;
+}
+
+inline std::ostream& operator<<(std::ostream& _out, dev::eth::TransactionQueue::StatusDetails const& _s)
+{
+    std::ostringstream oss;
+    for (auto & elm : _s.vCurrent) {
+        oss << "    " << elm << std::endl;
+    }
+    _out << "  current:\n" << oss.str();
+
+
+    oss.str("");
+    for (auto& elm : _s.vUnverified) {
+        oss << "    " << elm << std::endl;
+    }
+    _out << "  unverified:\n" << oss.str();
+
+    oss.str("");
+    for (auto& elm : _s.vDropped) {
+        oss << "    " << elm << std::endl;
+    }
+    _out << "  dropped:\n" << oss.str();
     return _out;
 }
 

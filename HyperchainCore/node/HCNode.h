@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -25,6 +25,7 @@ DEALINGS IN THE SOFTWARE.
 #include "UInt128.h"
 #include "IAccessPoint.h"
 #include "ObjectFactory.hpp"
+#include "headers/commonstruct.h"
 
 #include <list>
 #include <memory>
@@ -32,6 +33,21 @@ DEALINGS IN THE SOFTWARE.
 using namespace std;
 
 class CUInt128;
+
+
+typedef struct tagLocalChainInformation {
+    int hId;        //HCE: Hyper Block Id
+    int chainId;
+    int localId;
+    T_SHA256 hhash; //HCE: hash of hyper block
+    string modulename;
+
+    string serialize();
+
+} LocalChainInformation, *PLocalChainInformation;
+
+using SPLocalChainList = list <std::shared_ptr<LocalChainInformation>>;
+
 
 class HCNode {
 public:
@@ -97,6 +113,11 @@ public:
     string serializeAP() const;
     void parseAP(const string& aps);
 
+    string serializeLocalChains() const;
+    void parseLocalChains(const string& lcs);
+
+    void updateLocalChains(const std::map<string, T_APPTYPE>& nodeApps);
+
     void addAP(std::shared_ptr<IAccessPoint> ap) {
         _aplist.push_back(ap);
     }
@@ -127,10 +148,13 @@ private:
 
     CUInt128 _nodeid;
     APList _aplist;
+    SPLocalChainList _localchainlist;
 
     //HCE: Access point object factory
     objectFactory _apFactory;
     bool _isReg = false;
+
+
 };
 
 using HCNodeSH = std::shared_ptr<HCNode>;

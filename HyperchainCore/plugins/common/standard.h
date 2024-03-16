@@ -8,6 +8,7 @@
 
 #include <uint256.h>
 
+#include <boost/mpl/find.hpp>
 #include <boost/variant.hpp>
 
 #include <string>
@@ -239,6 +240,8 @@ enum class TxoutType {
     WITNESS_V0_SCRIPTHASH,
     WITNESS_V0_KEYHASH,
     WITNESS_V1_TAPROOT,
+    WITNESS_CROSSCHAIN_IMMABLE,
+    WITNESS_CROSSCHAIN,
     WITNESS_UNKNOWN, //!< Only for Witness versions not already defined above
 };
 
@@ -255,7 +258,121 @@ struct PKHash : public BaseHash<uint160>
     explicit PKHash(const CPubKey& pubkey);
     explicit PKHash(const CKeyID& pubkey_id);
 };
+
+
 CKeyID ToKeyID(const PKHash& key_hash);
+
+struct ImmutableWitnessCrossChainHash {
+    static unsigned int version; //HCE: Using maximum value 16 for Witness, more see 'EncodeOP_N'
+
+    uint32_t genesis_hid = 0;          //HCE: hyper block id where genesis block in local block is located
+    uint16_t genesis_chainid = 0;
+    uint16_t genesis_localid = 0;
+    BaseHash<uint160> hhash;                //HCE: the last 20 bytes of hyper block hash
+
+    BaseHash<uint160> genesis_block_hash;   //HCE: Hash of genesis block of target local chain
+
+    vector<unsigned char> serialize() const;
+    void unserialize(vector<unsigned char> scrptdata);
+
+    static int size() {
+        //serialize length: 50
+        //hhash: 20 + 1
+        //genesis_block_hash: 20 + 1
+        return sizeof(uint32_t) + 2 * sizeof(uint16_t) +  20 + 1 + 20 + 1;
+    }
+
+    friend bool operator==(const ImmutableWitnessCrossChainHash& w1, const ImmutableWitnessCrossChainHash& w2) {
+        if (w1.version != w2.version) return false;
+        if (w1.genesis_hid != w2.genesis_hid || w1.genesis_chainid != w2.genesis_chainid 
+            || w1.genesis_localid != w2.genesis_localid
+            || w1.hhash != w2.hhash || w1.genesis_block_hash != w2.genesis_block_hash
+            ) {
+            return false;
+        }
+        return true;
+    }
+
+    friend bool operator<(const ImmutableWitnessCrossChainHash& w1, const ImmutableWitnessCrossChainHash& w2) {
+        if (w1.version < w2.version) return true;
+        if (w1.version > w2.version) return false;
+
+        if (w1.genesis_hid < w2.genesis_hid)  return true;
+        if (w2.genesis_hid < w1.genesis_hid)  return false;
+
+        if (w1.genesis_chainid < w2.genesis_chainid)  return true;
+        if (w2.genesis_chainid < w1.genesis_chainid)  return false;
+
+        if (w1.genesis_localid < w2.genesis_localid)  return true;
+        if (w2.genesis_localid < w1.genesis_localid)  return false;
+
+        bool rc = std::lexicographical_compare(w1.hhash.begin(), w1.hhash.end(), w2.hhash.begin(), w2.hhash.end());
+        if (rc)  return true;
+
+        rc = std::lexicographical_compare(w2.hhash.begin(), w2.hhash.end(), w1.hhash.begin(), w1.hhash.end());
+        if (rc)  return false;
+
+        rc = std::lexicographical_compare(w1.genesis_block_hash.begin(), w1.genesis_block_hash.end(), w2.genesis_block_hash.begin(), w2.genesis_block_hash.end());
+        if (rc)  return true;
+
+        rc = std::lexicographical_compare(w2.genesis_block_hash.begin(), w2.genesis_block_hash.end(), w1.genesis_block_hash.begin(), w1.genesis_block_hash.end());
+        if (rc)  return false;
+    }
+
+};
+
+struct WitnessCrossChainHash : public ImmutableWitnessCrossChainHash {
+    BaseHash<uint160> recv_address;         //HCE: A receiving address of target local chain
+
+    uint256 sender_prikey;                  //HCE: Private key of sender of target transaction
+
+    WitnessCrossChainHash() {};
+    WitnessCrossChainHash(ImmutableWitnessCrossChainHash && immwcch) :
+        ImmutableWitnessCrossChainHash(std::forward<ImmutableWitnessCrossChainHash>(immwcch))
+    { }
+
+    vector<unsigned char> serialize() const;
+    void unserialize(vector<unsigned char> scrptdata);
+
+    static int size() {
+        //serialize length (104) is equal to the following three parts:
+        //ImmutableWitnessCrossChainHash : 50
+        //recv_address: 20 + 1
+        //sender_prikey: 32 + 1
+        return ImmutableWitnessCrossChainHash::size() + 20 + 1 + 32 + 1;
+    }
+
+    friend bool operator==(const WitnessCrossChainHash& w1, const WitnessCrossChainHash& w2) {
+
+        if ((ImmutableWitnessCrossChainHash)w1 == (ImmutableWitnessCrossChainHash)w2) {
+            if (w1.recv_address == w2.recv_address
+                && w1.sender_prikey == w2.sender_prikey) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    friend bool operator<(const WitnessCrossChainHash& w1, const WitnessCrossChainHash& w2) {
+
+        if ((ImmutableWitnessCrossChainHash)w1 < (ImmutableWitnessCrossChainHash)w2) {
+
+            bool rc = std::lexicographical_compare(w1.recv_address.begin(), w1.recv_address.end(), w2.recv_address.begin(), w2.recv_address.end());
+            if (rc)  return true;
+
+            rc = std::lexicographical_compare(w2.recv_address.begin(), w2.recv_address.end(), w1.recv_address.begin(), w1.recv_address.end());
+            if (rc)  return false;
+
+            rc = std::lexicographical_compare(w1.sender_prikey.begin(), w1.sender_prikey.end(), w2.sender_prikey.begin(), w2.sender_prikey.end());
+            if (rc)  return true;
+
+            rc = std::lexicographical_compare(w2.sender_prikey.begin(), w2.sender_prikey.end(), w1.sender_prikey.begin(), w1.sender_prikey.end());
+            if (rc)  return false;
+        }
+        return false;
+    }
+};
+
 
 struct WitnessV0KeyHash;
 struct ScriptHash : public BaseHash<uint160>
@@ -316,14 +433,34 @@ struct WitnessUnknown
  *  * ScriptHash: TxoutType::SCRIPTHASH destination (P2SH)
  *  * WitnessV0ScriptHash: TxoutType::WITNESS_V0_SCRIPTHASH destination (P2WSH)
  *  * WitnessV0KeyHash: TxoutType::WITNESS_V0_KEYHASH destination (P2WPKH)
+ *  * WitnessCrossChain: TxoutType::WITNESS_V16_KEYHASH destination (P2WPKH), cross chain transaction
  *  * WitnessUnknown: TxoutType::WITNESS_UNKNOWN/WITNESS_V1_TAPROOT destination (P2W???)
  *    (taproot outputs do not require their own type as long as no wallet support exists)
  *  A CTxDestination is the internal data type encoded in a bitcoin address
  */
-typedef boost::variant<CNoDestination, PKHash, ScriptHash, WitnessV0ScriptHash, WitnessV0KeyHash, WitnessUnknown> CTxDestination;
+typedef boost::variant<CNoDestination, PKHash, ScriptHash, WitnessV0ScriptHash, WitnessV0KeyHash,
+    ImmutableWitnessCrossChainHash,
+    WitnessCrossChainHash, WitnessUnknown> CTxDestination;
+
+template <class Which>
+int TxDestinationIndex()
+{
+    size_t pos = boost::mpl::distance
+        <typename boost::mpl::begin<typename CTxDestination::types>::type,
+        typename boost::mpl::find<typename CTxDestination::types, Which>::type
+        >::type::value;
+
+    size_t last = boost::mpl::distance
+        <typename boost::mpl::begin<typename CTxDestination::types>::type,
+        typename boost::mpl::end<typename CTxDestination::types>::type
+        >::type::value;
+
+    return pos != last ? pos : -1;
+}
 
 /** Check whether a CTxDestination is a CNoDestination. */
 bool IsValidDestination(const CTxDestination& dest);
+
 
 /** Get the name of a TxoutType as a string */
 std::string GetTxnOutputType(TxoutType t);
@@ -373,5 +510,18 @@ CScript GetScriptForRawPubKey(const CPubKey& pubkey);
 
 /** Generate a multisig script. */
 CScript GetScriptForMultisig(int nRequired, const std::vector<CPubKey>& keys);
+
+struct EthInPoint {
+    uint256 eth_tx_hash;
+    base_uint<512> eth_tx_publickey;
+
+    uint32_t hid;
+    uint16_t chainid;
+    uint16_t localid;
+    uint256 eth_genesis_block_hash;
+};
+
+bool ExtractCrossChainInPoint(const CScript& scriptSig, EthInPoint& ethinputpoint);
+
 
 #endif // BITCOIN_SCRIPT_STANDARD_H

@@ -109,28 +109,51 @@ void Executive::initialize(Transaction const& _transaction)
             m_excepted = TransactionException::InvalidSignature;
             throw;
         }
-        if (m_t.nonce() != nonceReq)
-        {
-            LOG(m_execLogger) << "Sender: " << m_t.sender().hex() << " Invalid Nonce: Required "
-                              << nonceReq << ", received " << m_t.nonce();
-            m_excepted = TransactionException::InvalidNonce;
-            BOOST_THROW_EXCEPTION(
-                InvalidNonce() << RequirementError((bigint)nonceReq, (bigint)m_t.nonce()));
+
+        //HC: check balance at first
+        if (!m_t.isCrossChainParaToEth()) {
+            // Avoid unaffordable transactions.
+            bigint gasCost = (bigint)m_t.gas() * m_t.gasPrice();
+            bigint totalCost = m_t.value() + gasCost;
+            if (m_s.balance(m_t.sender()) < totalCost)
+            {
+                LOG(m_execLogger) << m_t.sha3() << " Not enough cash: Require > " << totalCost << " = " << m_t.gas()
+                    << " * " << m_t.gasPrice() << " + " << m_t.value() << " Got"
+                    << m_s.balance(m_t.sender()) << " for sender: " << m_t.sender();
+                m_excepted = TransactionException::NotEnoughCash;
+                BOOST_THROW_EXCEPTION(NotEnoughCash() << RequirementError(totalCost, (bigint)m_s.balance(m_t.sender())) 
+                                                      << errinfo_comment(string(" Sender: ") + m_t.sender().hex()
+                                                          + string(" Tx hash: ") + m_t.sha3().hex()
+                                                      ));
+            }
+            m_gasCost = (u256)gasCost;  // Convert back to 256-bit, safe now.
+
+        } else {
+            //HC: 转入的跨链交易nonce必须为0
+            if (m_t.nonce() != 0) {
+                BOOST_THROW_EXCEPTION(
+                    InvalidNonce() << RequirementError((bigint)0, (bigint)m_t.nonce()) 
+                                   << errinfo_comment(string(" Sender: ") + m_t.sender().hex()));
+            }
         }
 
-        // Avoid unaffordable transactions.
-        bigint gasCost = (bigint)m_t.gas() * m_t.gasPrice();
-        bigint totalCost = m_t.value() + gasCost;
-        if (m_s.balance(m_t.sender()) < totalCost)
-        {
-            LOG(m_execLogger) << "Not enough cash: Require > " << totalCost << " = " << m_t.gas()
-                              << " * " << m_t.gasPrice() << " + " << m_t.value() << " Got"
-                              << m_s.balance(m_t.sender()) << " for sender: " << m_t.sender();
-            m_excepted = TransactionException::NotEnoughCash;
-            m_excepted = TransactionException::NotEnoughCash;
-            BOOST_THROW_EXCEPTION(NotEnoughCash() << RequirementError(totalCost, (bigint)m_s.balance(m_t.sender())) << errinfo_comment(m_t.sender().hex()));
+        //HC: check nonce
+        if (m_t.nonce() != nonceReq) {
+            LOG(m_execLogger)
+                << "Tx: " << m_t.sha3().hex()
+                << " Sender: " << m_t.sender().hex() << " Invalid Nonce: Required "
+                << nonceReq << ", received " << m_t.nonce()
+                << " number:" << m_envInfo.number();
+            m_excepted = TransactionException::InvalidNonce;
+            BOOST_THROW_EXCEPTION(
+                InvalidNonce() << RequirementError((bigint)nonceReq, (bigint)m_t.nonce()) << errinfo_comment(m_t.sender().hex()));
         }
-        m_gasCost = (u256)gasCost;  // Convert back to 256-bit, safe now.
+
+        LOG(m_execLogger)
+            << "Tx: " << m_t.sha3().hex()
+            << " Sender: " << m_t.sender().hex() << " valid Nonce: Required "
+            << nonceReq << ", received " << m_t.nonce()
+            << " number:" << m_envInfo.number();
     }
 }
 
@@ -139,13 +162,16 @@ bool Executive::execute()
     // Entry point for a user-executed transaction.
 
     // Pay...
+    //HC: m_gasCost is 0 for transaction of cross chain.
     LOG(m_detailsLogger) << "Paying " << formatBalance(m_gasCost) << " from sender for gas ("
                          << m_t.gas() << " gas at " << formatBalance(m_t.gasPrice()) << ")";
     m_s.subBalance(m_t.sender(), m_gasCost);
 
     assert(m_t.gas() >= (u256)m_baseGasRequired);
-    if (m_t.isCreation())         return create(m_t.sender(), m_t.value(), m_t.gasPrice(), m_t.gas() - (u256)m_baseGasRequired, &m_t.data(), m_t.sender());
-    else         return call(m_t.receiveAddress(), m_t.sender(), m_t.value(), m_t.gasPrice(), bytesConstRef(&m_t.data()), m_t.gas() - (u256)m_baseGasRequired);
+    if (m_t.isCreation())
+        return create(m_t.sender(), m_t.value(), m_t.gasPrice(), m_t.gas() - (u256)m_baseGasRequired, &m_t.data(), m_t.sender());
+    else
+        return call(m_t.receiveAddress(), m_t.sender(), m_t.value(), m_t.gasPrice(), bytesConstRef(&m_t.data()), m_t.gas() - (u256)m_baseGasRequired);
 }
 
 bool Executive::call(Address const& _receiveAddress, Address const& _senderAddress, u256 const& _value, u256 const& _gasPrice, bytesConstRef _data, u256 const& _gas)
@@ -220,7 +246,13 @@ bool Executive::call(CallParameters const& _p, u256 const& _gasPrice, Address co
     }
 
     // Transfer ether.
-    m_s.transferBalance(_p.senderAddress, _p.receiveAddress, _p.valueTransfer);
+    //HC:
+    if (m_t.isCrossChainParaToEth()) {
+        m_s.addBalance(_p.receiveAddress, _p.valueTransfer);
+    }
+    else {
+        m_s.transferBalance(_p.senderAddress, _p.receiveAddress, _p.valueTransfer);
+    }
     return !m_ext;
 }
 
@@ -344,6 +376,13 @@ bool Executive::go(OnOpFunc const& _onOp)
                     m_res->gasForDeposit = m_gas;
                     m_res->depositSize = out.size();
                 }
+
+                cout << "out.size(): " << out.size() << endl;
+                cout << "m_ext->evmSchedule().createDataGas: " << m_ext->evmSchedule().createDataGas << endl;
+                cout << "m_gas: " << m_gas << " should be greater than out.size()* createDataGas" 
+                    << out.size() * m_ext->evmSchedule().createDataGas
+                    << endl;
+
                 if (out.size() > m_ext->evmSchedule().maxCodeSize)
                     BOOST_THROW_EXCEPTION(OutOfGas());
                 else if (out.size() * m_ext->evmSchedule().createDataGas <= m_gas)
@@ -435,10 +474,16 @@ bool Executive::finalize()
 
     if (m_t)
     {
-        m_s.addBalance(m_t.sender(), m_gas * m_t.gasPrice());
+        //HC: m_gas是计算出来的执行此交易本身所剩gas
 
         u256 feesEarned = (m_t.gas() - m_gas) * m_t.gasPrice();
         m_s.addBalance(m_envInfo.author(), feesEarned);
+
+        if (m_t.isCrossChainParaToEth()) {
+            m_s.subBalance(m_t.receiveAddress(), feesEarned); //HC: 跨链的发送者没有余额，所以扣除接收者gas费
+        } else {
+            m_s.addBalance(m_t.sender(), m_gas * m_t.gasPrice());
+        }
     }
 
     // Selfdestructs...

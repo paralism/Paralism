@@ -26,12 +26,12 @@ Ethash::Ethash()
     m_farm.setSealers(sealers);
     m_farm.onSolutionFound([=](EthashProofOfWork::Solution const& sol)
     {
-                std::unique_lock<std::shared_timed_mutex> l(m_submitLock, chrono::milliseconds(200));
+        std::unique_lock<std::shared_timed_mutex> l(m_submitLock, chrono::milliseconds(200));
         if (!l) {
             cout << "Ethash warning: cannot get the lock for the found solution\n";
             return false;
         }
-//        cdebug << m_farm.work().seedHash << m_farm.work().headerHash << sol.nonce << EthashAux::eval(m_farm.work().seedHash, m_farm.work().headerHash, sol.nonce).value;
+//      cdebug << m_farm.work().seedHash << m_farm.work().headerHash << sol.nonce << EthashAux::eval(m_farm.work().seedHash, m_farm.work().headerHash, sol.nonce).value;
         setMixHash(m_sealing, sol.mixHash);
         setNonce(m_sealing, sol.nonce);
         if (!quickVerifySeal(m_sealing))
@@ -164,10 +164,10 @@ bool Ethash::verifySeal(BlockHeader const& _blockHeader) const
 void Ethash::generateSeal(BlockHeader const& _bi)
 {
     //Guard l(m_submitLock);
-        std::unique_lock<std::shared_timed_mutex> l(m_submitLock);
+    std::unique_lock<std::shared_timed_mutex> l(m_submitLock);
     m_sealing = _bi;
 
-        m_farm.setWork(m_sealing);
+    m_farm.setWork(m_sealing);
 
     m_farm.start(m_sealer);
     m_farm.setWork(m_sealing);

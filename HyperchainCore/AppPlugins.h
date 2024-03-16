@@ -4,7 +4,7 @@
 #include "node/ObjectFactory.hpp"
 
 #include <boost/function.hpp>
-#include <boost/dll/shared_library.hpp>
+#include <boost/dll.hpp>
 
 
 #include <iostream>
@@ -17,11 +17,6 @@
 using namespace std;
 
 
-using MAPARGS = std::map<std::string, std::string>;
-using MAPMULTIARGS = std::map<std::string, std::vector<std::string>>;
-
-extern MAPARGS mapHCArgs;
-extern MAPMULTIARGS mapHCMultiArgs;
 extern std::vector<std::string> vHCCommands;
 
 class AppPlugins
@@ -103,6 +98,20 @@ public:
     void GetAllAppStatus(map<string, string>& mapappstatus);
     void RegisterAllAppTasks(void* objFactory);
 
+    template <typename R, typename... Args>
+    static R callFunction(const string& appname, const string& functionname, Args&&... args)
+    {
+        try {
+            boost::dll::shared_library lib;
+            auto func = getFunction<R(Args...)>(lib, appname, functionname);
+            return func(std::forward<Args>(args)...);
+        }
+        catch (boost::system::system_error& e) {
+            throw std::runtime_error(StringFormat("%s: %s \n", appname, e.what()));
+        }
+    }
+
+
     typedef struct _appfunc {
 
         std::list<string> appargv;
@@ -112,7 +121,7 @@ public:
         boost::function<void(int&,string&)> appRunningArg;
         boost::function<bool(PluginContext*)> appStart;
         boost::function<bool()> appIsStopped;
-        boost::function<void()> appStop;
+        boost::function<void(bool)> appStop;
         boost::function<bool(void* objFa)> appRegisterTask;
         boost::function<void(void* objFa)> appUnregisterTask;
         boost::function<bool(int, string&)> appResolveHeight;
@@ -144,6 +153,17 @@ public:
 private:
 
     void Init();
+
+    template <typename T>
+    static std::function<T> getFunction(boost::dll::shared_library& lib, const string& appname, const string& functionname)
+    {
+        boost::filesystem::path pathHC(boost::dll::program_location());
+        pathHC = boost::filesystem::system_complete(pathHC.branch_path());
+        pathHC /= appname;
+
+        lib.load(pathHC, boost::dll::load_mode::append_decorations);
+        return lib.get<T>(functionname);
+    }
 
 private:
     int _argc;

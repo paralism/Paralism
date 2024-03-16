@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -45,15 +45,6 @@ public:
     //HCE: Dispatch task to the node with ip and port
     void dispatch(const char *taskbuf, int len, const string& ip, uint32_t port);
 
-    //HCE: Dispatch task to the node with ip and port
-    void dispatch_real(const char *taskbuf, int len, const string& ip, uint32_t port);
-
-    //HCE: Dispatch the received message 
-    void msg_received(void *sock, zmsg *msg);
-
-    //HCE: Register the app task in received message
-    void reg_received(void *sock, zmsg *msg);
-
     void stop()
     {
         m_msghandler.stop();
@@ -69,7 +60,18 @@ private:
 
     void connect_to_broker();
 
+    //HCE: Dispatch task to the node with ip and port
+    void dispatch_real(const char* taskbuf, int len, const string& ip, uint32_t port);
+
+    void dispatch_to_myself(const char* taskbuf, int len);
+
     zmsg* send(std::string service, zmsg *request_p);
+
+    //HCE: Dispatch the received message 
+    void msg_received(void* sock, zmsg* msg);
+
+    //HCE: Register the app task in received message
+    void reg_received(void* sock, zmsg* msg);
 
  private:
     const std::string REG = "reg";

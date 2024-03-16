@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -104,6 +104,7 @@ enum class TASKTYPE : unsigned char
     GLOBAL_BUDDY_HASH_BLOCK_RSP,
     GLOBAL_BUDDY_HASH_FORWARD,
 
+    CROSS_CHAIN_TX,
     //HC: internal task protocol
     ACTIVE_NODE = 0xfa
 };

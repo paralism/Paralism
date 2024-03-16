@@ -37,7 +37,41 @@ bool AccountManager::contain(const h160& acc)
     return false;
 }
 
-bool AccountManager::execute(int argc, char** argv)
+std::list<dev::h160> AccountManager::addresses()
+{
+    std::list<dev::h160> alladdress;
+
+    openWallet();
+    if (!m_keyManager->store().keys().empty()) {
+        //"No keys found.\n";
+        //vector<u128> bare;
+        AddressHash got;
+        for (auto const& u : m_keyManager->store().keys())
+        {
+            if (Address a = m_keyManager->address(u))
+            {
+                got.insert(a);
+                alladdress.push_back(a);
+            }
+            //else
+            //    bare.push_back(u);
+        }
+        for (auto const& a : m_keyManager->accounts())
+            if (!got.count(a)) {
+                alladdress.push_back(a);
+            }
+
+        //for (auto const& u : bare)
+        //{
+        //    cout << "Account #" << k << ": " << toUUID(u) << " (Bare)\n";
+        //    k++;
+        //}
+    }
+
+    return alladdress;
+}
+
+bool AccountManager::execute(int argc, const char** argv)
 {
 	if (string(argv[1]) == "wallet")
 	{
@@ -153,7 +187,7 @@ bool AccountManager::execute(int argc, char** argv)
 				h128 u = fromUUID(i);
 				if (isHex(i) || u != h128())
 				{
-					string newP = createPassword("Enter the new passphrase for the account " + i);
+					string newP = createPassword("Enter the new passphrase for the account " + i + ": ");
 					auto oldP = [&](){ return getPassword("Enter the current passphrase for the account " + i + ": "); };
 					bool recoded = false;
 					if (isHex(i))
@@ -204,6 +238,36 @@ string AccountManager::createPassword(string const& _prompt) const
 	}
 	return ret;
 }
+
+//HCE: generate key use as swapping, whose address value of first byte is equal to 1
+extern "C" BOOST_SYMBOL_EXPORT void makeswapkey(vector<uint8_t>& key, vector<uint8_t>& addr) {
+    bool icap = true;
+    KeyPair k(Secret::random());
+    while (icap && k.address()[0] != 1)
+        k = KeyPair(Secret(sha3(k.secret().ref())));
+
+    Secret s = k.secret();
+    Address a = k.address();
+
+    auto r = s.ref();
+    std::copy(r.begin(), r.end(), std::back_inserter(key));
+    std::copy(a.begin(), a.end(), std::back_inserter(addr));
+}
+
+extern "C" BOOST_SYMBOL_EXPORT bool validateswapkey(const string &secret, const string &pub) {
+    bool icap = true;
+
+    Secret s(fromHex(secret));
+    
+    KeyPair k(s);
+    Public x(fromHex(pub));
+
+    if (k.pub() == x) {
+        return true;
+    }
+    return false;
+}
+
 
 KeyPair AccountManager::makeKey() const
 {

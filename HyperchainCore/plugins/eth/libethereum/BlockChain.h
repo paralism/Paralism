@@ -104,7 +104,7 @@ public:
     /// Sync the chain with any incoming blocks. All blocks should, if processed in order.
     /// @returns tuple with three members - the first (ImportRoute) contains hashes of fresh blocks
     /// and dead blocks as well as a list of imported transactions. The second is a bool which is
-    /// true iff there are additional blocks to be processed. The third is the imported block count.
+    /// true if there are additional blocks to be processed. The third is the imported block count.
     std::tuple<ImportRoute, bool, unsigned> sync(
         BlockQueue& _bq, OverlayDB const& _stateDB, unsigned _max);
 
@@ -148,38 +148,75 @@ public:
     bytes headerData() const { return headerData(currentHash()); }
 
     /// Get the familial details concerning a block (or the most recent mined if none given). Thread-safe.
-    BlockDetails details(h256 const& _hash) const { return queryExtras<BlockDetails, ExtraDetails>(_hash, m_details, x_details, NullBlockDetails); }
+    BlockDetails details(h256 const& _hash) const { 
+        return queryExtras<BlockDetails, ExtraDetails>(_hash, m_details, x_details, NullBlockDetails); 
+    }
+
     BlockDetails details() const { return details(currentHash()); }
 
     /// Get the transactions' log blooms of a block (or the most recent mined if none given). Thread-safe.
-    BlockLogBlooms logBlooms(h256 const& _hash) const { return queryExtras<BlockLogBlooms, ExtraLogBlooms>(_hash, m_logBlooms, x_logBlooms, NullBlockLogBlooms); }
-    BlockLogBlooms logBlooms() const { return logBlooms(currentHash()); }
+    BlockLogBlooms logBlooms(h256 const& _hash) const { 
+        return queryExtras<BlockLogBlooms, ExtraLogBlooms>(_hash, m_logBlooms, x_logBlooms, NullBlockLogBlooms); 
+    }
+
+    BlockLogBlooms logBlooms() const { 
+        return logBlooms(currentHash()); 
+    }
 
     /// Get the transactions' receipts of a block (or the most recent mined if none given). Thread-safe.
     /// receipts are given in the same order are in the same order as the transactions
-    BlockReceipts receipts(h256 const& _hash) const { return queryExtras<BlockReceipts, ExtraReceipts>(_hash, m_receipts, x_receipts, NullBlockReceipts); }
+    BlockReceipts receipts(h256 const& _hash) const { 
+        return queryExtras<BlockReceipts, ExtraReceipts>(_hash, m_receipts, x_receipts, NullBlockReceipts); 
+    }
     BlockReceipts receipts() const { return receipts(currentHash()); }
 
     /// Get the transaction by block hash and index;
-    TransactionReceipt transactionReceipt(h256 const& _blockHash, unsigned _i) const { return receipts(_blockHash).receipts[_i]; }
+    TransactionReceipt transactionReceipt(h256 const& _blockHash, unsigned _i) const { 
+        return receipts(_blockHash).receipts[_i]; 
+    }
 
     /// Get the transaction receipt by transaction hash. Thread-safe.
-    TransactionReceipt transactionReceipt(h256 const& _transactionHash) const { TransactionAddress ta = queryExtras<TransactionAddress, ExtraTransactionAddress>(_transactionHash, m_transactionAddresses, x_transactionAddresses, NullTransactionAddress); if (!ta) return bytesConstRef(); return transactionReceipt(ta.blockHash, ta.index); }
+    TransactionReceipt transactionReceipt(h256 const& _transactionHash) const { 
+        TransactionAddress ta = queryExtras<TransactionAddress, ExtraTransactionAddress>(_transactionHash, m_transactionAddresses, x_transactionAddresses, NullTransactionAddress);
+        if (!ta) 
+            return bytesConstRef(); 
+        return transactionReceipt(ta.blockHash, ta.index); 
+    }
 
     /// Get a list of transaction hashes for a given block. Thread-safe.
-    TransactionHashes transactionHashes(h256 const& _hash) const { auto b = block(_hash); RLP rlp(b); h256s ret; for (auto t: rlp[1]) ret.push_back(sha3(t.data())); return ret; }
+    TransactionHashes transactionHashes(h256 const& _hash) const {
+        auto b = block(_hash);
+        RLP rlp(b);
+        h256s ret;
+        for (auto t: rlp[1]) 
+            ret.push_back(sha3(t.data()));
+        return ret; 
+    }
+
     TransactionHashes transactionHashes() const { return transactionHashes(currentHash()); }
 
     /// Get a list of uncle hashes for a given block. Thread-safe.
-    UncleHashes uncleHashes(h256 const& _hash) const { auto b = block(_hash); RLP rlp(b); h256s ret; for (auto t: rlp[2]) ret.push_back(sha3(t.data())); return ret; }
+    UncleHashes uncleHashes(h256 const& _hash) const { 
+        auto b = block(_hash);
+        RLP rlp(b);
+        h256s ret; 
+        for (auto t: rlp[2]) 
+            ret.push_back(sha3(t.data())); 
+        return ret; 
+    }
+
     UncleHashes uncleHashes() const { return uncleHashes(currentHash()); }
 
     /// Get the hash for a given block's number.
-    h256 numberHash(unsigned _i) const { if (!_i) return genesisHash(); return queryExtras<BlockHash, uint64_t, ExtraBlockHash>(_i, m_blockHashes, x_blockHashes, NullBlockHash).value; }
+    h256 numberHash(unsigned _i) const { 
+        if (!_i) 
+            return genesisHash(); 
+        return queryExtras<BlockHash, uint64_t, ExtraBlockHash>(_i, m_blockHashes, x_blockHashes, NullBlockHash).value; 
+    }
 
     BlockHeader pprev(const BlockHeader& header) const;
     BlockHeader pnext(const BlockHeader& header) const;
-    
+
     LastBlockHashesFace const& lastBlockHashes() const { return *m_lastBlockHashes;  }
 
     int chainID() const { return m_params.chainID; }
@@ -198,25 +235,62 @@ public:
      * level n, index i, offset o:
      * i * (x ^ n) + o * x ^ (n - 1)
      */
-    BlocksBlooms blocksBlooms(unsigned _level, unsigned _index) const { return blocksBlooms(chunkId(_level, _index)); }
-    BlocksBlooms blocksBlooms(h256 const& _chunkId) const { return queryExtras<BlocksBlooms, ExtraBlocksBlooms>(_chunkId, m_blocksBlooms, x_blocksBlooms, NullBlocksBlooms); }
-    LogBloom blockBloom(unsigned _number) const { return blocksBlooms(chunkId(0, _number / c_bloomIndexSize)).blooms[_number % c_bloomIndexSize]; }
+    BlocksBlooms blocksBlooms(unsigned _level, unsigned _index) const { 
+        return blocksBlooms(chunkId(_level, _index)); 
+    }
+
+    BlocksBlooms blocksBlooms(h256 const& _chunkId) const { 
+        return queryExtras<BlocksBlooms, ExtraBlocksBlooms>(_chunkId, m_blocksBlooms, x_blocksBlooms, NullBlocksBlooms); 
+    }
+
+    LogBloom blockBloom(unsigned _number) const { 
+        return blocksBlooms(chunkId(0, _number / c_bloomIndexSize)).blooms[_number % c_bloomIndexSize]; 
+    }
+
     std::vector<unsigned> withBlockBloom(LogBloom const& _b, unsigned _earliest, unsigned _latest) const;
     std::vector<unsigned> withBlockBloom(LogBloom const& _b, unsigned _earliest, unsigned _latest, unsigned _topLevel, unsigned _index) const;
 
     /// Returns true if transaction is known. Thread-safe
-    bool isKnownTransaction(h256 const& _transactionHash) const { TransactionAddress ta = queryExtras<TransactionAddress, ExtraTransactionAddress>(_transactionHash, m_transactionAddresses, x_transactionAddresses, NullTransactionAddress); return !!ta; }
+    bool isKnownTransaction(h256 const& _transactionHash) const { 
+        TransactionAddress ta = queryExtras<TransactionAddress, ExtraTransactionAddress>(_transactionHash, 
+                                    m_transactionAddresses, x_transactionAddresses, NullTransactionAddress); 
+        return !!ta; 
+    }
 
     /// Get a transaction from its hash. Thread-safe.
-    bytes transaction(h256 const& _transactionHash) const { TransactionAddress ta = queryExtras<TransactionAddress, ExtraTransactionAddress>(_transactionHash, m_transactionAddresses, x_transactionAddresses, NullTransactionAddress); if (!ta) return bytes(); return transaction(ta.blockHash, ta.index); }
-    std::pair<h256, unsigned> transactionLocation(h256 const& _transactionHash) const { TransactionAddress ta = queryExtras<TransactionAddress, ExtraTransactionAddress>(_transactionHash, m_transactionAddresses, x_transactionAddresses, NullTransactionAddress); if (!ta) return std::pair<h256, unsigned>(h256(), 0); return std::make_pair(ta.blockHash, ta.index); }
+    bytes transaction(h256 const& _transactionHash) const { 
+        TransactionAddress ta = queryExtras<TransactionAddress, ExtraTransactionAddress>(_transactionHash, m_transactionAddresses, 
+                                    x_transactionAddresses, NullTransactionAddress); 
+        if (!ta)
+            return bytes(); 
+        return transaction(ta.blockHash, ta.index); 
+    }
+    std::pair<h256, unsigned> transactionLocation(h256 const& _transactionHash) const { 
+        TransactionAddress ta = queryExtras<TransactionAddress, ExtraTransactionAddress>(_transactionHash, m_transactionAddresses, 
+                                    x_transactionAddresses, NullTransactionAddress); 
+        if (!ta) 
+            return std::pair<h256, unsigned>(h256(), 0); 
+        return std::make_pair(ta.blockHash, ta.index); 
+    }
 
     /// Get a block's transaction (RLP format) for the given block hash (or the most recent mined if none given) & index. Thread-safe.
-    bytes transaction(h256 const& _blockHash, unsigned _i) const { bytes b = block(_blockHash); return RLP(b)[1][_i].data().toBytes(); }
-    bytes transaction(unsigned _i) const { return transaction(currentHash(), _i); }
+    bytes transaction(h256 const& _blockHash, unsigned _i) const { 
+        bytes b = block(_blockHash);
+        return RLP(b)[1][_i].data().toBytes(); 
+    }
+
+    bytes transaction(unsigned _i) const { 
+        return transaction(currentHash(), _i); 
+    }
 
     /// Get all transactions from a block.
-    std::vector<bytes> transactions(h256 const& _blockHash) const { bytes b = block(_blockHash); std::vector<bytes> ret; for (auto const& i: RLP(b)[1]) ret.push_back(i.data().toBytes()); return ret; }
+    std::vector<bytes> transactions(h256 const& _blockHash) const { 
+        bytes b = block(_blockHash); std::vector<bytes> ret; 
+        for (auto const& i: RLP(b)[1]) 
+            ret.push_back(i.data().toBytes()); 
+        return ret; 
+    }
+
     std::vector<bytes> transactions() const { return transactions(currentHash()); }
 
         std::vector<std::string> transactionsVS(h256 const& _blockHash) const {
@@ -249,7 +323,7 @@ public:
         ProgressCallback const& _progress = std::function<void(unsigned, unsigned)>());
 
     /// Alter the head of the chain to some prior block along it.
-    void rewind(unsigned _newHead);
+    ImportRoute rewind(unsigned _newHead);
 
     /// Rescue the database.
     void rescue(OverlayDB const& _db);
@@ -405,6 +479,9 @@ private:
     void updateStats() const;
     mutable Statistics m_lastStats;
 
+    //HC:
+    void onLastBlockChanged(const std::string& func);
+
     /// The disk DBs. Thread-safe, so no need for locks.
     std::unique_ptr<db::DatabaseFace> m_blocksDB;
     std::unique_ptr<db::DatabaseFace> m_extrasDB;
@@ -412,6 +489,7 @@ private:
     /// Hash of the last (valid) block on the longest chain.
     mutable boost::shared_mutex x_lastBlockHash; // should protect both m_lastBlockHash and m_lastBlockNumber
     h256 m_lastBlockHash;
+    //HC: The height of the last (valid) block on the best chain
     unsigned m_lastBlockNumber = 0;
 
     ChainParams m_params;

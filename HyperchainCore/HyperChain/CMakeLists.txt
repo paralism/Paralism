@@ -86,9 +86,9 @@ list(FILTER main_SRC EXCLUDE REGEX ".*main.cpp$")
 #HC: Windows下全局变量模块间隔离
 #HCE: Global variables are shared between modules under UNIX 
 #HCE: Global variables are isolated between modules under Windows
-if(NOT WIN32)
-list(FILTER main_SRC EXCLUDE REGEX "newLog.cpp")
-endif()
+#if(NOT WIN32)
+#list(FILTER main_SRC EXCLUDE REGEX "newLog.cpp")
+#endif()
 
 #FILE(GLOB node_SRC "${HC_DIR}/node/UInt128.cpp" "${HC_DIR}/node/HCMQBroker.cpp"
 #	"${HC_DIR}/node/HCMQClient.cpp"
@@ -128,12 +128,6 @@ FILE(GLOB sqlite3_HEAD "${HC_DIR}/thirdparty/sqlite3/*.h")
 FILE(GLOB util_SRC "${HC_DIR}/util/*.cpp")
 FILE(GLOB util_HEAD "${HC_DIR}/util/*.h")
 
-FILE(GLOB utility_SRC "${HC_DIR}/utility/*.cpp")
-FILE(GLOB utility_HEAD "${HC_DIR}/utility/*.h")
-
-FILE(GLOB wnd_SRC "${HC_DIR}/wnd/*.cpp")
-FILE(GLOB wnd_HEAD "${HC_DIR}/wnd/*.h")
-
 FILE(GLOB consensus_SRC "${HC_DIR}/consensus/*.cpp")
 FILE(GLOB consensus_HEAD "${HC_DIR}/consensus/*.h")
 
@@ -146,11 +140,9 @@ set(final_HEAD
 	${db_HEAD}
 	${headers_HEAD}
 	${crypto_HEAD}
-	${utility_HEAD}
 	${util_HEAD}
 	${sqlite3_HEAD}
 	${spdlog_HEAD}
-	${wnd_HEAD}
 	${consensus_HEAD}
 	)
 
@@ -163,25 +155,22 @@ set(final_SRC
 	${data_SRC}
 	${headers_SRC}
 	${crypto_SRC}
-	${utility_SRC}
 	${util_SRC}
 	${sqlite3_SRC}
 	${spdlog_SRC}
-	${wnd_SRC}
 	${consensus_SRC}
 	)
 
-
-add_library(${PROJECT_NAME} ${final_SRC} ${final_HEAD})
-
 if(NOT WIN32)
-target_compile_options(hyperchainspace PRIVATE -fPIC)
+    add_library(${PROJECT_NAME} SHARED ${final_SRC} ${final_HEAD})
+else()
+    add_library(${PROJECT_NAME} ${final_SRC} ${final_HEAD})
 endif()
 
 
 target_link_libraries(${PROJECT_NAME} cpprestsdk::cpprest OpenSSL::Crypto ${BerkeleyDB_LIBRARIES} ${SQLITE3_LIBRARIES})
 target_link_libraries(${PROJECT_NAME} Boost::system Boost::program_options Boost::serialization Boost::filesystem Boost::thread)
-target_link_libraries(${PROJECT_NAME} cppzmq libzmq cppzmq-static libzmq-static)
+target_link_libraries(${PROJECT_NAME} cppzmq libzmq cppzmq-static libzmq-static linenoise)
 target_link_libraries(${PROJECT_NAME} vm)
 
 target_include_directories(${PROJECT_NAME} PRIVATE
@@ -191,3 +180,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 configure_file (
 "${PROJECT_SOURCE_DIR}/../globalconfig.h.in"
 "${PROJECT_BINARY_DIR}/globalconfig.h")
+
+if(NOT WIN32)
+    install(TARGETS ${PROJECT_NAME} DESTINATION bin COMPONENT ${CORECOMPONET})
+endif()

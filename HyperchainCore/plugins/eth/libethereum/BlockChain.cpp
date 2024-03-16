@@ -545,9 +545,18 @@ tuple<ImportRoute, h256s, unsigned> BlockChain::sync(
                 cwarn << "ODD: Import queue contains already imported block";
                 continue;
             }
-            catch (dev::eth::UnknownParent const&)
+            catch (dev::eth::UnknownParent const& ex)
             {
-                cwarn << "ODD: Import queue contains block with unknown parent.";// << LogTag::Error << boost::current_exception_diagnostic_information();
+                cwarn << "ODD: Import queue contains block with unknown parent: "// << LogTag::Error << boost::current_exception_diagnostic_information();
+                    << block.verified.info.m_number
+                    << " "
+                    << block.verified.info.hash().hex();
+                auto errinfo = boost::get_error_info<errinfo_hash256>(ex);
+                if (errinfo)
+                    cwarn << errinfo->hex();
+                auto errcomment = boost::get_error_info<errinfo_comment>(ex);
+                if (errcomment)
+                    cwarn << *errcomment;
                 // NOTE: don't reimport since the queue should guarantee everything in the right order.
                 // Can't continue - chain bad.
                 badBlockHashes.push_back(block.verified.info.hash());
@@ -566,6 +575,7 @@ tuple<ImportRoute, h256s, unsigned> BlockChain::sync(
             catch (Exception& ex)
             {
                 // cnote << "Exception while importing block. Someone (Jeff? That you?) seems to be giving us dodgy blocks!";// << LogTag::Error << diagnostic_information(ex);
+                cnote <<  "Exception while importing block." << diagnostic_information(ex);
                 if (m_onBad)
                     m_onBad(ex);
                 // NOTE: don't reimport since the queue should guarantee everything in the right order.
@@ -734,7 +744,8 @@ ImportRoute BlockChain::import(VerifiedBlockRef const& _block, OverlayDB const& 
     // Work out its number as the parent's number + 1
     if (!isKnown(_block.info.parentHash(), false))  // doesn't have to be current.
     {
-        LOG(m_logger) << _block.info.hash() << " : Unknown parent " << _block.info.parentHash();
+        LOG(m_logger) << StringFormat("[%d %s] : Unknown parent %s",
+            _block.info.number(), _block.info.hash().hex().substr(0,16), _block.info.parentHash().hex().substr(0,16));
         // We don't know the parent (yet) - discard for now. It'll get resent to us if we find out about its ancestry later on.
         BOOST_THROW_EXCEPTION(UnknownParent() << errinfo_hash256(_block.info.parentHash()));
     }
@@ -883,10 +894,11 @@ ImportRoute BlockChain::insertBlockAndExtras(VerifiedBlockRef const& _block, byt
 
 
     h256s route;
-    h256 common;
+    h256 common; //HC: 共同祖先块hash
     bool isImportedAndBest = false;
     // This might be the new best block...
     h256 last = currentHash();
+    //HC: 难度PK， treeRoute， 计算并返回二个分支和它们的共同祖先的数组，其中共同祖先由common指出其位置索引
     if (_totalDifficulty > details(last).totalDifficulty || (m_sealEngine->chainParams().tieBreakingGas &&
         _totalDifficulty == details(last).totalDifficulty && _block.info.gasUsed() > info(last).gasUsed()))
     {
@@ -903,6 +915,7 @@ ImportRoute BlockChain::insertBlockAndExtras(VerifiedBlockRef const& _block, byt
 
         // Go through ret backwards (i.e. from new head to common) until hash != last.parent and
         // update m_transactionAddresses, m_blockHashes
+        //HC: 遍历新链的所有块
         for (auto i = route.rbegin(); i != route.rend() && *i != common; ++i)
         {
             BlockHeader tbi;
@@ -938,9 +951,14 @@ ImportRoute BlockChain::insertBlockAndExtras(VerifiedBlockRef const& _block, byt
                 TransactionAddress ta;
                 ta.blockHash = tbi.hash();
                 for (ta.index = 0; ta.index < blockRLP[1].itemCount(); ++ta.index)
+                {
+                    //HC：这里考虑到跨链交易计算hash的特殊性，所以先提取出交易,再计算hash
+                    Transaction tx(blockRLP[1][ta.index].data(), CheckTransaction::None);
                     extrasWriteBatch->insert(
-                        toSlice(sha3(blockRLP[1][ta.index].data()), ExtraTransactionAddress),
+                        //toSlice(sha3(blockRLP[1][ta.index].data()), ExtraTransactionAddress),
+                        toSlice(tx.sha3(), ExtraTransactionAddress),
                         (db::Slice)dev::ref(ta.rlp()));
+                }
             }
 
             // Update database with them.
@@ -1002,13 +1020,13 @@ ImportRoute BlockChain::insertBlockAndExtras(VerifiedBlockRef const& _block, byt
             hcache = m_blockHashes[blknum].value;
             isExist = true;
         }
-    
+
     if (isExist) {
         h256 h = _block.info.hash();
         if (h != hcache) {
             //DEV_READ_GUARDED(x_lastBlockHash)
             //    clearCachesDuringChainReversion(blknum);
-            // 
+            //
             //HC: 过期块还在cache里， 所以清除cache即可
             //HCE: The expired block is still in the cache, so just clear the cache
             DEV_WRITE_GUARDED(x_blockHashes)
@@ -1024,6 +1042,7 @@ ImportRoute BlockChain::insertBlockAndExtras(VerifiedBlockRef const& _block, byt
         {
             m_lastBlockHash = newLastBlockHash;
             m_lastBlockNumber = newLastBlockNumber;
+            onLastBlockChanged(__FUNCTION__);
             try
             {
                 m_extrasDB->insert(db::Slice("best"), db::Slice((char const*)&m_lastBlockHash, 32));
@@ -1055,6 +1074,7 @@ ImportRoute BlockChain::insertBlockAndExtras(VerifiedBlockRef const& _block, byt
 
 
     //Timer tt;
+    //HC: 通知块同步模块BlockChainSync, 该模块执行onBlockImported完成响应
     if (isImportedAndBest && m_onBlockImport)
         m_onBlockImport(_block.info);
 
@@ -1165,15 +1185,30 @@ void BlockChain::rescue(OverlayDB const& _db)
     rewind(l);
 }
 
-void BlockChain::rewind(unsigned _newHead)
+void BlockChain::onLastBlockChanged(const string& func)
 {
+    return;
+    stringstream ss;
+    ss << std::this_thread::get_id();
+    cout << StringFormat("onLastBlockChanged[%s]: %d %s %s************&&&&&&\n", ss.str(),
+        m_lastBlockNumber,
+        m_lastBlockHash.hex(), func);
+}
+
+//HC: 链回退到之前的块并且返回回退涉及到的交易区块hash列表
+ImportRoute BlockChain::rewind(unsigned _newHead)
+{
+    auto newheadhash = numberHash(_newHead);
+    h256 last = currentHash();
+
     DEV_WRITE_GUARDED(x_lastBlockHash)
     {
         if (_newHead >= m_lastBlockNumber)
-            return;
+            return ImportRoute{ {}, {}, {} };
         clearCachesDuringChainReversion(_newHead + 1);
-        m_lastBlockHash = numberHash(_newHead);
+        m_lastBlockHash = newheadhash;
         m_lastBlockNumber = _newHead;
+        onLastBlockChanged(__FUNCTION__);
         try
         {
             m_extrasDB->insert(db::Slice("best"), db::Slice((char const*)&m_lastBlockHash, 32));
@@ -1188,6 +1223,27 @@ void BlockChain::rewind(unsigned _newHead)
         }
         noteCanonChanged();
     }
+
+
+    h256s route;
+    h256 common; //HC: 共同祖先块hash
+    unsigned commonIndex;
+
+    //HC: 计算回退所涉及到的区块
+    //HC: e.g. if the block tree is 3a -> 2a -> 1a->g and 2b -> 1b->g(g is genesis, *a, *b are competing chains),
+    //HC: treeRoute(2a, 1a, false) == make_tuple({ 2a, 1a }, 1a, 1)
+    tie(route, common, commonIndex) = treeRoute(last, newheadhash);
+
+    h256s dead;
+    bool isOld = true;
+    for (auto const& h : route)
+        if (h == common) {
+            isOld = false;
+            break;
+        }
+        else if (isOld)
+            dead.push_back(h);
+    return ImportRoute{ dead, {}, {} };
 }
 
 tuple<h256s, h256, unsigned> BlockChain::treeRoute(h256 const& _from, h256 const& _to, bool _common, bool _pre, bool _post) const
@@ -1602,13 +1658,13 @@ VerifiedBlockRef BlockChain::verifyBlock(bytesConstRef _block, std::function<voi
         //HCE: Verify the block itself
         CHyperChainSpace* chainspace = Singleton<CHyperChainSpace, string>::getInstance();
         if (chainspace && !chainspace->CheckHyperBlockHash(h.m_prevHID, to_T_SHA256(h.m_prevHyperBlockHash))) {
-            //cout 
+            //cout
             LOG(m_logger)
                 << "block is invalid " << h.m_number
                 << " block hash " << h.hash()
                 << " because Hyperblock is invalid " << h.m_prevHID
                 << " " << h.m_prevHyperBlockHash << endl;
-            BOOST_THROW_EXCEPTION(InvalidNumber());
+            BOOST_THROW_EXCEPTION(InvalidHyperBlock() << errinfo_hID(h.m_prevHID));
         }
 
     }

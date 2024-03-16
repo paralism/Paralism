@@ -106,6 +106,8 @@ enum class ImportResult
 	ZeroSignature
 };
 
+std::string ToString(ImportResult IR);
+
 struct ImportRequirements
 {
 	using value = unsigned;
@@ -182,6 +184,8 @@ template<class... Args> using Handler = std::shared_ptr<typename Signal<Args...>
 struct TransactionSkeleton
 {
 	bool creation = false;
+    bool crosschain_recv = false;
+    bool crosschain_send = false;
 	Address from;
 	Address to;
 	u256 value;

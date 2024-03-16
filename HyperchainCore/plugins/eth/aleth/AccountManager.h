@@ -17,24 +17,27 @@
 class AccountManager
 {
 public:
-        bool contain(const dev::h160& acc);
+    bool contain(const dev::h160& acc);
 
-	/// uses @a argc, @a argv provided by the CLI and executes implemented options.
-	bool execute(int argc, char** argv);
-	/// stream account help section
-	void static streamAccountHelp(std::ostream& _out, const std::string& lineprefix = "");
-	/// stream wallet help section
-	void static streamWalletHelp(std::ostream& _out, const std::string& lineprefix = "");
+    /// uses @a argc, @a argv provided by the CLI and executes implemented options.
+    bool execute(int argc, const char** argv);
+
+    std::list<dev::h160> addresses();
+
+    /// stream account help section
+    void static streamAccountHelp(std::ostream& _out, const std::string& lineprefix = "");
+    /// stream wallet help section
+    void static streamWalletHelp(std::ostream& _out, const std::string& lineprefix = "");
 
 private:
-	/// ask end user to create a password.
-	std::string createPassword(std::string const& _prompt) const;
-	/// creates a ramdom secret/address pair. It uses ICAP.
-	dev::KeyPair makeKey() const;
-	/// instanciate KeyManager and open the wallet.
-	bool openWallet();
+    /// ask end user to create a password.
+    std::string createPassword(std::string const& _prompt) const;
+    /// creates a ramdom secret/address pair. It uses ICAP.
+    dev::KeyPair makeKey() const;
+    /// instanciate KeyManager and open the wallet.
+    bool openWallet();
 
-	std::unique_ptr<dev::eth::KeyManager> m_keyManager;
+    std::unique_ptr<dev::eth::KeyManager> m_keyManager;
 };
 
 

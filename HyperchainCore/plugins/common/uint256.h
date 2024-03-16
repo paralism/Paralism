@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -331,6 +331,14 @@ public:
         char psz[sizeof(pn) * 2 + 1];
         for (int i = 0; i < sizeof(pn); i++)
             sprintf(psz + i * 2, "%02x", ((unsigned char*)pn)[sizeof(pn) - i - 1]);
+        return std::string(psz, psz + sizeof(pn) * 2);
+    }
+
+    std::string GetHexNoReverse() const
+    {
+        char psz[sizeof(pn) * 2 + 1];
+        for (int i = 0; i < sizeof(pn); i++)
+            sprintf(psz + i * 2, "%02x", ((unsigned char*)pn)[i]);
         return std::string(psz, psz + sizeof(pn) * 2);
     }
 

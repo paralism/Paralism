@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -22,13 +22,15 @@ DEALINGS IN THE SOFTWARE.
 
 #pragma once
 
-#include "utility/ElapsedTime.h"
+#include "util/ElapsedTime.h"
+#include "util/commontypes.h"
 #include "UInt128.h"
 #include "HCNode.h"
 #include "ITask.hpp"
 #include "KBuckets.h"
 #include "NodeUpkeepThreadPool.h"
 #include "MsgHandler.h"
+#include "headers/commonstruct.h"
 
 #include <map>
 #include <mutex>
@@ -39,11 +41,11 @@ enum class NodeType : char {
     Normal = 0,         //HC: 可参与共识的节点
                         //HCE: The nodes to consensus
     Bootstrap,          //HC: 除了Normal类型的功能外，带引导功能
-                        //HCE: Eecept Nomal functions, with boot function 
+                        //HCE: Eecept Nomal functions, with boot function
     LedgerRPCClient,    //HC: 只具备账本RPC调用功能
                         //HCE: Only has RPC functions
     Autonomous          //HC: 自动获取本节点内网IP和发现同网段邻居
-                        //HCE: Auto get this node IP and find the neighbor nodes with the same segment net 
+                        //HCE: Auto get this node IP and find the neighbor nodes with the same segment net
 };
 
 struct stNodeAPS {
@@ -57,7 +59,7 @@ struct stNodeAPS {
                         //HCE: Lan IP + PORT
     string strPubAPS;   //HC: 公网IP地址+端口
                         //HCE: Public IP + PORT
-    size_t lasttime;    //HC: 最新更新时间
+    int64_t lasttime;    //HC: 最新更新时间
                         //HCE: The latest update time
 };
 
@@ -123,6 +125,27 @@ private:
     string _data;
 };
 
+
+HC_ENUM(NODESERVICE, short, ToAllNodes,
+    ToNodes,
+    UpdateNode,
+    GetNodesJson,
+    ParseNode,
+    ParseNodeList,
+    GetNodeAP,
+    EnableNodeActive,
+    GetNodeMapNodes,
+    ToFormatString,
+    PickNeighbourNodes,
+    PickNeighbourNodesEx,
+    IsNodeInKBuckets,
+    GetAllNodes,
+    PickRandomNodes,
+    GetNodesNum,
+    SendTo,
+    UpdateMyself,
+    MQCostStatistics);
+
 class NodeManager {
 
 public:
@@ -136,6 +159,9 @@ public:
 
     void myself(HCNodeSH& me) { _me = std::move(me); }
     HCNodeSH& myself() { return _me; }
+
+    void UpdateMyself(const std::map<string, T_APPTYPE> &nodeApps);
+
 
     template<typename T>
     T getMyNodeId() {
@@ -175,13 +201,13 @@ public:
     }
 
     template<typename T>
-    void sendToNodes(DataBuffer<T>& msgbuf, const set<CUInt128>& nodesExcluded)
+    void sendToNodes(DataBuffer<T>& msgbuf, const set<CUInt128>& nodes, bool nodesisincluded = false)
     {
         uint8_t b[CUInt128::value];
         _me->getNodeId(b);
         msgbuf.setHeader(b);
 
-        ToNodes(msgbuf.tostring(), nodesExcluded);
+        ToNodes(msgbuf.tostring(), nodes, nodesisincluded);
     }
 
     template<typename T>
@@ -225,7 +251,7 @@ public:
         else {
             string strnodeid = targetNodeid.ToHexString();
             string buff = msgbuf.tostring();
-            MQRequestNoWaitResult(NODE_SERVICE, (int)SERVICE::SendTo, strnodeid, buff);
+            MQRequestNoWaitResult(NODE_SERVICE, (int)NODESERVICE::SendTo, strnodeid, buff);
         }
     }
 
@@ -244,7 +270,7 @@ public:
 
     //HCE: IS the node a seed server?
     //HCE: @para node HCNode
-    //HCE: @returns True if it is 
+    //HCE: @returns True if it is
     bool IsSeedServer(const HCNode& node);
 
     string toFormatString();
@@ -347,37 +373,16 @@ private:
     void startMQHandler();
     void DispatchService(void* wrk, zmsg* msg);
 
-    void ToNodes(const string& data, const set<CUInt128>& nodesExcluded);
+    void ToNodes(const string& data, const set<CUInt128>& nodes, bool nodesisincluded);
     void ToAllNodes(const string& data);
 
     //HC: 记录单个节点到数据库
     //HCE: Record single node to datebase
-    bool SaveNodeToDB(const CUInt128& nodeid, system_clock::time_point  lastActTime);
+    bool SaveNodeToDB(const CUInt128& nodeid, system_clock::time_point lastActTime);
 
 
 private:
 
-    enum class SERVICE : short
-    {
-        ToAllNodes = 1,
-        ToNodes,
-        UpdateNode,
-        GetNodesJson,
-        ParseNode,
-        ParseNodeList,
-        GetNodeAP,
-        EnableNodeActive,
-        GetNodeMapNodes,
-        ToFormatString,
-        PickNeighbourNodes,
-        PickNeighbourNodesEx,
-        IsNodeInKBuckets,
-        GetAllNodes,
-        PickRandomNodes,
-        GetNodesNum,
-        SendTo,
-        MQCostStatistics,
-    };
 
     HCNodeSH _me;
     vector<HCNodeSH> _seeds;

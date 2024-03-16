@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -630,8 +630,8 @@ int main(int argc, char* argv[])
     namespace fs = boost::filesystem;
     AppParseParameters(argc, argv);
 
-    //SortTrans(R"(E:\workspace\git\buildwin64\bin\Debug\paralism.tx)",
-    //    R"(E:\workspace\git\buildwin64\bin\Debug\paralism_sort.tx)"
+    //SortTrans(R"(E:\BaiduNetdiskDownload\52\paralism111111.tx)",
+    //    R"(E:\BaiduNetdiskDownload\52\paralism_sort.tx)"
     //);
 
     //HCE: -datadir=E:\workspace\git\buildwin64\bin\Debug\xx  -model=informal
@@ -640,12 +640,13 @@ int main(int argc, char* argv[])
         strprintf("This program parse address of txs whether they is in wallet for Paracoin\n"
             "Please put wallet files into %s ", strDataDir.c_str()) << endl;
 
-    //IdentifyMyTrans(R"(E:\workspace\git\buildwin64\bin\Debug\paralism_sort_addr.tx)",
-    //    R"(E:\workspace\git\buildwin64\bin\Debug\paralism_sort_61.tx)"
-    //);
-    IdentifyMyTrans(strDataDir + R"(\paralism_sort_addr.tx)",
-        strDataDir + R"(\paralism_sort_in_wallet.tx)"
+    IdentifyMyTrans(R"(E:\BaiduNetdiskDownload\52\paralism_sort.tx)",
+        R"(E:\BaiduNetdiskDownload\52\paralism_sort_52.tx)"
     );
+
+    //IdentifyMyTrans(strDataDir + R"(\paralism_sort_addr.tx)",
+    //    strDataDir + R"(\paralism_sort_in_wallet.tx)"
+    //);
     return 0;
 
 

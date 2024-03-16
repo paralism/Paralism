@@ -40,8 +40,9 @@ function RefreshUI()
 {
 	//HC: if complete is false, then next button is disabled
 	myPage.complete = false;
-
+	
 	var dir = myPage.targetDirectory.text;
+
 	myPage.warningInput.setVisible(false);
 	myPage.confirmLineEdit.setVisible(false);
 	myPage.confirmLineEdit.setText("");
@@ -65,9 +66,14 @@ function RefreshUI()
         myPage.warning.setText("");
 		myPage.complete = true;
     }
-    installer.setValue("TargetDir", dir);
+		
+    var targetDir = dir.replace(/\//g, "\\");
+
+    installer.setValue("TargetDir", targetDir);
+    myPage.targetDirectory.setText(targetDir);
 }
 
+//HC: myPage.targetDirectory的初始值被HyperChainCPack.cmake文件中的CPACK_IFW_TARGET_DIRECTORY所设置
 Component.prototype.installerLoaded = function()
 {
     installer.setDefaultPageVisible(QInstaller.TargetDirectory, false);
@@ -83,8 +89,13 @@ Component.prototype.installerLoaded = function()
     myPage.targetDirectory.textChanged.connect(this, this.targetDirectoryChanged);
 	myPage.confirmLineEdit.textChanged.connect(this, this.confirmLineEditChanged);
 	myPage.targetChooser.released.connect(this, this.targetChooserClicked);
+		
+	var dir = installer.value("TargetDir");
 	
-	myPage.targetDirectory.setText(installer.value("TargetDir"));
+	//HC: 将路径分隔符设置为Windows风格
+	var targetDir = dir.replace(/\//g, "\\");
+	installer.setValue("TargetDir", targetDir);	
+	myPage.targetDirectory.setText(targetDir);
 }
 
 Component.prototype.targetChooserClicked = function()
@@ -142,9 +153,8 @@ Component.prototype.createOperations = function()
 		//Linux or Unix
 		//Create Shortcut, At first let any user can access these directories.	
 		component.addOperation("Execute", "chmod", "a+x", "@TargetDir@/bin");
-		component.addOperation("Execute", "chmod", "a+x", "@TargetDir@/bin/lib");
-		component.addOperation("Execute", "chmod", "a+x", "@TargetDir@/bin/hyperchain");						
-        }
+		component.addOperation("Execute", "chmod", "a+x", "@TargetDir@/bin/lib");					
+    }
 }
 
 /*

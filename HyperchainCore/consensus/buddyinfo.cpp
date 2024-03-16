@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -30,6 +30,7 @@ DEALINGS IN THE SOFTWARE.
 #include "consensus_engine.h"
 #include "../HyperChain/HyperChainSpace.h"
 
+#include <sstream>
 #include <boost/fiber/all.hpp>
 
 
@@ -123,7 +124,7 @@ uint16 _tp2pmanagerstatus::GetNodeState()const
 uint64 _tp2pmanagerstatus::GettTimeOfConsensus()
 {
     time_t now = time(nullptr);
-    //HC: During starting, HC has already checked system time if it is consistent with UTC, so use current time
+    //HCE: During starting, HC has already checked system time if it is consistent with UTC, so use current time
     //if (now < latestHyperblockCTime) {
     //    return latestHyperblockCTime + _NEXTBUDDYTIME;
     //}
@@ -293,7 +294,7 @@ bool _tp2pmanagerstatus::ApplicationCheck(T_HYPERBLOCK &hyperblock)
     map<T_APPTYPE, vector<T_PAYLOADADDR>> mapPayload;
     ToAppPayloads(hyperblock, mapPayload);
 
-    //HC:let application layer check the payload data.
+    //HCE:let application layer check the payload data.
     for (auto& a : mapPayload) {
         CBRET ret = AppCallback<cbindex::VALIDATECHAINIDX>(a.first, a.second);
         if (ret == CBRET::REGISTERED_FALSE) {
@@ -308,7 +309,7 @@ bool _tp2pmanagerstatus::ApplicationAccept(uint32_t hidFork, T_HYPERBLOCK &hyper
     map<T_APPTYPE, vector<T_PAYLOADADDR>> mapPayload;
     ToAppPayloads(hyperblock, mapPayload);
 
-    //HC: let application layer handle their genesis block
+    //HCE: let application layer handle their genesis block
     T_APPTYPE genesisledger(APPTYPE::ledger, 0, 0, 0);
     if (mapPayload.count(genesisledger)) {
         AppCallback<cbindex::HANDLEGENESISIDX>(genesisledger, mapPayload.at(genesisledger));
@@ -324,11 +325,10 @@ bool _tp2pmanagerstatus::ApplicationAccept(uint32_t hidFork, T_HYPERBLOCK &hyper
     T_SHA256 thash = hyperblock.GetHashSelf();
     uint32_t hid = hyperblock.GetID();
 
-    //HC:let application layer accept block data.
+    //HCE:let application layer accept block data.
     AllAppCallback<cbindex::ACCEPTCHAINIDX>(mapPayload, hidFork, hid, thash, isLatest);
     return true;
 }
-
 
 void _tp2pmanagerstatus::UpdateOnChainingState(const T_HYPERBLOCK &hyperblock)
 {
@@ -341,7 +341,7 @@ void _tp2pmanagerstatus::UpdateOnChainingState(const T_HYPERBLOCK &hyperblock)
             continue;
         }
 
-        //HC: only likely a local block belong to me in a hyper block
+        //HCE: only likely a local block belong to me in a hyper block
         std::find_if(childchain.begin(), childchain.end(), [this, &isfound, &hyperblock, uiChainNum](const T_LOCALBLOCK & elem) {
 
             T_SEARCHINFO searchInfo;
@@ -367,7 +367,7 @@ void _tp2pmanagerstatus::UpdateLocalBuddyBlockToLatest(uint64 prehyperblockid, c
 {
     if (listLocalBuddyChainInfo.size() == ONE_LOCAL_BLOCK) {
 
-        //HC: notify application layer to update data
+        //HCE: notify application layer to update data
         auto itr = listLocalBuddyChainInfo.begin();
         T_LOCALBLOCK& localblock = itr->GetLocalBlock();
         string newPayload;
@@ -378,12 +378,11 @@ void _tp2pmanagerstatus::UpdateLocalBuddyBlockToLatest(uint64 prehyperblockid, c
             localblock.CalculateHashSelf();
         }
 
-        //HC: update child block's hyper block info into the latest hyper block.
+        //HCE: update local block's hyper block info into the latest hyper block.
         localblock.updatePreHyperBlockInfo(prehyperblockid, preHyperBlockHash);
     }
 }
 
-//HC: clear consensus data struct
 void _tp2pmanagerstatus::CleanConsensusEnv()
 {
     listGlobalBuddyChainInfo.clear();
@@ -392,12 +391,11 @@ void _tp2pmanagerstatus::CleanConsensusEnv()
     listCurBuddyReq.clear();
     listRecvLocalBuddyReq.clear();
 
-    //optimise consensus
+    //HC: optimise consensus
     mapLocalBuddyInfo.clear();
     mapGlobalBuddyInfo.clear();
     mapLocalConsensus.clear();
 }
-
 
 void _tp2pmanagerstatus::InitOnChainingState(uint64 hid)
 {
@@ -429,17 +427,30 @@ void _tp2pmanagerstatus::SetAppCallback(const T_APPTYPE &app, const CONSENSUSNOT
     _mapcbfn[app] = std::make_shared<CONSENSUSNOTIFYSTATE>(CONSENSUSNOTIFYSTATE(notify));
 }
 
+static boost::fibers::mutex s_mtx_cb;
 void _tp2pmanagerstatus::RemoveAppCallback(const T_APPTYPE & app)
 {
+    //HCE: In case of calling the function twice at the same time, cause crash
+    std::lock_guard<boost::fibers::mutex> l(s_mtx_cb);
+
+    cout << StringFormat("\tApplication callback removing: %s\n", app.tohexstring());
     if (_mapcbfn.count(app)) {
         auto &app_cb_noti = _mapcbfn[app];
         app_cb_noti->unreging = true;
+
+        int n = 0;
         while (app_cb_noti.use_count() > 1) {
-            //HC: some fibers are using, wait for a while
+            //HCE: some fibers are using, wait for a while
             boost::this_fiber::sleep_for(std::chrono::milliseconds(300));
+            n++;
+            if (n == 20 || n == 200) {
+                std::ostringstream oss;
+                oss << app_cb_noti->calling_thread;
+                cout << StringFormat("\tApplication calling: %s thread: %s\n", 
+                    cbindexValueName(app_cb_noti->calling_index), oss.str());
+            };
         }
         _mapcbfn.erase(app);
-        cout << StringFormat("\tApplication module removed: %s\n", app.tohexstring());
     }
 }
 
@@ -473,7 +484,7 @@ void _tp2pmanagerstatus::GetMulticastNodes(vector<CUInt128> &MulticastNodes)
     itrList = (*itr).begin();
     T_APPTYPE localapptype = (*itrList).GetLocalBlock().GetAppType();
     if (localapptype.isParacoin() || localapptype.isLedger() || localapptype.isEthereum()) {
-        //HC: paracoin get multicast nodes list from app interface
+        //HCE: paracoin get multicast nodes list from app interface
         std::list<string> nodelist;
         CBRET ret = AppCallback<cbindex::GETNEIGHBORNODESIDX>(localapptype, nodelist);
         if (ret == CBRET::REGISTERED_TRUE) {

@@ -114,12 +114,8 @@ void setThreadName(std::string const& _n)
 #endif
 }
 
-void setupLogging(LoggingOptions const& _options)
+void setSinkPolicy(log_sink<boost::log::sinks::text_ostream_backend> *sink, LoggingOptions const& _options)
 {
-    auto sink = boost::make_shared<log_sink<boost::log::sinks::text_ostream_backend>>();
-
-    boost::shared_ptr<std::ostream> stream{&std::cout, boost::null_deleter{}};
-    sink->locked_backend()->add_stream(stream);
     // Enable auto-flushing after each log record written
     sink->locked_backend()->auto_flush(true);
 
@@ -129,14 +125,33 @@ void setupLogging(LoggingOptions const& _options)
 
         auto const messageChannel = _set[channel];
         return (_options.includeChannels.empty() ||
-                   contains(_options.includeChannels, messageChannel)) &&
-               !contains(_options.excludeChannels, messageChannel);
-    });
+            contains(_options.includeChannels, messageChannel)) &&
+            !contains(_options.excludeChannels, messageChannel);
+        });
 
     sink->set_formatter(&formatter);
+}
 
-        boost::log::core::get()->remove_all_sinks();
+boost::shared_ptr<log_sink<boost::log::sinks::text_ostream_backend>> g_sink;
+void setupLogging(LoggingOptions const& _options)
+{
+    auto sink = boost::make_shared<log_sink<boost::log::sinks::text_ostream_backend>>();
+    g_sink = sink;
+
+    boost::shared_ptr<std::ostream> stream{&std::cout, boost::null_deleter{}};
+    sink->locked_backend()->add_stream(stream);
+    setSinkPolicy(sink.get(), _options);
+
+    boost::log::core::get()->remove_all_sinks();
     boost::log::core::get()->add_sink(sink);
+
+    if (_options.isToFile) {
+        //HCE: output log into file
+        std::string logfile = _options.outputPath + "/" + _options.outputFile;
+        boost::shared_ptr<std::ofstream> stream = boost::make_shared<std::ofstream>(logfile);
+        sink->locked_backend()->add_stream(stream);
+        setSinkPolicy(sink.get(), _options);
+    }
 
     boost::log::core::get()->add_global_attribute(
         "ThreadName", boost::log::attributes::make_function(&getThreadName));
@@ -149,6 +164,22 @@ void setupLogging(LoggingOptions const& _options)
     }));
 
     g_vmTraceEnabled = _options.vmTrace;
+}
+
+//HC: https://blog.csdn.net/Max_Cong/article/details/83176559
+void stopLogging()
+{
+#if defined(NDEBUG)
+    boost::shared_ptr<boost::log::core> core = boost::log::core::get();
+    // Remove the sink from the core, so that no records are passed to it
+    core->remove_sink(g_sink);
+    // Break the feeding loop
+    g_sink->stop();
+    // Flush all log records that may have left buffered
+    g_sink->flush();
+
+    g_sink.reset();
+#endif
 }
 
 bool isVmTraceEnabled()

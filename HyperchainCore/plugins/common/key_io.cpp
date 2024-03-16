@@ -57,6 +57,28 @@ public:
         return bech32::Encode(m_params.Bech32HRP(), data);
     }
 
+    std::string operator()(const ImmutableWitnessCrossChainHash& id) const
+    {
+        std::vector<unsigned char> data = { (unsigned char)id.version };
+        auto program = id.serialize();
+
+        data.reserve(1 + (program.size() * 8 + 4) / 5);
+        ConvertBits<8, 5, true>([&](unsigned char c) { data.push_back(c); }, program.begin(), program.end());
+
+        return bech32::Encode(m_params.Bech32HRP(), data);
+    }
+
+    std::string operator()(const WitnessCrossChainHash& id) const
+    {
+        std::vector<unsigned char> data = { (unsigned char)id.version };
+        auto program = id.serialize();
+
+        data.reserve(1 + (program.size() * 8 + 4) / 5);
+        ConvertBits<8, 5, true>([&](unsigned char c) { data.push_back(c); }, program.begin(), program.end());
+
+        return bech32::Encode(m_params.Bech32HRP(), data);
+    }
+
     std::string operator()(const WitnessUnknown& id) const
     {
         if (id.version < 1 || id.version > 16 || id.length < 2 || id.length > 40) {
@@ -117,7 +139,21 @@ CTxDestination DecodeDestination(const std::string& str, const CChainParams& par
                 }
                 return CNoDestination();
             }
-            if (version > 16 || data.size() < 2 || data.size() > 40) {
+
+            if (version == WitnessCrossChainHash::version) {
+                if (data.size() == WitnessCrossChainHash::size()) {
+                    WitnessCrossChainHash wcc;
+                    wcc.unserialize(data);
+                    return wcc;
+                }
+                else if (data.size() == ImmutableWitnessCrossChainHash::size()) {
+                    ImmutableWitnessCrossChainHash wcc;
+                    wcc.unserialize(data);
+                    return wcc;
+                }
+                return CNoDestination();
+            }
+            else if (version > 16 || data.size() < 2 || data.size() > 40) {
                 return CNoDestination();
             }
             WitnessUnknown unk;

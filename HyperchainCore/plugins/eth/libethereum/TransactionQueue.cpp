@@ -68,6 +68,7 @@ ImportResult TransactionQueue::import(Transaction const& _transaction, IfDropped
 {
     if (_transaction.hasZeroSignature())
         return ImportResult::ZeroSignature;
+
     // Check if we already know this transaction.
     h256 h = _transaction.sha3(WithSignature);
 
@@ -114,7 +115,7 @@ ImportResult TransactionQueue::manageImport_WITH_LOCK(h256 const& _h, Transactio
         auto cs = m_currentByAddressAndNonce.find(_transaction.from());
         if (cs != m_currentByAddressAndNonce.end())
         {
-						            auto t = cs->second.find(_transaction.nonce());
+            auto t = cs->second.find(_transaction.nonce());
             if (t != cs->second.end())
             {
                 if (_transaction.gasPrice() < (*t->second).transaction.gasPrice())
@@ -330,6 +331,28 @@ void TransactionQueue::dropGood(Transaction const& _t)
     remove_WITH_LOCK(_t.sha3());
 }
 
+//HC: get details of transaction queue
+TransactionQueue::StatusDetails TransactionQueue::statusDetails() const {
+    StatusDetails ret;
+    DEV_GUARDED(x_queue) {
+        for (auto& elm : m_unverified) {
+            Transaction tx(elm.transaction, CheckTransaction::None);
+            ret.vUnverified.push_back(tx.sha3());
+        }
+    }
+    ReadGuard l(m_lock);
+    auto it = m_dropped.cbegin();
+    for (; it != m_dropped.cend(); ++it) {
+        ret.vDropped.push_back(it->first);
+    }
+
+    for (auto& elm : m_currentByHash) {
+        ret.vCurrent.push_back(elm.first);
+    }
+
+    return ret;
+}
+
 void TransactionQueue::clear()
 {
     WriteGuard l(m_lock);
@@ -381,7 +404,7 @@ void TransactionQueue::verifierBody()
         try
         {
             Transaction t(work.transaction, CheckTransaction::Cheap); //Signature will be checked later
-			            ImportResult ir = import(t);
+            ImportResult ir = import(t);
             m_onImport(ir, t.sha3(), work.nodeId);
         }
         catch (...)

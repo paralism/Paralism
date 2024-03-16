@@ -2,6 +2,7 @@
 // Copyright 2015-2019 Aleth Authors.
 // Licensed under the GNU General Public License, Version 3.
 
+
 #include <libdevcore/CommonIO.h>
 #include <libdevcore/LoggingProgramOptions.h>
 #include <libdevcore/SHA3.h>
@@ -24,6 +25,7 @@
 #include <ctime>
 #include <fstream>
 #include <iostream>
+
 
 using namespace std;
 using namespace dev;
@@ -163,6 +165,10 @@ int main(int argc, char** argv)
     po::notify(vm);
 
     setupLogging(loggingOptions);
+    std::shared_ptr<char> stoplogger(nullptr, [](char*) {
+        stopLogging();
+        });
+
 
     // handling mode and input file options separately, as they don't have option name
     for (auto const& arg : unrecognisedOptions)

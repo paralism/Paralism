@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -46,7 +46,12 @@ extern void SendConfirmReq(const CUInt128& peerid, uint64 hyperblocknum, const s
 extern bool isHyperBlockMatched(uint64 hyperblockid, const T_SHA256& hash, const CUInt128& peerid);
 extern bool checkAppType(const T_LOCALBLOCK& localblock, const T_LOCALBLOCK& buddyblock);
 
-
+//HCE: Resolve the local buddy info
+//HCE: @para nodeid Node ID
+//HCE: @para pProtocolHeader Pointer to T_P2PPROTOCOLONCHAINREQ
+//HCE: @para plistTotalHash Pointer to list of hash of the local buddy
+//HCE: @para plistLackHash Pointer to list of hash whose coresponding block data is lack.
+//HCE: @returns True if success
 bool ResolveLocalBuddyInfo(const CUInt128& nodeid, T_P2PPROTOCOLONCHAINREQ* pProtocolHeader, list<T_SHA256>* plistTotalHash, list<T_SHA256>* plistLackHash) {
     ConsensusEngine* pEng = Singleton<ConsensusEngine>::getInstance();
     T_P2PMANAGERSTATUS* pConsensusStatus = pEng->GetConsunsusState();
@@ -81,6 +86,11 @@ bool ResolveLocalBuddyInfo(const CUInt128& nodeid, T_P2PPROTOCOLONCHAINREQ* pPro
 }
 
 //HC:插入到listRecvLocalBuddyReq队列中
+//HCE: Insert local buddy into listRecvLocalBuddyReq
+//HCE: @para nodeid Node ID
+//HCE: @para ProtocolHeader T_P2PPROTOCOLONCHAINREQ data
+//HCE: @para listTotalHash list of hash of the local buddy
+//HCE: @returns True if success
 bool InsertIntoListRecv(const CUInt128& nodeid, T_P2PPROTOCOLONCHAINREQ& ProtocolHeader, list<T_SHA256>& listTotalHash)
 {
     ConsensusEngine* pEng = Singleton<ConsensusEngine>::getInstance();
@@ -129,6 +139,7 @@ bool InsertIntoListRecv(const CUInt128& nodeid, T_P2PPROTOCOLONCHAINREQ& Protoco
             }
             else {
                 //HC:删除老数据
+                //HCE: delete old data
                 itr = pConsensusStatus->listRecvLocalBuddyReq.erase(itr);
             }
             break;
@@ -137,6 +148,7 @@ bool InsertIntoListRecv(const CUInt128& nodeid, T_P2PPROTOCOLONCHAINREQ& Protoco
 
     if (!index) {
         //HC: 插入到listRecvLocalBuddyReq中
+        //HCE: insert the local buddy into listRecvLocalBuddyReq
         pConsensusStatus->listRecvLocalBuddyReq.emplace_back(localBuddyInfo);
         return true;
     }
@@ -182,6 +194,7 @@ public:
         T_P2PMANAGERSTATUS* pConsensusStatus = pEng->GetConsunsusState();
 
         //HC:接收块数据信息，并插入到mapLocalConsensus中
+        //HCE: receive block data and insert it into mapLocalConsensus
         stringstream ssBuf(string(_payload, _payloadlen));
         boost::archive::binary_iarchive ss(ssBuf, boost::archive::archive_flags::no_header);
         try {
@@ -202,12 +215,14 @@ public:
         }
 
         //HC:插入到listRecvLocalBuddyReq队列中
+        //HCE: insert into listRecvLocalBuddyReq
         list< T_SHA256> listTotalHash;
         list< T_SHA256> listLackHash;
         T_P2PPROTOCOLONCHAINREQ protocolHeader;
         if (ResolveLocalBuddyInfo(_sentnodeid, &protocolHeader, &listTotalHash, &listLackHash)) {
             if (listLackHash.size() == 0) {
                 //HC:不缺少块数据，插入到listRecvLocalBuddyReq中
+                //HCE: be not lack of block data,and insert the buddy into listRecvLocalBuddyReq
                 if (InsertIntoListRecv(_sentnodeid, protocolHeader, listTotalHash))
                     pConsensusStatus->mapLocalBuddyInfo.erase(_sentnodeid);
             }
@@ -280,6 +295,7 @@ public:
         }
 
         //HC:将块数据信息回复对方
+        //HCE: send the block data back to requester
         OnChainBlockTask task(_sentnodeid,ListConsensus);
         task.exec();
     }
@@ -296,8 +312,8 @@ public:
     ~OnChainHashTask() {};
     void exec() override
     {
-        //HC: Update local block's hyper block information
-        //HC: Notice: MuxlistLocalBuddyChainInfo m_MuxHchainBlockList dead lock
+        //HCE: Update local block's hyper block information
+        //HCE: Notice: MuxlistLocalBuddyChainInfo m_MuxHchainBlockList dead lock
         T_SHA256 preHyperBlockHash;
         uint64 prehyperblockid = 0;
         uint64 ctm;
@@ -335,7 +351,7 @@ public:
             return;
         }
 
-        //HC: put previous hyper block hash and id into protocol head
+        //HCE: put previous hyper block hash and id into protocol head
         T_P2PPROTOCOLONCHAINREQ P2pProtocolOnChainReq;
         P2pProtocolOnChainReq.SetP2pprotocolonchainreq(T_P2PPROTOCOLTYPE(P2P_PROTOCOL_ON_CHAIN_REQ, CCommonStruct::gettimeofday_update()),
             hyperblockid, tPreHyperBlockHash, blockNum);
@@ -350,6 +366,7 @@ public:
                 blockinfos.SetLoaclConsensus(localblock.GetPeer(), localblock.GetLocalBlock());
                 T_SHA256 BlockHash = blockinfos.GetLocalBlock().GetHashSelf();
                 //HC:将子块信息插入到mapLocalConsensus中
+                //HCE: insert block data into mapLocalConsensus
                 auto finditr = pConsensusStatus->mapLocalConsensus.find(BlockHash);
                 if (finditr == pConsensusStatus->mapLocalConsensus.end())
                     pConsensusStatus->mapLocalConsensus[BlockHash] = blockinfos;
@@ -378,13 +395,14 @@ public:
 
     void execRespond() override
     {
-        //HC:If there is a onchain request, continue; otherwise return;
+        //HCE:If there is a onchain request, continue; otherwise return;
         ConsensusEngine* pEng = Singleton<ConsensusEngine>::getInstance();
         T_P2PMANAGERSTATUS* pConsensusStatus = pEng->GetConsunsusState();
         NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
         HCNodeSH me = nodemgr->myself();
 
         //HC:检查结成BUDDY的条件，有则继续
+        //HCE: Check the condition to make buddy,continue if ok
         int nLocalChainSize = pConsensusStatus->listLocalBuddyChainInfo.size();
         if (nLocalChainSize > 0) {
             T_PEERADDRESS peerAddrOut(_sentnodeid);
@@ -397,14 +415,17 @@ public:
             T_P2PPROTOCOLONCHAINREQ protocolHeader;
             if (ResolveLocalBuddyInfo(_sentnodeid, &protocolHeader, &listTotalHash, &listLackHash)) {
                 //HC:每一次只增加一个block
+                //HCE: Add one block each time
                 if ((nLocalChainSize == ONE_LOCAL_BLOCK) || (listTotalHash.size() == ONE_LOCAL_BLOCK)) {
                     if (listLackHash.size() > 0) {
                         //HC:缺少块数据，将缺少的块HASH发送给对方
+                        //HCE: be lack of block data,send the hash of the block to the requester
                         OnChainHashRspTask task(_sentnodeid, listLackHash);
                         task.exec();
                     }
                     else {
                         //HC:不缺少块数据，插入到listRecvLocalBuddyReq中
+                        //HCE: be not lack of block data,insert the buddy into listRecvLocalBuddyReq
                         InsertIntoListRecv(_sentnodeid, protocolHeader, listTotalHash);
                     }
                 }
@@ -425,8 +446,8 @@ public:
     {
         g_consensus_console_logger->trace("enter OnChainRspTask: {}", _peerid.ToHexString());
 
-        //HC: Set buddy block hyper block information to latest.
-        //HC: Notice: MuxlistLocalBuddyChainInfo m_MuxHchainBlockList dead lock
+        //HCE: Set buddy block hyper block information to latest.
+        //HCE: Notice: MuxlistLocalBuddyChainInfo m_MuxHchainBlockList dead lock
         T_SHA256 preHyperBlockHash;
         uint64 prehyperblockid = 0;
         uint64 ctm;
@@ -436,7 +457,7 @@ public:
         ConsensusEngine* pEng = Singleton<ConsensusEngine>::getInstance();
         T_P2PMANAGERSTATUS* pConsensusStatus = pEng->GetConsunsusState();
 
-        //HC: Have I child blocks to consensus?
+        //HCE: Have I local blocks to consensus?
         size_t consensusblks = pConsensusStatus->listLocalBuddyChainInfo.size();
         if (consensusblks == 0) {
             g_consensus_console_logger->trace("OnChainRspTask: my consensus block size is 0 ");
@@ -464,7 +485,7 @@ public:
 
         bool index = false;
 
-        //HC: Get size of blocks doing consensus again because MQ handle switches
+        //HCE: Get size of blocks doing consensus again because MQ handle switches
         consensusblks = pConsensusStatus->listLocalBuddyChainInfo.size();
         if (consensusblks == 0) {
             g_consensus_console_logger->trace("OnChainRspTask: my consensus block size is 0 ");
@@ -477,7 +498,7 @@ public:
             return;
         }
 
-        //HC: Set buddy block hyper block information to latest.
+        //HCE: Set buddy block hyper block information to latest.
         pConsensusStatus->UpdateLocalBuddyBlockToLatest(prehyperblockid, preHyperBlockHash);
 
         T_BUDDYINFOSTATE buddyInfo;
@@ -485,6 +506,7 @@ public:
 
         auto firstelm = buddyInfo.localList.begin();
         //HC: 组合形成备选链
+        //HCE: compined to waiting buddy
         for (uint64 i = 0; i < P2pProtocolOnChainReqRecv.GetBlockCount(); i++) {
             T_LOCALCONSENSUS  LocalBlockInfo;
             try {
@@ -505,8 +527,10 @@ public:
             if (index)
                 continue;
             //HC: 加入本地待上链数据块，形成备选链
+            //HCE: add the local block and compined to the backup buddy
             buddyInfo.localList.push_back(LocalBlockInfo);
             //HC: 排序组合成链
+            //HCE: sort
             buddyInfo.localList.sort(CmpareOnChain());
         }
 
@@ -530,6 +554,7 @@ public:
 
         buddyInfo.SetPeerAddrOut(T_PEERADDRESS(_peerid));
         //HC: 设置备选链状态
+        //HCE: set the backup buddy state to SEND_ON_CHAIN_RSP
         buddyInfo.SetBuddyState(SEND_ON_CHAIN_RSP);
 
 
@@ -549,6 +574,7 @@ public:
             }
         }
         //HC: 将备选链放入备选链集合中
+        //HCE: put the backup buddy into listCurBuddyReq
         pConsensusStatus->listCurBuddyReq.push_back(buddyInfo);
 
         size_t blockNum = buddyInfo.localList.size();
@@ -757,8 +783,8 @@ public:
                     }
                 }
 
-                //Todo:
-                //if listCurBuddyRsp.size()==1, how to do?
+                //HCE: Todo:
+                //HCE: if listCurBuddyRsp.size()==1, how to do?
                 break;
             }
         }

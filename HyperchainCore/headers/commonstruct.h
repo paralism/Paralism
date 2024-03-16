@@ -30,6 +30,7 @@ DEALINGS IN THE SOFTWARE.
 
 #include "shastruct.h"
 #include "node/UInt128.h"
+#include "util/commontypes.h"
 
 #include <chrono>
 #include <boost/any.hpp>
@@ -301,6 +302,7 @@ typedef struct _tapptype
     bool isMT() const { return vecAT[0].mt == 1; }
     bool isSmartContract() const { return vecAT[0].sc == 1; }
     bool isSmartContractWithResult() const { return isSmartContract() && vecAT[0].scrlt == 1; }
+
     //HCE:if apptype vector exists genesis block address triple data or not
     bool containAddr() const {
         uint32_t hid = 0;
@@ -313,10 +315,14 @@ typedef struct _tapptype
         }
         return true;
     }
+
     //HCE: check app type: now support Paracoin, Ledger and Ethereum
     bool isParacoin() const { return (vecAT[0].app == static_cast<char>(APPTYPE::paracoin)) && containAddr(); }
     bool isLedger() const { return (vecAT[0].app == static_cast<char>(APPTYPE::ledger)) && containAddr(); }
     bool isEthereum() const { return (vecAT[0].app == static_cast<char>(APPTYPE::ethereum)) && containAddr(); }
+
+    bool isEthereumGenesis() const { return (vecAT[0].app == static_cast<char>(APPTYPE::ethereum)) && !containAddr(); }
+
 
     string appName() const {
         string name = "unknown";
@@ -1743,8 +1749,7 @@ using CONSENSUSNOTIFY = std::tuple<HANDLEGENESISCBFN,
                                     GETVPATHFN,
                                     GETNEIGHBORNODES>;
 
-enum class cbindex : char {
-    HANDLEGENESISIDX = 0,
+HC_ENUM(cbindex, char, HANDLEGENESISIDX,
     PUTONCHAINIDX,
     PUTGLOBALCHAINIDX,
     REONCHAINIDX,
@@ -1754,8 +1759,9 @@ enum class cbindex : char {
     CHECKCHAINIDX,
     GETUUIDIDX,
     GETVPATHIDX,
-    GETNEIGHBORNODESIDX
-};
+    GETNEIGHBORNODESIDX,
+    IDLE
+    );
 
 enum class CBRET : char { UNREGISTERED = 0, REGISTERED_TRUE, REGISTERED_FALSE };
 

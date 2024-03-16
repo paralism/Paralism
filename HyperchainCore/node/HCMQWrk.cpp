@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -99,6 +99,16 @@ void HCMQWrk::keepalive(zmq::pollitem_t &poll_item)
 
 void HCMQWrk::idle()
 {
+    //HC: -2是为了提前通知派遣器获取作业
+    if (m_completed_work < m_next_request_work_at - 2)
+        return;
+
+    if (m_created_work > m_completed_work + 5) {
+        //HC: 未处理的作业过多
+        return;
+    }
+
+    m_next_request_work_at = m_completed_work + maximum_process_ability;
     set_heartbeat_at();
     send_to_broker((char*)MDPW_IDLE, m_service, NULL);
 }

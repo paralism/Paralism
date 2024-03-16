@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -30,6 +30,7 @@ DEALINGS IN THE SOFTWARE.
 
 #include "cryptopp/sha.h"
 #include "headers.h"
+#include "util/threadname.h"
 #include "db.h"
 #include "net.h"
 #include "init.h"
@@ -38,6 +39,10 @@ DEALINGS IN THE SOFTWARE.
 #include "db/dbmgr.h"
 #include "para_rpc.h"
 #include "key_io.h"
+#include "consensus/consensus_engine.h"
+#include "sysexceptions.h"
+
+#include "../AppPlugins.h"
 
 #undef printf
 #include <boost/asio.hpp>
@@ -71,6 +76,14 @@ static int64 nWalletUnlockTime;
 static CCriticalSection cs_nWalletUnlockTime;
 
 std::list<std::shared_ptr<boost::asio::io_service>> rpcServerList;
+
+extern "C" BOOST_SYMBOL_EXPORT
+bool GetTxState(const string& txhash, int& blocknum, int64_t& blockstamp, int& blockmaturity,
+    int64_t& hyperId,
+    int64_t& chainId,
+    int64_t& localId,
+    string& desc,
+    string& strError);
 
 extern bool ResolveBlock(CBlock& block, const char* payload, size_t payloadlen);
 
@@ -215,7 +228,7 @@ Value stop(const Array& params, bool fHelp)
     // Shutdown will take long enough that the response should get back
     PrintConsole("Para: executing RPC stop command...unload Para module\n");
 
-    CreateThread(Shutdown, NULL);
+    hc::CreateThread("ParaStopShutdown", Shutdown, NULL);
     return "Server is stopping";
 }
 
@@ -812,6 +825,18 @@ Value settxfee(const Array& params, bool fHelp)
     return true;
 }
 
+uint160 right160(T_SHA256 const& _t)
+{
+    vector<unsigned char> hash(_t.pID.begin(), _t.pID.begin() + sizeof(uint160));
+    return uint160(hash);
+}
+
+uint160 right160(uint256 const& _t)
+{
+    vector<unsigned char> hash(_t.begin(), _t.begin() + sizeof(uint160));
+    return uint160(hash);
+}
+
 Value sendtoaddress(const Array& params, bool fHelp)
 {
     if (pwalletMain->IsCrypted() && (fHelp || params.size() < 2 || params.size() > 4))
@@ -943,13 +968,16 @@ Value getreceivedbyaccount(const Array& params, bool fHelp)
 }
 
 
-int64 GetAccountBalance(CWalletDB_Wrapper& walletdb, const string& strAccount, int nMinDepth)
+int64 GetAccountBalance(CWalletDB_Wrapper& walletdb, const string& strAccount, int nMinDepth, bool greatercompvalstop = false, int64 comparefund = 0)
 {
     int64 nBalance = 0;
 
     // Tally wallet transactions
     for (map<uint256, CWalletTx>::iterator it = pwalletMain->mapWallet.begin(); it != pwalletMain->mapWallet.end(); ++it)
     {
+        if (fShutdown)
+            throw std::runtime_error("node is shutting down");
+
         const CWalletTx& wtx = (*it).second;
         if (!wtx.IsFinal())
             continue;
@@ -965,6 +993,12 @@ int64 GetAccountBalance(CWalletDB_Wrapper& walletdb, const string& strAccount, i
 
             if (fmature && pwalletMain->mapAddressBook[dest] == strAccount) {
                 nBalance += nValue;
+                //HC: 提前退出统计
+                if (greatercompvalstop) {
+                    if (nBalance >= comparefund) {
+                        return nBalance;
+                    }
+                }
             }
         }
     }
@@ -979,6 +1013,13 @@ int64 GetAccountBalance(const string& strAccount, int nMinDepth)
 {
     CWalletDB_Wrapper walletdb(pwalletMain->strWalletFile);
     return GetAccountBalance(walletdb, strAccount, nMinDepth);
+}
+
+bool AccountBalanceIsEnough(const string& strAccount, int nMinDepth, int64 comparefund)
+{
+    CWalletDB_Wrapper walletdb(pwalletMain->strWalletFile);
+    int64 ba = GetAccountBalance(walletdb, strAccount, nMinDepth, true, comparefund);
+    return ba >= comparefund;
 }
 
 
@@ -1112,8 +1153,7 @@ Value sendfrom(const Array& params, bool fHelp)
         throw JSONRPCError(-13, "Error: Please enter the wallet passphrase with walletpassphrase first.");
 
     // Check funds
-    int64 nBalance = GetAccountBalance(strAccount, nMinDepth);
-    if (nAmount > nBalance)
+    if (!AccountBalanceIsEnough(strAccount, nMinDepth, nAmount))
         throw JSONRPCError(-6, "Account has insufficient funds");
 
     CScript scriptPubKey = GetScriptForDestination(address);
@@ -1174,13 +1214,13 @@ Value sendmany(const Array& params, bool fHelp)
         throw JSONRPCError(-13, "Error: Please enter the wallet passphrase with walletpassphrase first.");
 
     // Check funds
-    int64 nBalance = GetAccountBalance(strAccount, nMinDepth);
-    if (totalAmount > nBalance)
+    if (!AccountBalanceIsEnough(strAccount, nMinDepth, totalAmount))
         throw JSONRPCError(-6, "Account has insufficient funds");
 
     // Send
     CReserveKey keyChange(pwalletMain);
     int64 nFeeRequired = 0;
+
     bool fCreated = pwalletMain->CreateTransaction(vecSend, wtx, keyChange, nFeeRequired);
     if (!fCreated)
     {
@@ -1188,6 +1228,7 @@ Value sendmany(const Array& params, bool fHelp)
             throw JSONRPCError(-6, "Insufficient funds");
         throw JSONRPCError(-4, "Transaction creation failed");
     }
+
     if (!pwalletMain->CommitTransaction(wtx, keyChange))
         throw JSONRPCError(-4, "Transaction commit failed");
 
@@ -1416,23 +1457,14 @@ void ScriptPubKeyToUniv(const CScript& scriptPubKey, Object &out, bool fIncludeH
     out.push_back(Pair("addresses", a));
 }
 
-void ListTransactionsDetails(const CWalletTx& wtx, const string& strAccount, int nMinDepth, bool fLong, Array& ret)
+void GetTransactionsDetails(const CTransaction& tx, Array& ret)
 {
-    int64 nGeneratedImmature, nGeneratedMature, nFee;
-    string strSentAccount;
-    list<pair<CTxDestination, int64> > listReceived;
-    list<pair<CTxDestination, int64> > listSent;
-    wtx.GetAmounts(nGeneratedImmature, nGeneratedMature, listReceived, listSent, nFee, strSentAccount);
-
-    bool fAllAccounts = (strAccount == string("*"));
-
-
     //Txin
     Array detailsvin;
-    for (auto& txin : wtx.vin) {
+    for (auto& txin : tx.vin) {
         Object entry;
         vector<unsigned char> sSig(txin.scriptSig.begin(), txin.scriptSig.end());
-        if (wtx.IsCoinBase()) {
+        if (tx.IsCoinBase()) {
             entry.push_back(Pair("coinbase", HexStr(sSig)));
         }
         else {
@@ -1478,7 +1510,7 @@ void ListTransactionsDetails(const CWalletTx& wtx, const string& strAccount, int
     //HCE: vout
     int64_t n = 0;
     Array detailsvout;
-    for (auto& txout: wtx.vout) {
+    for (auto& txout : tx.vout) {
         Object entry;
         vector<unsigned char> sPubkey(txout.scriptPubKey.begin(), txout.scriptPubKey.end());
         entry.push_back(Pair("value", ValueFromAmount(txout.nValue)));
@@ -1491,6 +1523,20 @@ void ListTransactionsDetails(const CWalletTx& wtx, const string& strAccount, int
     Object entryvout;
     entryvout.push_back(Pair("vout", detailsvout));
     ret.push_back(entryvout);
+}
+
+
+void ListTransactionsDetails(const CWalletTx& wtx, const string& strAccount, int nMinDepth, bool fLong, Array& ret)
+{
+    int64 nGeneratedImmature, nGeneratedMature, nFee;
+    string strSentAccount;
+    list<pair<CTxDestination, int64> > listReceived;
+    list<pair<CTxDestination, int64> > listSent;
+    wtx.GetAmounts(nGeneratedImmature, nGeneratedMature, listReceived, listSent, nFee, strSentAccount);
+
+    bool fAllAccounts = (strAccount == string("*"));
+
+    GetTransactionsDetails(wtx, ret);
 
     Array detailssummary;
     // Generated blocks assigned to account ""
@@ -1811,6 +1857,45 @@ Value gettransactionaddr(const Array& params, bool fHelp)
     return entry;
 }
 
+//HC: Transaction in wallet
+//Value gettransaction(const Array& params, bool fHelp)
+//{
+//    if (fHelp || params.size() != 1)
+//        throw runtime_error(
+//            "gettransaction <txid>\n"
+//            "Get detailed information about <txid>");
+//
+//    uint256 hash;
+//    hash.SetHex(params[0].get_str());
+//
+//    Object entry;
+//
+//    if (!pwalletMain->mapWallet.count(hash))
+//        throw JSONRPCError(-5, "Invalid or non-wallet transaction id");
+//
+//    
+//    const CWalletTx& wtx = pwalletMain->mapWallet[hash];
+//
+//    int64 nCredit = wtx.GetCredit();
+//    int64 nDebit = wtx.GetDebit();
+//    int64 nNet = nCredit - nDebit;
+//    int64 nFee = (wtx.IsFromMe() ? wtx.GetValueOut() - nDebit : 0);
+//
+//    entry.push_back(Pair("version", wtx.nVersion));
+//    entry.push_back(Pair("amount", ValueFromAmount(nNet - nFee)));
+//    if (wtx.IsFromMe())
+//        entry.push_back(Pair("fee", ValueFromAmount(nFee)));
+//
+//    WalletTxToJSON(wtx, entry);
+//
+//    Array details;
+//    ListTransactionsDetails(wtx, "*", 0, false, details);
+//    entry.push_back(Pair("details", details));
+//
+//    return entry;
+//}
+
+//HC: Any transaction in main chain
 Value gettransaction(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() != 1)
@@ -1818,34 +1903,92 @@ Value gettransaction(const Array& params, bool fHelp)
             "gettransaction <txid>\n"
             "Get detailed information about <txid>");
 
-    uint256 hash;
-    hash.SetHex(params[0].get_str());
+    uint256 hashtx;
+    hashtx.SetHex(params[0].get_str());
+
+    CTxDB_Wrapper txdb;
+    CTxIndex txindex;
+    CTransaction tx;
+    bool fFound = txdb.ReadTxIndex(hashtx, txindex);
+    if (fFound) {
+        if (tx.ReadFromDisk(txindex.pos)) {
+            if (tx.GetHash() != hashtx) {
+                throw JSONRPCError(-5, "The index of transaction has error");
+            }
+        }
+    } else {
+        CRITICAL_BLOCK(cs_mapTransactions)
+            if (mapTransactions.count(hashtx)) {
+                //already exist in transaction pool
+                tx = mapTransactions[hashtx];
+            } else {
+                throw JSONRPCError(-5, "Transaction not existed");
+            }
+    }
 
     Object entry;
+    entry.push_back(Pair("version", tx.nVersion));
+    entry.push_back(Pair("txid", tx.GetHash().GetHex()));
 
-    if (!pwalletMain->mapWallet.count(hash))
-        throw JSONRPCError(-5, "Invalid or non-wallet transaction id");
-    const CWalletTx& wtx = pwalletMain->mapWallet[hash];
+    string desc;
+    string strerr;
 
-    int64 nCredit = wtx.GetCredit();
-    int64 nDebit = wtx.GetDebit();
-    int64 nNet = nCredit - nDebit;
-    int64 nFee = (wtx.IsFromMe() ? wtx.GetValueOut() - nDebit : 0);
+    int64_t hyperId = -1;
+    int64_t chainId, localId;
+    int blocknum;
+    int64_t blockstamp;
+    int blockmaturity;
+    bool ret = GetTxState(hashtx.GetHex(), blocknum, blockstamp, blockmaturity,
+            hyperId, chainId, localId,
+            desc, strerr);
 
-    entry.push_back(Pair("version", wtx.nVersion));
-    entry.push_back(Pair("amount", ValueFromAmount(nNet - nFee)));
-    if (wtx.IsFromMe())
-        entry.push_back(Pair("fee", ValueFromAmount(nFee)));
-
-    WalletTxToJSON(wtx, entry);
+    entry.push_back(Pair("block height", blocknum));
+    entry.push_back(Pair("block timestamp", blockstamp));
+    entry.push_back(Pair("block ID", StringFormat("[%d, %d, %d]", hyperId, chainId, localId)));
 
     Array details;
-    ListTransactionsDetails(wtx, "*", 0, false, details);
+    GetTransactionsDetails(tx, details);
     entry.push_back(Pair("details", details));
 
     return entry;
 }
 
+Value listnewtransactions(const Array& params, bool fHelp)
+{
+    if (fHelp)
+        throw runtime_error(
+            "listnewtransactions\n"
+            "Returns up to 20 most recent transactions.");
+
+    CBlock block;
+    BLOCKTRIPLEADDRESS addrblock;
+    char* pWhere = nullptr;
+    CBlockIndexSP spBlkIdx = pindexBest;
+
+    //HC：取1小时前的交易 6(个/5分钟) * 12 = 72
+    int height = spBlkIdx->nHeight > 72 ? (spBlkIdx->nHeight - 72) : 0;
+    while (spBlkIdx && spBlkIdx->nHeight != height) {
+        spBlkIdx = spBlkIdx->pprev();
+    }
+    Array txs;
+    int i = 0;
+    while (spBlkIdx) {
+        if (GetBlockData(spBlkIdx->GetBlockHash(), block, addrblock, &pWhere)) {
+            auto it = block.vtx.rbegin();
+            for (; it != block.vtx.rend(); ++it) {
+                Object entry;
+                entry.push_back(Pair("txid", it->GetHash().GetHex()));
+                entry.push_back(Pair("time", (int64_t)block.nTime));
+                txs.push_back(entry);
+                if (++i == 20) {
+                    return txs;
+                }
+            }
+        }
+        spBlkIdx = spBlkIdx->pprev();
+    }
+    return txs;
+}
 
 Value backupwallet(const Array& params, bool fHelp)
 {
@@ -1965,9 +2108,10 @@ Value walletpassphrase(const Array& params, bool fHelp)
             "walletpassphrase <passphrase> <timeout>\n"
             "Stores the wallet decryption key in memory for <timeout> seconds.");
 
-    CreateThread(ThreadTopUpKeyPool, NULL);
+    hc::CreateThread("ParaTopUpKeyPool", ThreadTopUpKeyPool, NULL);
+
     int* pnSleepTime = new int(params[1].get_int());
-    CreateThread(ThreadCleanWalletPassphrase, pnSleepTime);
+    hc::CreateThread("ParaTopUpKeyPool", ThreadCleanWalletPassphrase, pnSleepTime);
 
     return Value::null;
 }
@@ -2280,6 +2424,7 @@ pair<string, rpcfn_type> pCallTable[] =
     make_pair("gettransaction",         &gettransaction),
     make_pair("gettransactionaddr",     &gettransactionaddr),
     make_pair("listtransactions",       &listtransactions),
+    make_pair("listnewtransactions",    &listnewtransactions),
     make_pair("getwork",                &getwork),
     make_pair("listaccounts",           &listaccounts),
     make_pair("settxfee",               &settxfee),
@@ -2715,7 +2860,7 @@ void ThreadRPCServer2(void* parg)
                 "If the file does not exist, create it with owner-readable-only file permissions.\n"),
             strWhatAmI.c_str(),
             GetConfigFile().c_str());
-        CreateThread(Shutdown, NULL);
+        hc::CreateThread("ParaRPCServer2Shutdown", Shutdown, NULL);
         return;
     }
 
@@ -3104,7 +3249,7 @@ void StartRPCServer()
     for (int i = 0; i < n; i++) {
         std::shared_ptr<boost::asio::io_service> io(new boost::asio::io_service());
         rpcServerList.push_back(io);
-        CreateThread(ThreadRPCServer, io.get());
+        hc::CreateThread("ParaRPCServer", ThreadRPCServer, io.get());
     }
 }
 
@@ -3568,6 +3713,566 @@ Value queryminingstatus(const Array& params, bool fHelp)
 
     return result;
 }
+
+//HCE: Generate a chain address which uses as target address of cross-chain transaction
+extern "C" BOOST_SYMBOL_EXPORT
+bool getchainaddress(const map<string, string>&mapparams, string & hexaddress, string & strError)
+{
+    //<hid> <chainid> <localid> <hash of genesis block of target chain> [recv address on target chain]: generate a target chain address");
+
+    WitnessCrossChainHash wcc;
+
+    wcc.genesis_hid = atoi(mapparams.at("hid").c_str());
+    wcc.genesis_chainid = atoi(mapparams.at("chainid").c_str());
+    wcc.genesis_localid = atoi(mapparams.at("localid").c_str());
+
+    if (mapparams.count("recv_address")) {
+        auto recvaddr = ParseHex(mapparams.at("recv_address").c_str());
+        std::reverse(recvaddr.begin(), recvaddr.end());
+        wcc.recv_address = BaseHash<uint160>(uint160(recvaddr));
+    }
+
+    CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
+
+    T_LOCALBLOCKADDRESS addr;
+    addr.set(wcc.genesis_hid, wcc.genesis_chainid, wcc.genesis_localid);
+
+    T_SHA256 hb_thash;
+    if (!hyperchainspace->GetHyperBlockHash(wcc.genesis_hid, hb_thash)) {
+        //throw JSONRPCError(-1,
+        //    StringFormat("The hyper block(%d) not exist", wcc.hid));
+        strError = StringFormat("The hyper block(%d) not exist", wcc.genesis_hid);
+    }
+
+    wcc.hhash = BaseHash<uint160>(right160(hb_thash));
+
+    T_LOCALBLOCK localblock;
+    if (hyperchainspace->GetLocalBlock(addr, localblock)) {
+
+        if (!localblock.GetAppType().isEthereumGenesis()) {
+            //throw JSONRPCError(-1,
+            //    StringFormat("The local block(%d %d %d) isn't genesis block of ethereum", addr.hid, addr.chainnum, addr.id));
+            strError = StringFormat("The local block(%d %d %d) isn't genesis block of ethereum", addr.hid, addr.chainnum, addr.id);
+        }
+
+        //    T_SHA256 localchainhash = localblock.GetHashSelf();
+        //    auto genesishash = right160(localchainhash);
+        //    wcc.genesis_block_hash = BaseHash<uint160>(genesishash);
+        //    bool isEqual = std::equal(genesishash.begin(), genesishash.end(), wcc.genesis_block_hash.begin());
+        //    if (!isEqual) {
+        //        throw JSONRPCError(-1,
+        //            StringFormat("genesis block hash %s in chain not match with %s",
+        //                HexStr(wcc.genesis_block_hash.begin(), wcc.genesis_block_hash.end()),
+        //                HexStr(genesishash.begin(), genesishash.end())));
+        //    }
+    }
+    else {
+        //throw JSONRPCError(-2,
+        //    StringFormat("Cannot read the local block(%d %d %d) in my storage", addr.hid, addr.chainnum, addr.id));
+        strError = StringFormat("Cannot read the local block(%d %d %d) in my storage", addr.hid, addr.chainnum, addr.id);
+    }
+
+    uint256 h = uint256S(mapparams.at("target_genesis_hash").c_str());
+    std::reverse(h.begin(), h.end());
+
+    auto genesishash = right160(h);
+    wcc.genesis_block_hash = BaseHash<uint160>(genesishash);
+
+    //CTxDestination address(wcc);
+    //hexaddress = EncodeDestination(address);
+
+    //HC: ImmutableWitnessCrossChainHash is more short than WitnessCrossChainHash
+    CTxDestination address((ImmutableWitnessCrossChainHash)wcc);
+    hexaddress = EncodeDestination(address);
+
+    //CTxDestination addr = DecodeDestination(hexaddress);
+
+    //ostringstream oss;
+    //oss << StringFormat("hyper block(%d %d %d)\n base hash %s",
+    //    wcc.hid, wcc.chainid, wcc.localid, wcc.hhash.ToString()) << endl;
+    //oss << StringFormat("hash of genesis block of target chain %s", wcc.genesis_block_hash.ToString());
+    //oss << StringFormat("receiving address of target chain %s", wcc.recv_address.ToString());
+    //oss << StringFormat("cross chain target address", hexaddress);
+
+    //Object ret;
+    //ret.push_back(Pair("hyper block", StringFormat("%d %d %d", wcc.hid, wcc.chainid, wcc.localid)));
+    //ret.push_back(Pair("hyper block base hash", StringFormat("%s", wcc.hhash.ToString())));
+    //ret.push_back(Pair("hash of genesis block of target chain", StringFormat("%s", wcc.genesis_block_hash.ToString())));
+    //ret.push_back(Pair("receiving address of target chain", StringFormat("%s", wcc.recv_address.ToString())));
+    //ret.push_back(Pair("cross chain target address", hexaddress));
+
+    return true;
+}
+
+
+//HC: 跨链转出
+extern "C" BOOST_SYMBOL_EXPORT
+bool sendtochain(const std::map<string, string>&mapparams, string & txhash, string & strError)
+{
+    if (pwalletMain->IsCrypted() && (mapparams.size() < 2)) {
+        strError = "sendtochain <fromaccount> <tochainaddress> <amount> <toaddress>\n"
+            "<amount> is a integer and 100000000 equals 1 para\n"
+            "requires wallet passphrase to be set with walletpassphrase first";
+        return false;
+    }
+
+    try {
+        string strAccount = AccountFromValue(mapparams.at("fromaccount"));
+
+        CTxDestination address = DecodeDestination(mapparams.at("chainaddress"));
+        if (!IsValidDestination(address)) {
+            strError = "Invalid destination chain address";
+            return false;
+        }
+
+        if (address.which() == TxDestinationIndex<ImmutableWitnessCrossChainHash>()) {
+            ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::getInstance();
+            ImmutableWitnessCrossChainHash immWitnessCC = boost::get<ImmutableWitnessCrossChainHash>(address);
+
+            bool rc = false;
+            string err;
+            std::tie(rc, err) = consensuseng->CheckCrossChainTx(immWitnessCC.genesis_hid,
+                immWitnessCC.genesis_chainid,
+                immWitnessCC.genesis_localid,
+                immWitnessCC.hhash,
+                immWitnessCC.genesis_block_hash);
+
+            if (!rc) {
+                strError = StringFormat("Invalid destination chain address: %s", err);
+                return false;
+            }
+
+            WitnessCrossChainHash witnessCC(std::move(immWitnessCC));
+            auto& key = mapparams.at("senderprikey");
+            witnessCC.sender_prikey = uint256S(key);
+
+            uint160 toaddress;
+            toaddress.SetHex(mapparams.at("to"));
+            witnessCC.recv_address = BaseHash<uint160>(toaddress);
+
+            //HC: Para交易的目标地址里带上Aleth交易的发送者地址，形成锁定关系
+            CTxDestination addressTxDest(witnessCC);
+
+            // Amount
+            char* end = nullptr;
+            int64 nAmount = std::strtoll(mapparams.at("amount").c_str(), &end, 10);
+
+            CWalletTx wtx;
+            wtx.strFromAccount = strAccount;
+
+            if (pwalletMain->IsLocked()) {
+                strError = "Please enter the wallet passphrase with walletpassphrase first.";
+                return false;
+            }
+
+            // Check funds
+            int nMinDepth = 1;
+            if (!AccountBalanceIsEnough(strAccount, nMinDepth, nAmount)) {
+                strError = "Account has insufficient funds";
+                return false;
+            }
+
+            CScript scriptPubKey = GetScriptForDestination(addressTxDest);
+            strError = pwalletMain->SendMoney(scriptPubKey, nAmount, wtx);
+            if (strError != "")
+                return false;
+
+            txhash = wtx.GetHash().GetHex();
+            return  true;
+        }
+        strError = "Invalid destination chain address type";
+        return false;
+
+    }
+    catch (Object& objError) {
+        strError = write_string(Value(objError), false);
+        return false;
+    }
+    catch (std::exception& e) {
+        strError = e.what();
+        return false;
+    }
+}
+
+//HC：跨链收款
+extern "C" BOOST_SYMBOL_EXPORT bool recvfromchain(const map<string, string>&mapparams, string & txhash, string & strError)
+{
+    if (pwalletMain->IsCrypted() && (mapparams.size() < 2)) {
+        strError = "recvfromchain <chain address> <amount> [comment] [comment-to]\n"
+            "<amount> is a integer and 100000000 equals 1 para\n"
+            "requires wallet passphrase to be set with walletpassphrase first";
+        return false;
+    }
+
+    try {
+        char* end = nullptr;
+        int64 nAmount = std::strtoll(mapparams.at("amount").c_str(), &end, 10);
+
+        // Wallet comments
+        CWalletTx wtx;
+        wtx.fromCrossChain = true;
+        wtx.fromethtxhash = mapparams.at("eth_tx_hash");
+
+        uint256 genesishash = uint256S(mapparams.at("genesis_block_hash").c_str());
+
+        std::reverse(genesishash.begin(), genesishash.end());
+
+        //auto genesishash = right160(h);
+        wtx.fromgenesisblockhash = BaseHash<uint256>(genesishash);
+
+        if (pwalletMain->IsLocked()) {
+            strError = "Error: Please enter the wallet passphrase with walletpassphrase first.";
+            return false;
+        }
+
+        /* CTxDestination address = DecodeDestination(mapparams.at("para_recv_script"));
+         if (!IsValidDestination(address)) {
+             strError = "Invalid destination address";
+             return false;
+         }*/
+
+         //CScript scriptPubKey = GetScriptForDestination(address);
+        auto script = ParseHex(mapparams.at("para_recv_script"));
+        CScript scriptPubKey(script.begin(), script.end());
+
+        //HC: 以太坊转出交易hash + 签名 + 公钥 + 以太坊子链创世块hash 构成输入签名脚本
+        wtx.fromscriptSig << ParseHex(wtx.fromethtxhash)
+            << ParseHex(mapparams.at("eth_tx_publickey"))
+            << (unsigned int)std::stoul(mapparams.at("eth_tx_hid"))
+            << (unsigned short)std::stoul(mapparams.at("eth_tx_chainid"))
+            << (unsigned short)std::stoul(mapparams.at("eth_tx_localid"))
+            << genesishash;
+
+        strError = pwalletMain->SendMoney(scriptPubKey, nAmount, wtx);
+        if (strError != "")
+            return false;
+
+        txhash = wtx.GetHash().GetHex();
+    }
+    catch (Object& objError) {
+        strError = write_string(Value(objError), false);
+        return false;
+    }
+
+    return true;
+}
+
+extern "C" BOOST_SYMBOL_EXPORT bool GetDestinationFromScriptPubKey(const string & scriptpubkey,
+    string & destinationaddress,
+    string & err)
+{
+
+    auto script = ParseHex(scriptpubkey);
+    CScript sc(script.begin(), script.end());
+
+    CTxDestination address;
+    ExtractDestination(sc, address);
+
+    if (!IsValidDestination(address)) {
+        err = "Invalid address";
+        return false;
+    }
+    destinationaddress = EncodeDestination(address);
+    return true;
+}
+
+extern "C" BOOST_SYMBOL_EXPORT bool GetScriptPubKeyFromDestination(const string & destinationaddress,
+    string & scriptpubkey,
+    string & err)
+{
+    CTxDestination address = DecodeDestination(destinationaddress);
+    if (!IsValidDestination(address)) {
+        err = "Invalid address";
+        return false;
+    }
+
+    CScript scriptPubKey = GetScriptForDestination(address);
+    scriptpubkey = ToHexString(ToByteVector(scriptPubKey));
+    return true;
+}
+
+extern bool ForwardFindBlockInMain(int blkheight, const uint256& blkhash, int h1, int h2, CBlock& block,
+    BLOCKTRIPLEADDRESS& blktriaddr, vector<int>& vecHyperBlkIdLacking);
+
+bool GetTxState(const string &txhash, int &blocknum, int64_t &blockstamp, int &blockmaturity,
+    int64_t &hyperId,
+    int64_t &chainId,
+    int64_t &localId,
+    string &desc,
+    string &strError)
+{
+    blocknum = -1;
+    blockmaturity = -1;
+
+    hyperId = -1;
+    chainId = 0;
+    localId = 0;
+
+    uint256 hashtx(txhash);
+    CTxDB_Wrapper txdb;
+    CTxIndex txindex;
+    CTransaction tx;
+    bool fFound = txdb.ReadTxIndex(hashtx, txindex);
+
+    if (fFound) {
+        if (tx.ReadFromDisk(txindex.pos)) {
+            if (tx.GetHash() != hashtx) {
+                strError = "Failed to ReadFromDisk raw transaction";
+                return false;
+            }
+
+            blockmaturity = txindex.GetDepthInMainChain();
+            blocknum = 1 + nBestHeight - blockmaturity;
+            desc = "The transaction has been packaged and added to the chain";
+
+            CBlock block;
+            BLOCKTRIPLEADDRESS addrblock;
+            char* pWhere = nullptr;
+            if (GetBlockData(txindex.pos.hashBlk, block, addrblock, &pWhere)) {
+                BLOCKTRIPLEADDRESS triaddr;
+                vector<int> vecHyperBlkIdLacking;
+
+                blockstamp = block.nTime;
+                int64_t start_hid = block.nPrevHID + 1;
+                int64_t end_hid = block.nPrevHID + 2;
+
+                CBlock blk;
+                if (ForwardFindBlockInMain(txindex.pos.nHeightBlk,
+                    txindex.pos.hashBlk, start_hid, end_hid, blk, triaddr, vecHyperBlkIdLacking)) {
+                    hyperId = triaddr.hid;
+                    chainId = triaddr.chainnum;
+                    localId = triaddr.id;
+                }
+            }
+            return true;
+        }
+    } else {
+        if (mapTransactions.count(hashtx)) {
+            desc = "The transaction is in transaction pool";
+            return true;
+        }
+    }
+
+    strError = "Failed to get raw transaction";
+    return false;
+}
+
+extern "C" BOOST_SYMBOL_EXPORT
+bool GetTxDetails(const string & strhash, std::map<string, string>&mapparams, string & strError)
+{
+    uint256 hashtx(strhash);
+    CTxDB_Wrapper txdb;
+    CTxIndex txindex;
+    CTransaction tx;
+    bool fFound = txdb.ReadTxIndex(hashtx, txindex);
+
+    if (fFound) {
+        fFound = false;
+        if (tx.ReadFromDisk(txindex.pos)) {
+            if (tx.GetHash() == hashtx) {
+                fFound = true;
+            }
+        }
+    }
+    else {
+        if (mapTransactions.count(hashtx)) {
+            tx = mapTransactions.at(hashtx);
+            fFound = true;
+        }
+    }
+
+    if (fFound) {
+        for (auto& elm : tx.vout) {
+            CTxDestination addressRet;
+            ExtractDestination(elm.scriptPubKey, addressRet);
+            if (addressRet.which() == TxDestinationIndex<WitnessCrossChainHash>()) {
+
+                WitnessCrossChainHash witnessCC = boost::get<WitnessCrossChainHash>(addressRet);
+
+                //HC：获取链地址
+                ImmutableWitnessCrossChainHash imm = witnessCC;
+                addressRet = CTxDestination(imm);
+                mapparams["chainaddress"] = EncodeDestination(addressRet);
+
+                mapparams["amount"] = StringFormat("%lld", elm.nValue);
+                //mapparams["senderaddress"] = witnessCC.sender_address.ToString();
+                mapparams["senderprikey"] = witnessCC.sender_prikey.ToString();
+                mapparams["to"] = witnessCC.recv_address.ToString();
+                break;
+            }
+        }
+        return true;
+    }
+
+    strError = "Failed to get raw transaction";
+    return false;
+}
+
+
+bool _VerifyTxHelp(const CTransaction& tx, 
+    const uint32_t& eth_genesis_hid,
+    const uint16_t& eth_genesis_chainid,
+    const uint16_t& eth_genesis_localid,
+    const string& eth_genesis_blockhash,
+    const string& senderpublickey,
+    const string& recvaddress,
+    const string& amount,
+    string& errinfo)
+{
+    uint256 target_genesis_hash = uint256S(eth_genesis_blockhash.c_str());
+    std::reverse(target_genesis_hash.begin(), target_genesis_hash.end());
+    auto genesishash = right160(target_genesis_hash);
+
+    uint160 toaddress;
+    toaddress.SetHex(recvaddress);
+    BaseHash<uint160> recvaddr(toaddress);
+
+    errinfo = "unknown transaction";
+
+    //HC: 比较交易参数是否一致
+    for (auto& elm : tx.vout) {
+        CTxDestination addressRet;
+        ExtractDestination(elm.scriptPubKey, addressRet);
+        if (addressRet.which() == TxDestinationIndex<WitnessCrossChainHash>()) {
+
+            if (StringFormat("%lld", elm.nValue) == amount) { //HC：转账金额
+
+                WitnessCrossChainHash witnessCC = boost::get<WitnessCrossChainHash>(addressRet);
+                if (witnessCC.recv_address == recvaddr) { //HC: 收款地址
+
+                     //HC：目标链地址比较
+                    if (witnessCC.genesis_hid == eth_genesis_hid &&
+                        witnessCC.genesis_chainid == eth_genesis_chainid &&
+                        witnessCC.genesis_localid == eth_genesis_localid &&
+                        witnessCC.genesis_block_hash == BaseHash<uint160>(genesishash)) {
+
+                        //HC: 比较eth交易的发送者公钥
+                        if (AppPlugins::callFunction<bool>("aleth", "validateswapkey", witnessCC.sender_prikey.GetHex(), senderpublickey)) {
+                            return true;
+                        }
+                        errinfo = "illegal sender";
+                    }
+                    else {
+                        errinfo = "illegal target chain";
+                    }
+                }
+                else {
+                    errinfo = "illegal receiving address";
+                }
+            }
+            else {
+                errinfo = "illegal funds";
+            }
+            break;
+        }
+    }
+    return false;
+}
+
+//
+//HC：Para转到eth, 系统分别在Para上创建一笔Tp转出交易，Eth上创建一笔Te转入交易
+//HC: Aleth模块调用本函数来验证Te所对应的Tp交易，以便确定Te的合法性
+//HC: 适用于节点自身运行了Para应用的情形
+//
+extern "C" BOOST_SYMBOL_EXPORT
+bool VerifyTxParaAppLoaded(const string & hextxhash, 
+                           const uint32_t & eth_genesis_hid,
+                           const uint16_t & eth_genesis_chainid,
+                           const uint16_t & eth_genesis_localid,
+                           const string & eth_genesis_blockhash,
+                           const string & senderpublickey,
+                           const string & recvaddress,
+                           const string & amount,
+                           string & errinfo)
+{
+    uint256 hashtx(hextxhash);
+
+    int verbosity = 1;
+
+    CTxDB_Wrapper txdb;
+    CTxIndex txindex;
+    CTransaction tx;
+    bool fFound = txdb.ReadTxIndex(hashtx, txindex);
+
+    if (fFound) {
+        if (tx.ReadFromDisk(txindex.pos)) {
+            if (tx.GetHash() == hashtx) {
+                //return fngettx(tx, verbosity, txindex.GetDepthInMainChain(), txindex);
+                if (txindex.GetDepthInMainChain() < 0) {
+                    return false;
+                }
+                return _VerifyTxHelp(tx, eth_genesis_hid, eth_genesis_chainid, eth_genesis_localid, eth_genesis_blockhash,
+                    senderpublickey, recvaddress, amount, errinfo);
+
+            }
+        }
+    } else {
+        CRITICAL_BLOCK(cs_mapTransactions)
+            if (mapTransactions.count(hashtx)) {
+                //HC: already exist in transaction pool
+                return _VerifyTxHelp(tx, eth_genesis_hid, eth_genesis_chainid, eth_genesis_localid, eth_genesis_blockhash,
+                    senderpublickey, recvaddress, amount, errinfo);
+            }
+    }
+
+    errinfo = "Transaction cannot be found from Para chain";
+    return false;
+}
+
+
+//HC: 跨链交易，Para转到eth, 系统分别在Para上创建一笔Tp转出交易，Eth上创建一笔Te转入交易
+//HC: Aleth模块调用本函数来验证Te所对应的Tp交易，以便确定Te的合法性
+//HC: 参数说明：
+//HC: eth_genesis_hid, eth_genesis_chainid, eth_genesis_localid: Eth链创世块的三元组地址
+//HC: eth_genesis_blockhash: Eth链创世块的hash
+//
+extern "C" BOOST_SYMBOL_EXPORT
+bool VerifyTx(const string & payload,                      //要验证的交易所在块
+    const bool &paraappgood,
+    const string &hextxhash,
+    const uint32_t &eth_genesis_hid,
+    const uint16_t &eth_genesis_chainid,
+    const uint16_t &eth_genesis_localid,
+    const string &eth_genesis_blockhash,
+    const string &senderpublickey,
+    const string &recvaddress,
+    const string &amount,
+    string &errinfo)
+{
+    if (paraappgood) {
+        bool found = VerifyTxParaAppLoaded(hextxhash, eth_genesis_hid, eth_genesis_chainid, eth_genesis_localid, eth_genesis_blockhash,
+            senderpublickey, recvaddress, amount, errinfo);
+        if (found) {
+            return true;
+        }
+    }
+
+    //HC: extract transactions from block
+    CBlock blk;
+    if (!ResolveBlock(blk, payload.c_str(), payload.size()))
+        return false;
+
+    uint256 target_genesis_hash = uint256S(eth_genesis_blockhash.c_str());
+    std::reverse(target_genesis_hash.begin(), target_genesis_hash.end());
+    auto genesishash = right160(target_genesis_hash);
+
+    uint160 toaddress;
+    toaddress.SetHex(recvaddress);
+    BaseHash<uint160> recvaddr(toaddress);
+
+    errinfo = "Transaction cannot be found";
+
+    uint256 h(hextxhash);
+    for (auto& tx : blk.vtx) {
+        if (tx.GetHash() == h) {
+            return _VerifyTxHelp(tx, eth_genesis_hid, eth_genesis_chainid, eth_genesis_localid, eth_genesis_blockhash,
+                senderpublickey, recvaddress, amount, errinfo);
+        }
+    }
+
+    return false;
+}
+
 
 #ifdef TEST
 int main(int argc, char *argv[])

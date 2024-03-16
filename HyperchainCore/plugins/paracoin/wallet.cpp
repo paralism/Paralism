@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -35,11 +35,53 @@ DEALINGS IN THE SOFTWARE.
 #include <algorithm>
 using namespace std;
 
+extern uint160 right160(uint256 const& _t);
+
+//HC: 标记与交易输入对应的以太坊交易已经被使用，
+void CWallet::MarkEthTxSpent(const CTxIn& txin, const uint256& hashusedby)
+{
+    EthInPoint ethinputpoint;
+    auto v = txin.scriptWitness.stack[0];
+    CScript s(v.begin(), v.end());
+
+    //HC：从隔离见证脚本中提取以太坊交易Hash
+    if (ExtractCrossChainInPoint(s, ethinputpoint)) {
+        CEthCrossChainTx ethtx(this, ethinputpoint.eth_tx_hash);
+        ethtx.MarkSpent(hashusedby);
+        ethtx.WriteToDisk();
+    }
+}
+
+void CWallet::UnmarkEthTxSpent(const CTxIn& txin)
+{
+    EthInPoint ethinputpoint;
+    CScript s(txin.scriptWitness.stack[0]);
+
+    if (ExtractCrossChainInPoint(s, ethinputpoint)) {
+        CEthCrossChainTx ethtx(this, ethinputpoint.eth_tx_hash);
+        ethtx.UnmarkSpent();
+        ethtx.WriteToDisk();
+    }
+}
 
 //////////////////////////////////////////////////////////////////////////////
 //
 // mapWallet
 //
+bool CWallet::IsCrossChainAndSpent(const CWalletTx& wtxNew, string& strError)
+{
+    if (wtxNew.fromCrossChain) {
+        CEthCrossChainTx ethtx(this, uint256());
+
+        //HC: 交易的vin数组的元素格式为： 以太坊转出交易hash + 签名 + 公钥 + 以太坊子链创世块hash
+        if (ethtx.IsSpent(wtxNew.fromscriptSig)) {
+            strError = StringFormat("Spent by tx: %s", ethtx.m_txHashBy.GetHex());
+            return true;
+        }
+    }
+    return false;
+}
+
 void CWallet::ImportScripts(const vector<unsigned char>& vchPubKey, const CKey& key)
 {
     auto spk_man = GetLegacyScriptPubKeyMan();
@@ -276,6 +318,7 @@ void CWallet::WalletUpdateSpent(const CTransaction& tx)
     // Anytime a signature is successfully verified, it's proof the outpoint is spent.
     // Update the wallet spent flag if it doesn't know due to wallet.dat being
     // restored from backup or the user making copies of wallet.dat.
+    uint256 txhash = tx.GetHash();
     CRITICAL_BLOCK(cs_wallet)
     {
         BOOST_FOREACH(const CTxIn & txin, tx.vin)
@@ -284,11 +327,15 @@ void CWallet::WalletUpdateSpent(const CTransaction& tx)
             if (mi != mapWallet.end())
             {
                 CWalletTx& wtx = (*mi).second;
+
+                MarkEthTxSpent(txin, txhash);
+
                 if (!wtx.IsSpent(txin.prevout.n) && IsMine(wtx.vout[txin.prevout.n]))
                 {
                     DEBUG_FL("WalletUpdateSpent found spent coin %sbc %s\n", FormatMoney(wtx.GetCredit()).c_str(), wtx.GetHash().ToString().c_str());
                     wtx.MarkSpent(txin.prevout.n);
                     wtx.WriteToDisk();
+
                     //vWalletUpdated.push_back(txin.prevout.hash);
                 }
             }
@@ -378,7 +425,7 @@ bool CWallet::AddToWalletIfInvolvingMe(const CTransaction& tx, const CBlock* pbl
     {
         bool fExisted = mapWallet.count(hash);
         if (fExisted && !fUpdate) return false;
-        if (fExisted || IsMine(tx) || IsFromMe(tx))
+        if (fExisted || IsMine(tx) || IsFromMe(tx) || tx.IsSendToAnotherChain())
         {
             CWalletTx wtx(this, tx);
             // Get merkle branch if transaction was found in a block
@@ -401,6 +448,7 @@ bool CWallet::EraseFromWallet(uint256 hash)
         if (mapWallet.erase(hash))
             CWalletDB_Wrapper(strWalletFile).EraseTx(hash);
     }
+
     return true;
 }
 
@@ -422,7 +470,7 @@ bool CWallet::IsMine(const CTxIn& txin) const
 }
 
 //HC: 从前一笔交易的输出中提取可用额度
-//HCE: Extracts the available credits from the output of the previous transaction 
+//HCE: Extracts the available credits from the output of the previous transaction
 int64 CWallet::GetDebit(const CTxIn& txin) const
 {
     CRITICAL_BLOCK(cs_wallet)
@@ -490,7 +538,6 @@ void CWalletTx::GetReceiveOrSent(list<pair<CTxDestination, int64> >& listReceive
 
     // Sent/received.  Standard client will never generate a send-to-multiple-recipients,
     // but non-standard clients might (so return a list of address/amount pairs)
-    int i = 0;
     BOOST_FOREACH(const CTxOut & txout, vout)
     {
         CTxDestination address;
@@ -908,9 +955,30 @@ int64 CWallet::GetBalance() const
     return nTotal;
 }
 
+//HC: 用作新交易的输入交易是否是同一条子链的跨链交易
+bool IsMatchCrossChainInputTx(const CWalletTx& wtxNew, const CWalletTx& wtxIn)
+{
+    for (int i = 0; i < wtxIn.vout.size(); i++) {
+        CTxDestination targetaddress;
+        ExtractDestination(wtxIn.vout[i].scriptPubKey, targetaddress);
+
+        if (!IsValidDestination(targetaddress)) {
+            continue;
+        }
+
+        if (targetaddress.which() == TxDestinationIndex<WitnessCrossChainHash>()) {
+            WitnessCrossChainHash witnessCC = boost::get<WitnessCrossChainHash>(targetaddress);
+            uint256 h(std::vector<unsigned char>(wtxNew.fromgenesisblockhash));
+            if (witnessCC.genesis_block_hash == BaseHash<uint160>(right160(h))) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
 
 bool CWallet::SelectCoinsMinConf(int64 nTargetValue, int nConfMine, int nConfTheirs, set<pair<const CWalletTx*, unsigned int> >& setCoinsRet, int64& nValueRet,
-                                const list<CTxDestination>& fromaddrs) const
+                                const list<CTxDestination>& fromaddrs, const CWalletTx& wtxNew) const
 {
     setCoinsRet.clear();
     nValueRet = 0;
@@ -933,8 +1001,20 @@ bool CWallet::SelectCoinsMinConf(int64 nTargetValue, int nConfMine, int nConfThe
     {
         vector<const CWalletTx*> vCoins;
         vCoins.reserve(mapWallet.size());
-        for (map<uint256, CWalletTx>::const_iterator it = mapWallet.begin(); it != mapWallet.end(); ++it)
+        for (map<uint256, CWalletTx>::const_iterator it = mapWallet.begin(); it != mapWallet.end(); ++it) {
+
+            if (wtxNew.fromCrossChain) {
+                //HC: 选择跨链交易输出作为本交易的输入
+                if(!it->second.IsSendToAnotherChain() || !IsMatchCrossChainInputTx(wtxNew, it->second))
+                    continue;
+            } else {
+                //HC: 过滤跨链交易输出，以防其作为输入
+                if(it->second.IsSendToAnotherChain())
+                    continue;
+            }
+
             vCoins.push_back(&(*it).second);
+        }
         std::shuffle(vCoins.begin(), vCoins.end(), g);
 
         //a = spend.Elapse();
@@ -957,8 +1037,13 @@ bool CWallet::SelectCoinsMinConf(int64 nTargetValue, int nConfMine, int nConfThe
             //spend.Reset();
 
             for (int i = 0; i < pcoin->vout.size(); i++) {
-                if (pcoin->IsSpent(i) || !IsMine(pcoin->vout[i]))
+                if (pcoin->IsSpent(i) || (!wtxNew.fromCrossChain && !IsMine(pcoin->vout[i])))
                     continue;
+
+                if (wtxNew.fromCrossChain) {
+                    if (pcoin->vout[i].scriptPubKey.size() < WITNESS_CROSSCHAIN_SIZE)
+                        continue;
+                }
 
                 int64 n = pcoin->vout[i].nValue;
 
@@ -1096,11 +1181,11 @@ bool CWallet::SelectCoinsMinConf(int64 nTargetValue, int nConfMine, int nConfThe
 
 //HCE: if bfromaddr is true, only select coin which belong to fromAddr
 bool CWallet::SelectCoins(int64 nTargetValue, set<pair<const CWalletTx*, unsigned int> >& setCoinsRet, int64& nValueRet,
-   const list<CTxDestination> &fromaddrs) const
+   const list<CTxDestination> &fromaddrs, const CWalletTx& wtxNew) const
 {
-    return (SelectCoinsMinConf(nTargetValue, 1, 6, setCoinsRet, nValueRet, fromaddrs) ||
-        SelectCoinsMinConf(nTargetValue, 1, 1, setCoinsRet, nValueRet, fromaddrs) ||
-        SelectCoinsMinConf(nTargetValue, 0, 1, setCoinsRet, nValueRet, fromaddrs));
+    return (SelectCoinsMinConf(nTargetValue, 1, 6, setCoinsRet, nValueRet, fromaddrs, wtxNew) ||
+        SelectCoinsMinConf(nTargetValue, 1, 1, setCoinsRet, nValueRet, fromaddrs, wtxNew) ||
+        SelectCoinsMinConf(nTargetValue, 0, 1, setCoinsRet, nValueRet, fromaddrs, wtxNew));
 }
 
 
@@ -1124,6 +1209,11 @@ OutputType CWallet::TransactionChangeType(const std::vector<pair<CScript, int64>
 
 bool CWallet::CreateTransaction(const vector<pair<CScript, int64> >& vecSend, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet)
 {
+    string strError;
+    if (IsCrossChainAndSpent(wtxNew, strError)) {
+        return false;
+    }
+
     int64 nValue = 0;
     BOOST_FOREACH(const PAIRTYPE(CScript, int64) & s, vecSend)
     {
@@ -1137,7 +1227,6 @@ bool CWallet::CreateTransaction(const vector<pair<CScript, int64> >& vecSend, CW
     wtxNew.pwallet = this;
 
     //HCE:
-    bool bfromaddr = false;
     list<CTxDestination> fromaddrs;
     if (!wtxNew.strFromAccount.empty()) {
         for (auto& acc : this->mapAddressBook) {
@@ -1177,7 +1266,7 @@ bool CWallet::CreateTransaction(const vector<pair<CScript, int64> >& vecSend, CW
                 // Choose coins to use
                 set<pair<const CWalletTx*,unsigned int> > setCoins;
                 int64 nValueIn = 0;
-                if (!SelectCoins(nTotalValue, setCoins, nValueIn, fromaddrs))
+                if (!SelectCoins(nTotalValue, setCoins, nValueIn, fromaddrs, wtxNew))
                     return false;
 
                 BOOST_FOREACH(PAIRTYPE(const CWalletTx*, unsigned int) pcoin, setCoins)
@@ -1211,8 +1300,22 @@ bool CWallet::CreateTransaction(const vector<pair<CScript, int64> >& vecSend, CW
 
                     // Fill a vout to ourself, using same address type as the payment
                     CScript scriptChange;
-                    //HCE: SegWit
-                    if (fromaddrs.size() > 0) {
+
+                    if (wtxNew.fromCrossChain) {
+                        //HC: 复制输入交易的scriptPubKey，并清空接收地址和发送地址
+                        auto coin = setCoins.begin()->first;
+                        int n = setCoins.begin()->second;
+                        CTxDestination address;
+                        if (!ExtractDestination(coin->vout[n].scriptPubKey, address))
+                            return false;
+                        WitnessCrossChainHash witnessCC = boost::get<WitnessCrossChainHash>(address);
+                        witnessCC.recv_address = BaseHash<uint160>();
+                        witnessCC.sender_prikey = uint256();
+
+                        CTxDestination addressTxDest(witnessCC);
+                        scriptChange = GetScriptForDestination(addressTxDest);
+                    }
+                    else if (fromaddrs.size() > 0) {
                         scriptChange = GetScriptForDestination(*fromaddrs.begin());
                     } else if (fsendvalid) {
                         //HCE: Specify sender's first address as address of change txn
@@ -1241,12 +1344,23 @@ bool CWallet::CreateTransaction(const vector<pair<CScript, int64> >& vecSend, CW
                 //BOOST_FOREACH(const PAIRTYPE(const CWalletTx*,unsigned int)& coin, setCoins)
                 //    wtxNew.vin.push_back(CTxIn(coin.first->GetHash(),coin.second));
 
-                // Sign
+                //if (wtxNew.fromCrossChain) {
+                //    for(CTxIn& elm: wtxNew.vin)
+                //        elm.scriptSig = wtxNew.fromscriptSig;
+                //}
+
+                // Sign, set vin
                 CMutableTransaction mutabletx(wtxNew);
+
+                if (wtxNew.fromCrossChain) {
+                    mutabletx.fromscriptSig = wtxNew.fromscriptSig;
+                }
+
                 if (!SignTransaction(mutabletx, setCoins))
                     return false;
 
                 MakeTransactionRef(wtxNew, std::move(mutabletx));
+
 
                 //int nIn = 0;
                 //BOOST_FOREACH(const PAIRTYPE(const CWalletTx*,unsigned int)& coin, setCoins)
@@ -1328,6 +1442,7 @@ bool CWallet::CreateTransaction(CScript scriptPubKey, int64 nValue, CWalletTx& w
     return CreateTransaction(vecSend, wtxNew, reservekey, nFeeRet);
 }
 
+
 // Call after CreateTransaction unless you want to abort
 bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey)
 {
@@ -1353,16 +1468,18 @@ bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey)
             // otherwise just for transaction history.
             AddToWallet(wtxNew);
 
-            // Mark old coins as spent
-            BOOST_FOREACH(const CTxIn &txin, wtxNew.vin)
-            {
-                CWalletTx &coin = mapWallet[txin.prevout.hash];
-                coin.pwallet = this;
-                coin.MarkSpent(txin.prevout.n);
-                coin.WriteToDisk();
-                //HCE: UI
-                //vWalletUpdated.push_back(coin.GetHash());
-            }
+            //HC: Mark old coins as spent, which action has already done by calling AddToWallet, so comment the following code
+            //BOOST_FOREACH(const CTxIn &txin, wtxNew.vin)
+            //{
+            //    CWalletTx &coin = mapWallet[txin.prevout.hash];
+            //    coin.pwallet = this;
+            //    coin.MarkSpent(txin.prevout.n);
+            //    coin.WriteToDisk();
+
+            //    MarkEthTxSpent(coin, txin, wtxNew.GetHash());
+            //    //HCE: UI
+            //    //vWalletUpdated.push_back(coin.GetHash());
+            //}
         }
 
         // Track how many getdata requests our transaction gets
@@ -1373,17 +1490,23 @@ bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey)
         {
             // This must not fail. The transaction has already been signed and recorded.
             //HCE: why not remove the tx in BitCoin version?
-            //HCE: Unmark old coins as spent
+
+            //HC: Unmark old coins as spent
             BOOST_FOREACH(const CTxIn & txin, wtxNew.vin)
             {
                 CWalletTx& coin = mapWallet[txin.prevout.hash];
                 coin.UnmarkSpent(txin.prevout.n);
+                coin.WriteToDisk();
+
+                UnmarkEthTxSpent(txin);
             }
 
+            walletdb.TxnAbort();
+
+            //Unmark old coins as spent and erase
             EraseFromWallet(wtxNew.GetHash());
             ERROR_FL("CommitTransaction() : Error: Transaction not valid");
 
-            walletdb.TxnAbort();
             return false;
         }
 
@@ -1393,7 +1516,6 @@ bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey)
             return false;
         }
         wtxNew.RelayWalletTransaction();
-
     }
     MainFrameRepaint();
     return true;
@@ -1413,20 +1535,32 @@ string CWallet::SendMoney(CScript scriptPubKey, int64 nValue, CWalletTx& wtxNew,
         ERROR_FL("SendMoney() : %s", strError.c_str());
         return strError;
     }
-    CSpentTime spend;
+
+    vector<unsigned char> vchPubKey = reservekey.GetReservedKey();
+
+    string strError;
+    if (IsCrossChainAndSpent(wtxNew, strError)) {
+        return strError;
+    }
+
+    std::map<int, std::string> input_errors;
+    //CSpentTime spend;
+
     if (!CreateTransaction(scriptPubKey, nValue, wtxNew, reservekey, nFeeRequired))
     {
-        string strError;
         if (nValue + nFeeRequired > GetBalance())
             strError = strprintf(_("Error: This transaction requires a transaction fee of at least %s because of its amount, complexity, or use of recently received funds  "), FormatMoney(nFeeRequired).c_str());
-        else
-            strError = _("Error: Transaction creation failed  ");
+        else {
+            strError = _("Error: Transaction creation failed");
+        }
+
         ERROR_FL("SendMoney() : %s", strError.c_str());
         return strError;
     }
 
-    auto a = spend.Elapse();
-    spend.Reset();
+
+    //auto a = spend.Elapse();
+    //spend.Reset();
 
     if (fAskFee && !ThreadSafeAskFee(nFeeRequired, _("Sending..."), NULL))
         return "ABORTED";
@@ -1434,8 +1568,8 @@ string CWallet::SendMoney(CScript scriptPubKey, int64 nValue, CWalletTx& wtxNew,
     if (!CommitTransaction(wtxNew, reservekey))
         return _("Error: The transaction was rejected.  This might happen if some of the coins in your wallet were already spent, such as if you used a copy of wallet.dat and coins were spent in the copy but not marked as spent here.");
 
-    auto b = spend.Elapse();
-    cout << StringFormat("SendMoney: CreateTransaction:%d,  CommitTransaction: %d\n", a, b);
+    //auto b = spend.Elapse();
+    //cout << StringFormat("SendMoney: CreateTransaction:%d,  CommitTransaction: %d\n", a, b);
 
     MainFrameRepaint();
     return "";

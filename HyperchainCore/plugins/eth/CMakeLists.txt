@@ -200,6 +200,7 @@ add_subdirectory(libwebthree)
 add_subdirectory(libweb3jsonrpc)
 
 add_subdirectory(aleth)
+add_subdirectory(getaccountpwd)
 
 if (TOOLS)
     add_subdirectory(aleth-key)

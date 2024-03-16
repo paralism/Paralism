@@ -71,7 +71,7 @@ public:
     /// Convert to arithmetic type.
     operator Arith() const { return fromBigEndian<Arith>(m_data); }
 
-    /// @returns true iff this is the empty hash.
+    /// @returns true if this is the empty hash.
     explicit operator bool() const { return std::any_of(m_data.begin(), m_data.end(), [](uint8_t _b) { return _b != 0; }); }
 
     // The obvious comparison operators.

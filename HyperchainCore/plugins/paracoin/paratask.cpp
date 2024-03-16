@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -33,7 +33,7 @@ SOFTWARE.
 
 #include "cryptocurrency.h"
 
-#include "wnd/common.h"
+#include "util/common.h"
 #include "paratask.h"
 #include "protocol.h"
 
@@ -463,7 +463,9 @@ void ParaPingRspTask::execRespond()
     CNode* pNode = nullptr;
     CRITICAL_BLOCK(cs_vNodes)
     {
-        BOOST_FOREACH(CNode * pnode, vNodes)
+        int64 nMaxRating = 0;
+        BOOST_FOREACH(CNode * pnode, vNodes) {
+            nMaxRating = std::max(nMaxRating, pnode->GetRating());
             if (pnode->nodeid == _sentnodeid.ToHexString()) {
                 if (pnode->addr != addrConnect) {
                     pnode->addr = addrConnect;
@@ -471,11 +473,13 @@ void ParaPingRspTask::execRespond()
                 pnode->AddRef(300);
                 return;
             }
+        }
 
         //no found
         TRACE_FL("Create a new outbound node and insert into Paracoin nodes.\n");
         pNode = new CNode(-1, addrConnect, false);
         pNode->nodeid = _sentnodeid.ToHexString();
+        pNode->SetRating(nMaxRating); //HC: To new node, set maximum value as rating
         pNode->nTimeConnected = GetTime();
         pNode->AddRef(300);
         vNodes.push_back(pNode);
@@ -575,5 +579,6 @@ void StopMQHandler()
 {
     //g_sys_interrupted = 1;
     paramsghandler.stop();
-    paramqcenter.stop();
+    if(paramqcenter.isStarted())
+        paramqcenter.stop();
 }

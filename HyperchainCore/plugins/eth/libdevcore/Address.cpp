@@ -8,4 +8,7 @@ namespace dev
 Address const ZeroAddress;
 Address const MaxAddress{"0xffffffffffffffffffffffffffffffffffffffff"};
 Address const SystemAddress{"0xfffffffffffffffffffffffffffffffffffffffe"};
+
+//HC: receive address for cross chain transaction, which can be distributed
+Address const CrossChainRecvAndRewardDistributeAddress{"0xfffffffffffffffffffffffffffffffffffffffd"};
 }

@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -38,6 +38,7 @@ DEALINGS IN THE SOFTWARE.
 #include <boost/interprocess/sync/interprocess_mutex.hpp>
 #include <boost/interprocess/sync/interprocess_recursive_mutex.hpp>
 #include <boost/foreach.hpp>
+#include <boost/fiber/all.hpp>
 
 #include "cryptocurrency.h"
 
@@ -51,6 +52,7 @@ bool fPrintToConsole = false;
 bool fPrintToDebugFile = false;
 bool fPrintBacktracking = false;
 bool fPrintBacktracking_node = false;
+bool fPrintCostParse = false;
 string strBacktracking_node;
 
 bool fPrintgrep = false;            //filter
@@ -163,15 +165,23 @@ void RandAddSeedPerfmon()
 #ifdef __WXMSW__
     // Don't need this on Linux, OpenSSL automatically uses /dev/urandom
     // Seed with the entire set of perfmon data
-    unsigned char pdata[250000];
-    memset(pdata, 0, sizeof(pdata));
-    unsigned long nSize = sizeof(pdata);
-    long ret = RegQueryValueExA(HKEY_PERFORMANCE_DATA, "Global", NULL, NULL, pdata, &nSize);
+    //HC: 改成堆方式，这里堆栈检测不过，原因分析来看是堆栈指针未对齐导致的，所以调整代码
+    //unsigned char pdata[250000];
+
+    unsigned long nSize = 0;
+    long ret = RegQueryValueExA(HKEY_PERFORMANCE_DATA, "Global", NULL, NULL, NULL, &nSize);
+    if (ret != ERROR_SUCCESS) {
+        return;
+    }
+
+    auto pdata = std::make_unique<unsigned char[]>(nSize + 1);
+    memset(pdata.get(), 0, nSize);
+    ret = RegQueryValueExA(HKEY_PERFORMANCE_DATA, "Global", NULL, NULL, pdata.get(), &nSize);
     RegCloseKey(HKEY_PERFORMANCE_DATA);
     if (ret == ERROR_SUCCESS)
     {
-        RAND_add(pdata, nSize, nSize/100.0);
-        memset(pdata, 0, nSize);
+        RAND_add(pdata.get(), nSize, nSize/100.0);
+        //memset(pdata, 0, nSize);
         TRACE_FL("%s RandAddSeed() %d bytes\n", DateTimeStrFormat("%x %H:%M", GetTime()).c_str(), nSize);
     }
 #endif
@@ -499,7 +509,7 @@ void FormatException(char* pszMessage, std::exception* pex, const char* pszThrea
     const char* pszModule = "paracoin";
     if (pex)
         snprintf(pszMessage, 1000,
-            "EXCEPTION: %s       \n%s       \n%s in %s       \n", pex->what(), pszModule, pszThread);
+            "EXCEPTION: %s       \n%s in %s       \n", pex->what(), pszModule, pszThread);
     else
         snprintf(pszMessage, 1000,
             "UNKNOWN EXCEPTION       \n%s in %s       \n", pszModule, pszThread);
@@ -580,10 +590,10 @@ string MyGetSpecialFolderPath(int nFolder, bool fCreate)
 }
 #endif
 
-extern string GetHyperChainDataDir();
+extern string GetHyperChainDataDirInApp();
 string GetDefaultDataDir()
 {
-    return GetHyperChainDataDir();
+    return GetHyperChainDataDirInApp();
     // Windows: C:\Documents and Settings\username\Application Data\Hyperchain
     // Mac: ~/Library/Application Support/Hyperchain
     // Unix: ~/.hyperchain
@@ -940,8 +950,13 @@ static void pop_lock()
 
 void CCriticalSection::Enter(const char* pszName, const char* pszFile, int nLine)
 {
-    push_lock(this, CLockLocation(pszName, pszFile, nLine));
-    mutex.lock();
+    while(!TryEnter(pszName, pszFile, nLine)) {
+        //HC: coroutine switch
+        boost::this_fiber::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    //push_lock(this, CLockLocation(pszName, pszFile, nLine));
+    //mutex.lock();
 }
 void CCriticalSection::Leave()
 {
@@ -958,9 +973,13 @@ bool CCriticalSection::TryEnter(const char* pszName, const char* pszFile, int nL
 
 #else
 
-void CCriticalSection::Enter(const char*, const char*, int)
+void CCriticalSection::Enter(const char* pszName, const char* pszFile, int nLine)
 {
-    mutex.lock();
+    while(!TryEnter(pszName, pszFile, nLine)) {
+        //HC: coroutine switch
+        boost::this_fiber::sleep_for(std::chrono::milliseconds(50));
+    }
+    //mutex.lock();
 }
 
 void CCriticalSection::Leave()
@@ -968,7 +987,7 @@ void CCriticalSection::Leave()
     mutex.unlock();
 }
 
-bool CCriticalSection::TryEnter(const char*, const char*, int)
+bool CCriticalSection::TryEnter(const char* pszName, const char* pszFile, int nLine)
 {
     bool result = mutex.try_lock();
     return result;

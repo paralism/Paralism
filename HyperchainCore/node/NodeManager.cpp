@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -25,7 +25,7 @@ DEALINGS IN THE SOFTWARE.
 #include "newLog.h"
 #include "NodeManager.h"
 #include "../db/dbmgr.h"
-#include "../wnd/common.h"
+#include "../util/common.h"
 #include "NodeUpkeepThreadPool.h"
 #include "Singleton.h"
 #include "ITask.hpp"
@@ -59,8 +59,8 @@ void NodeManager::startMQHandler()
     _msghandler.registerTimer(10 * 1000, std::bind(&NodeUPKeepThreadPool::NodeFind, nodeUpkeep), true);
 
     //HC: 每间隔5min获取邻居
-    //HCE: Get neighbor nodes every 5 min
-    _msghandler.registerTimer(300 * 1000, std::bind(&NodeUPKeepThreadPool::NodeFind, nodeUpkeep));
+    //HCE: Get neighbor nodes every 3 min
+    _msghandler.registerTimer(3 * 60 * 1000, std::bind(&NodeUPKeepThreadPool::NodeFind, nodeUpkeep));
 
     _msghandler.registerTimer(12 * 1000, std::bind(&NodeUPKeepThreadPool::NodePing, nodeUpkeep), true);
 
@@ -73,12 +73,16 @@ void NodeManager::startMQHandler()
     _msghandler.registerTaskType<PingPongWithGenBlockHHashRspTask>(TASKTYPE::PING_PONG_WITH_GENHHASH_RSP);
     _msghandler.registerTaskType<BroadcastNeighborTask>(TASKTYPE::BROADCAST_NEIGHBOR);
 
-    m_actioncoststt.AddAction((int32_t)SERVICE::ToAllNodes, "ToAllNodes");
-    m_actioncoststt.AddAction((int32_t)SERVICE::SendTo, "SendTo");
+    NODESERVICEForEach([this](NODESERVICE i) {
+        m_actioncoststt.AddAction((int32_t)i, NODESERVICEValueName(i));
+        });
+
 
     //HC: 定周期广播邻居节点信息
     //HCE: Broadcast neighbor nodes in fix circle 
     _msghandler.registerTimer(60 * 1000, std::bind(&NodeUPKeepThreadPool::BroadcastNeighbor, nodeUpkeep));
+
+    _msghandler.enableStatis(true);
 
     _msghandler.start("NodeManager");
     cout << "NodeManager MQID: " << MQID() << endl;
@@ -96,8 +100,8 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
 
     auto acss = m_actioncoststt.NewStatt(service_t);
 
-    switch ((SERVICE)service_t) {
-    case SERVICE::ToAllNodes: {
+    switch ((NODESERVICE)service_t) {
+    case NODESERVICE::ToAllNodes: {
 
         string data = msg->pop_front();
         ToAllNodes(data);
@@ -105,15 +109,16 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         //HCE: no respond to client
         return;
     }
-    case SERVICE::ToNodes: {
+    case NODESERVICE::ToNodes: {
         string data;
         std::set<CUInt128>* pnodes = nullptr;
+        bool isincluded;
 
-        MQMsgPop(msg, data, pnodes);
-        ToNodes(data, *pnodes);
+        MQMsgPop(msg, data, pnodes, isincluded);
+        ToNodes(data, *pnodes, isincluded);
         return;
     }
-    case SERVICE::UpdateNode: {
+    case NODESERVICE::UpdateNode: {
 
         string strnodeid;
         string ip;
@@ -126,7 +131,7 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         //HCE: no respond to client
         return;
     }
-    case SERVICE::GetNodesJson: {
+    case NODESERVICE::GetNodesJson: {
 
         vector<string> *pvecNodes = nullptr;
         MQMsgPop(msg, pvecNodes);
@@ -135,7 +140,7 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         break;
     }
 
-    case SERVICE::ParseNode: {
+    case NODESERVICE::ParseNode: {
 
         string node;
         UdpAccessPoint *ap = nullptr;
@@ -146,7 +151,7 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
 
         break;
     }
-    case SERVICE::ParseNodeList: {
+    case NODESERVICE::ParseNodeList: {
 
         string nodes;
         vector<CUInt128> *pvecNewNode = nullptr;
@@ -155,7 +160,7 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         ParseNodeList(nodes, *pvecNewNode);
         break;
     }
-    case SERVICE::GetNodeAP: {
+    case NODESERVICE::GetNodeAP: {
 
         CUInt128 *pnodeid = nullptr;
         UdpAccessPoint *ap = nullptr;
@@ -167,7 +172,7 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
 
         break;
     }
-    case SERVICE::EnableNodeActive: {
+    case NODESERVICE::EnableNodeActive: {
         CUInt128 *pnodeid = nullptr;
         bool bEnable = false;
         MQMsgPop(msg, pnodeid, bEnable);
@@ -175,7 +180,7 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         EnableNodeActive(*pnodeid, bEnable);
         break;
     }
-    case SERVICE::GetNodeMapNodes: {
+    case NODESERVICE::GetNodeMapNodes: {
         vector<CUInt128> *pvecNodes = nullptr;
         MQMsgPop(msg, pvecNodes);
 
@@ -183,13 +188,13 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         break;
     }
 
-    case SERVICE::ToFormatString: {
+    case NODESERVICE::ToFormatString: {
         string info = toFormatString();
         MQMsgPush(msg, info);
         break;
     }
 
-    case SERVICE::PickNeighbourNodes: {
+    case NODESERVICE::PickNeighbourNodes: {
         CUInt128 *pnodeid = nullptr;
         int num = 0;
         vector<CUInt128> *pvnodes = nullptr;
@@ -198,7 +203,7 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         break;
     }
 
-    case SERVICE::PickNeighbourNodesEx: {
+    case NODESERVICE::PickNeighbourNodesEx: {
         CUInt128* pnodeid = nullptr;
         int num = 0;
         vector<HCNode>* pvnodes = nullptr;
@@ -207,7 +212,7 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         break;
     }
 
-    case SERVICE::IsNodeInKBuckets: {
+    case NODESERVICE::IsNodeInKBuckets: {
 
         CUInt128 *pnodeid = nullptr;
         MQMsgPop(msg, pnodeid);
@@ -215,14 +220,14 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         MQMsgPush(msg, ret);
         break;
     }
-    case SERVICE::GetAllNodes: {
+    case NODESERVICE::GetAllNodes: {
         std::set<CUInt128> *psetNodes = nullptr;
 
         MQMsgPop(msg, psetNodes);
         GetAllNodes(*psetNodes);
         break;
     }
-    case SERVICE::PickRandomNodes: {
+    case NODESERVICE::PickRandomNodes: {
         int nNum;
         std::set<HCNode> *pnodes = nullptr;
 
@@ -230,13 +235,13 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         PickRandomNodes(nNum, *pnodes);
         break;
     }
-    case SERVICE::GetNodesNum: {
+    case NODESERVICE::GetNodesNum: {
         int ret = 0;
         ret = GetNodesNum();
         MQMsgPush(msg, ret);
         break;
     }
-    case SERVICE::SendTo: {
+    case NODESERVICE::SendTo: {
 
         string targetnodeid;
         string msgbuf;
@@ -247,7 +252,12 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         //HCE: no respond to client
         return;
     }
-    case SERVICE::MQCostStatistics: {
+    case NODESERVICE::UpdateMyself: {
+        std::map<string, T_APPTYPE>* pnodeApps = nullptr;
+        MQMsgPop(msg, pnodeApps);
+        UpdateMyself(*pnodeApps);
+    }
+    case NODESERVICE::MQCostStatistics: {
         string info = GetMQCostStatistics();
         MQMsgPush(msg, info);
         break;
@@ -257,6 +267,22 @@ void NodeManager::DispatchService(void* wrk, zmsg* msg)
         return;
     }
     realwrk->reply(reply_who, msg);
+}
+
+void NodeManager::UpdateMyself(const std::map<string, T_APPTYPE>& nodeApps)
+{
+    if (_msghandler.getID() == std::this_thread::get_id()) {
+
+        //onNodePropertiesChanged();
+        _me->updateLocalChains(nodeApps);
+    }
+    else {
+        zmsg* rspmsg = MQRequest(NODE_SERVICE, (int)NODESERVICE::UpdateMyself, &nodeApps);
+        if (rspmsg) {
+            delete rspmsg;
+        }
+    }
+
 }
 
 void NodeManager::ToAllNodes(const string& data)
@@ -269,25 +295,31 @@ void NodeManager::ToAllNodes(const string& data)
             }
         }
     } else {
-        MQRequestNoWaitResult(NODE_SERVICE, (int)SERVICE::ToAllNodes, data);
+        MQRequestNoWaitResult(NODE_SERVICE, (int)NODESERVICE::ToAllNodes, data);
     }
 }
 
-void NodeManager::ToNodes(const string& data, const set<CUInt128> &nodesExcluded)
+void NodeManager::ToNodes(const string& data, const set<CUInt128> &nodes, bool nodesisincluded)
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
         std::set<CUInt128> Nodes = m_actKBuchets.GetAllNodes();
         for (CUInt128 nodeID : Nodes) {
-            if (_nodemap.count(nodeID) && !nodesExcluded.count(nodeID)) {
-                _nodemap[nodeID]->send(data);
+            if (_nodemap.count(nodeID)) {
+                if (nodesisincluded && nodes.count(nodeID)) {
+                    _nodemap[nodeID]->send(data);
+                    continue;
+                }
+
+                if (!nodesisincluded && !nodes.count(nodeID)) {
+                    _nodemap[nodeID]->send(data);
+                }
             }
         }
     } else {
-        zmsg* rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::ToNodes, data, &nodesExcluded);
+        zmsg* rspmsg = MQRequest(NODE_SERVICE, (int)NODESERVICE::ToNodes, data, &nodes, nodesisincluded);
         if (rspmsg) {
             delete rspmsg;
         }
-
     }
 }
 
@@ -297,7 +329,7 @@ int NodeManager::GetNodesNum()
     if (_msghandler.getID() == std::this_thread::get_id()) {
         return m_actKBuchets.GetNodesNum();
     } else {
-        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::GetNodesNum);
+        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)NODESERVICE::GetNodesNum);
 
         int ret = 0;
         if (rspmsg) {
@@ -321,7 +353,7 @@ void NodeManager::PickRandomNodes(int nNum, std::set<HCNode> &nodes)
             }
         }
     } else {
-        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::PickRandomNodes, nNum, &nodes);
+        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)NODESERVICE::PickRandomNodes, nNum, &nodes);
         if (rspmsg) {
             delete rspmsg;
         }
@@ -334,7 +366,7 @@ void NodeManager::GetAllNodes(std::set<CUInt128> &setNodes)
     if (_msghandler.getID() == std::this_thread::get_id()) {
         setNodes = m_actKBuchets.GetAllNodes();
     } else {
-        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::GetAllNodes, &setNodes);
+        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)NODESERVICE::GetAllNodes, &setNodes);
         if (rspmsg) {
             delete rspmsg;
         }
@@ -346,7 +378,7 @@ bool NodeManager::IsNodeInKBuckets(const CUInt128 &nodeid)
     if (_msghandler.getID() == std::this_thread::get_id()) {
         return m_actKBuchets.IsNodeInKBuckets(nodeid);
     } else {
-        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::IsNodeInKBuckets, &nodeid);
+        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)NODESERVICE::IsNodeInKBuckets, &nodeid);
         bool ret = false;
         if (rspmsg) {
             MQMsgPop(rspmsg, ret);
@@ -361,7 +393,7 @@ void NodeManager::PickNeighbourNodes(const CUInt128 &nodeid, int num, vector<CUI
     if (_msghandler.getID() == std::this_thread::get_id()) {
         vnodes = m_actKBuchets.PickNeighbourNodes(nodeid, num);
     } else {
-        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::PickNeighbourNodes, &nodeid, num, &vnodes);
+        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)NODESERVICE::PickNeighbourNodes, &nodeid, num, &vnodes);
 
         if (rspmsg) {
             delete rspmsg;
@@ -382,7 +414,7 @@ void NodeManager::PickNeighbourNodesEx(const CUInt128& nodeid, int num, vector<H
             }
         }
     } else {
-        zmsg* rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::PickNeighbourNodesEx, &nodeid, num, &vnodes);
+        zmsg* rspmsg = MQRequest(NODE_SERVICE, (int)NODESERVICE::PickNeighbourNodesEx, &nodeid, num, &vnodes);
         if (rspmsg) {
             delete rspmsg;
         }
@@ -421,9 +453,21 @@ void NodeManager::updateNode(const CUInt128 &nodeid, const string &ip, uint32_t 
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
 
-        HCNodeSH neighborNode = std::make_shared<HCNode>(std::move(CUInt128(nodeid)));
-        neighborNode->addAP(std::make_shared<UdpAccessPoint>(ip, port));
-        addNode(neighborNode);
+        HCNodeSH neighborNode;
+        if (_nodemap.count(nodeid)) {
+            neighborNode = _nodemap[nodeid];
+            string currip;
+            int currport = 0;
+            if (neighborNode->getUDPAP(currip, currport)) {
+                if (port != currport || currip != ip) {
+                    neighborNode->updateAP(std::make_shared<UdpAccessPoint>(ip, port));
+                }
+            }
+        } else {
+            HCNodeSH neighborNode = std::make_shared<HCNode>(std::move(CUInt128(nodeid)));
+            neighborNode->addAP(std::make_shared<UdpAccessPoint>(ip, port));
+            addNode(neighborNode);
+        }
 
         /*
         CUInt128 id = neighborNode->getNodeId<CUInt128>();
@@ -440,7 +484,7 @@ void NodeManager::updateNode(const CUInt128 &nodeid, const string &ip, uint32_t 
     }
     else {
         string strnodeid = nodeid.ToHexString();
-        MQRequestNoWaitResult(NODE_SERVICE, (int)SERVICE::UpdateNode, strnodeid, ip, port);
+        MQRequestNoWaitResult(NODE_SERVICE, (int)NODESERVICE::UpdateNode, strnodeid, ip, port);
     }
 }
 
@@ -454,7 +498,7 @@ size_t NodeManager::GetNodesJson(vector<string>& vecNodes)
         }
         return vecNodes.size();
     } else {
-        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::GetNodesJson, &vecNodes);
+        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)NODESERVICE::GetNodesJson, &vecNodes);
 
         size_t ret = 0;
         if (rspmsg) {
@@ -523,7 +567,7 @@ string NodeManager::toFormatString()
         }
         return oss.str();
     } else {
-        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::ToFormatString);
+        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)NODESERVICE::ToFormatString);
 
         string ret;
         if (rspmsg) {
@@ -539,9 +583,13 @@ std::string NodeManager::GetMQCostStatistics()
 {
     if (_msghandler.getID() == std::this_thread::get_id()) {
 
-        return m_actioncoststt.Statistics("NodeManager MQ cost statistics: ");
+        ostringstream oss;
+        oss << m_actioncoststt.Statistics("NodeManager MQ cost statistics: ");
+        oss << endl;
+        oss << _msghandler.getStatistics("NodeManager Task cost statistics: ");
+        return oss.str();
     } else {
-        zmsg* rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::MQCostStatistics);
+        zmsg* rspmsg = MQRequest(NODE_SERVICE, (int)NODESERVICE::MQCostStatistics);
 
         string ret;
         if (rspmsg) {
@@ -565,7 +613,7 @@ bool NodeManager::getNodeAP(const CUInt128 &nodeid, UdpAccessPoint *ap)
         }
         return false;
     } else {
-        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::GetNodeAP, &nodeid, ap);
+        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)NODESERVICE::GetNodeAP, &nodeid, ap);
 
         bool ret = false;
 
@@ -605,7 +653,7 @@ bool NodeManager::parseNode(const string &node, UdpAccessPoint *ap)
         }
         return true;
     } else {
-        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::ParseNode, node, ap);
+        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)NODESERVICE::ParseNode, node, ap);
 
         bool ret = false;
 
@@ -684,7 +732,7 @@ void NodeManager::ParseNodeList(const string &nodes, vector<CUInt128> &vecNewNod
             addNode(n);
         }
     } else {
-        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::ParseNodeList, nodes, &vecNewNode);
+        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)NODESERVICE::ParseNodeList, nodes, &vecNewNode);
         if (rspmsg) {
             delete rspmsg;
         }
@@ -796,7 +844,7 @@ void NodeManager::GetNodeMapNodes(vector<CUInt128>& vecNodes)
             vecNodes.push_back(nodeID);
         }
     } else {
-        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::GetNodeMapNodes, &vecNodes);
+        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)NODESERVICE::GetNodeMapNodes, &vecNodes);
         if (rspmsg) {
             delete rspmsg;
         }
@@ -818,7 +866,7 @@ void NodeManager::EnableNodeActive(const CUInt128 &nodeid, bool bEnable)
             }
         }
     } else {
-        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)SERVICE::EnableNodeActive, &nodeid, bEnable);
+        zmsg *rspmsg = MQRequest(NODE_SERVICE, (int)NODESERVICE::EnableNodeActive, &nodeid, bEnable);
         if (rspmsg) {
             delete rspmsg;
         }

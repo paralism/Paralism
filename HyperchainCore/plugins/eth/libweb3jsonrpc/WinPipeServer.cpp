@@ -86,5 +86,6 @@ bool WindowsPipeServer::StopListening()
     if (hPipe != INVALID_HANDLE_VALUE) {
         CloseHandle(hPipe);
     }
+
     return IpcServerBase<HANDLE>::StopListening();
 }

@@ -43,16 +43,16 @@ public:
     TransactionBase(TransactionSkeleton const& _ts, Secret const& _s = Secret());
 
     /// Constructs a signed message-call transaction.
-    TransactionBase(u256 const& _value, u256 const& _gasPrice, u256 const& _gas, Address const& _dest, bytes const& _data, u256 const& _nonce, Secret const& _secret): m_type(MessageCall), m_nonce(_nonce), m_value(_value), m_receiveAddress(_dest), m_gasPrice(_gasPrice), m_gas(_gas), m_data(_data) { sign(_secret); }
+    TransactionBase(u256 const& _value, u256 const& _gasPrice, u256 const& _gas, Address const& _dest, bytes const& _data, u256 const& _nonce, Secret const& _secret): m_type(Type::MessageCall), m_nonce(_nonce), m_value(_value), m_receiveAddress(_dest), m_gasPrice(_gasPrice), m_gas(_gas), m_data(_data) { sign(_secret); }
 
     /// Constructs a signed contract-creation transaction.
-    TransactionBase(u256 const& _value, u256 const& _gasPrice, u256 const& _gas, bytes const& _data, u256 const& _nonce, Secret const& _secret): m_type(ContractCreation), m_nonce(_nonce), m_value(_value), m_gasPrice(_gasPrice), m_gas(_gas), m_data(_data) { sign(_secret); }
+    TransactionBase(u256 const& _value, u256 const& _gasPrice, u256 const& _gas, bytes const& _data, u256 const& _nonce, Secret const& _secret): m_type(Type::ContractCreation), m_nonce(_nonce), m_value(_value), m_gasPrice(_gasPrice), m_gas(_gas), m_data(_data) { sign(_secret); }
 
     /// Constructs an unsigned message-call transaction.
-    TransactionBase(u256 const& _value, u256 const& _gasPrice, u256 const& _gas, Address const& _dest, bytes const& _data, u256 const& _nonce = 0): m_type(MessageCall), m_nonce(_nonce), m_value(_value), m_receiveAddress(_dest), m_gasPrice(_gasPrice), m_gas(_gas), m_data(_data) {}
+    TransactionBase(u256 const& _value, u256 const& _gasPrice, u256 const& _gas, Address const& _dest, bytes const& _data, u256 const& _nonce = 0): m_type(Type::MessageCall), m_nonce(_nonce), m_value(_value), m_receiveAddress(_dest), m_gasPrice(_gasPrice), m_gas(_gas), m_data(_data) {}
 
     /// Constructs an unsigned contract-creation transaction.
-    TransactionBase(u256 const& _value, u256 const& _gasPrice, u256 const& _gas, bytes const& _data, u256 const& _nonce = 0): m_type(ContractCreation), m_nonce(_nonce), m_value(_value), m_gasPrice(_gasPrice), m_gas(_gas), m_data(_data) {}
+    TransactionBase(u256 const& _value, u256 const& _gasPrice, u256 const& _gas, bytes const& _data, u256 const& _nonce = 0): m_type(Type::ContractCreation), m_nonce(_nonce), m_value(_value), m_gasPrice(_gasPrice), m_gas(_gas), m_data(_data) {}
 
     /// Constructs a transaction from the given RLP.
     explicit TransactionBase(bytesConstRef _rlp, CheckTransaction _checkSig);
@@ -61,7 +61,7 @@ public:
     explicit TransactionBase(bytes const& _rlp, CheckTransaction _checkSig): TransactionBase(&_rlp, _checkSig) {}
 
     /// Checks equality of transactions.
-    bool operator==(TransactionBase const& _c) const { return m_type == _c.m_type && (m_type == ContractCreation || m_receiveAddress == _c.m_receiveAddress) && m_value == _c.m_value && m_data == _c.m_data; }
+    bool operator==(TransactionBase const& _c) const { return m_type == _c.m_type && (m_type == Type::ContractCreation || m_receiveAddress == _c.m_receiveAddress) && m_value == _c.m_value && m_data == _c.m_data; }
     /// Checks inequality of transactions.
     bool operator!=(TransactionBase const& _c) const { return !operator==(_c); }
 
@@ -82,14 +82,28 @@ public:
     void checkChainId(uint64_t _chainId) const;
 
     /// @returns true if transaction is non-null.
-    explicit operator bool() const { return m_type != NullTransaction; }
+    explicit operator bool() const { return m_type != Type::NullTransaction; }
 
     /// @returns true if transaction is contract-creation.
-    bool isCreation() const { return m_type == ContractCreation; }
+    bool isCreation() const { return m_type == Type::ContractCreation; }
+
+    /// @returns true if transaction is cross-chain.
+    bool isCrossChainParaToEth() const { return m_type == Type::CrossChainPara2Eth; }
+
+    bool isCrossChainEthToPara() const { return m_type == Type::CrossChainEth2Para; }
+
+    std::string parseCrossChainData() const;
+
+    std::string parseCrossChainData(int& hid, int& chainid, int& localid) const;
+
+    std::string parseCrossChainData(std::string &triaddr) const;
+
 
     /// Serialises this transaction to an RLPStream.
     /// @throws TransactionIsUnsigned if including signature was requested but it was not initialized
-    void streamRLP(RLPStream& _s, IncludeSignature _sig = WithSignature, bool _forEip155hash = false) const;
+    /// _forsha3: 'True' rep compute transaction hash
+    void streamRLP(RLPStream& _s, IncludeSignature _sig = WithSignature, bool _forEip155hash = false, bool _forsha3 = false) const;
+
 
     /// @returns the RLP serialisation of this transaction.
     bytes rlp(IncludeSignature _sig = WithSignature) const { RLPStream s; streamRLP(s, _sig); return s.out(); }
@@ -151,11 +165,13 @@ public:
 
 protected:
     /// Type of transaction.
-    enum Type
+    enum class Type : char
     {
-        NullTransaction,				///< Null transaction.
-        ContractCreation,				///< Transaction to create contracts - receiveAddress() is ignored.
-        MessageCall						///< Transaction to invoke a message call - receiveAddress() is used.
+        NullTransaction,                ///< Null transaction.
+        ContractCreation,               ///< Transaction to create contracts - receiveAddress() is ignored.
+        MessageCall,                    ///< Transaction to invoke a message call - receiveAddress() is used.
+        CrossChainPara2Eth,             ///< Transaction to cross chain
+        CrossChainEth2Para,             ///< Transaction to cross chain
     };
 
     static bool isZeroSignature(u256 const& _r, u256 const& _s) { return !_r && !_s; }
@@ -163,20 +179,20 @@ protected:
     /// Clears the signature.
     void clearSignature() { m_vrs = SignatureStruct(); }
 
-    Type m_type = NullTransaction;		///< Is this a contract-creation transaction or a message-call transaction?
-	    u256 m_nonce;						///< The transaction-count of the sender.
+    Type m_type = Type::NullTransaction;///< Is this a contract-creation transaction or a message-call transaction?
+    u256 m_nonce;						///< The transaction-count of the sender.
 
-	    u256 m_value;						///< The amount of ETH to be transferred by this transaction. Called 'endowment' for contract-creation transactions.
+    u256 m_value;						///< The amount of ETH to be transferred by this transaction. Called 'endowment' for contract-creation transactions.
     Address m_receiveAddress;			///< The receiving address of the transaction.
 
-	    u256 m_gasPrice;					///< The base fee and thus the implied exchange rate of ETH to GAS.
+    u256 m_gasPrice;					///< The base fee and thus the implied exchange rate of ETH to GAS.
     u256 m_gas;							///< The total gas to convert, paid for from sender's account. Any unused gas gets refunded once the contract is ended.
 
-	    bytes m_data;						///< The data associated with the transaction, or the initialiser if it's a creation transaction.
+    bytes m_data;						///< The data associated with the transaction, or the initialiser if it's a creation transaction.
 
-	    boost::optional<SignatureStruct> m_vrs;	///< The signature of the transaction. Encodes the sender.
+    boost::optional<SignatureStruct> m_vrs;	///< The signature of the transaction. Encodes the sender.
 
-	    /// EIP155 value for calculating transaction hash
+    /// EIP155 value for calculating transaction hash
     /// https://github.com/ethereum/EIPs/blob/master/EIPS/eip-155.md
     boost::optional<uint64_t> m_chainId;
 

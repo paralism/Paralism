@@ -127,7 +127,7 @@ void CHyperchainDB::addLocalBlocks(T_HYPERBLOCK &h)
             chainnum = l.GetChainNum();
         }
         if (chainnum != l.GetChainNum()) {
-            //HCE: push into a subchain
+            //HCE: push into a solo chain
             h.AddChildChain(std::move(childchain));
             childchain.clear();
             chainnum = l.GetChainNum();
@@ -151,7 +151,7 @@ void CHyperchainDB::addLocalBlocksbyhhash(T_HYPERBLOCK &h)
             chainnum = l.GetChainNum();
         }
         if (chainnum != l.GetChainNum()) {
-            //HCE: push into a subchain
+            //HCE: push into a solo chain
             h.AddChildChain(std::move(childchain));
             childchain.clear();
             chainnum = l.GetChainNum();

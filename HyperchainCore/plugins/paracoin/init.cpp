@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -28,6 +28,7 @@ DEALINGS IN THE SOFTWARE.
 #include "node/Singleton.h"
 #include "headers/commonstruct.h"
 #include "consensus/consensus_engine.h"
+#include "util/threadname.h"
 
 #include "headers.h"
 #include "db.h"
@@ -80,7 +81,7 @@ bool fExit = true;
 extern SeedServers g_seedserver;
 extern ParaMQCenter paramqcenter;
 
-string GetHyperChainDataDir()
+string GetHyperChainDataDirInApp()
 {
     string datapath;
     boost::filesystem::path pathDataDir;
@@ -110,7 +111,7 @@ string GetHyperChainDataDir()
 
 string CreateChildDir(const string& childdir)
 {
-    string log_path = GetHyperChainDataDir();
+    string log_path = GetHyperChainDataDirInApp();
     boost::filesystem::path logpath(log_path);
     logpath /= childdir;
     if (!boost::filesystem::exists(logpath)) {
@@ -134,9 +135,15 @@ string GetLockFile()
 
 static std::shared_ptr<boost::interprocess::file_lock> g_pLock;
 
-void StopApplication()
+//HC: 调用二次退出，第一次置位, 第二次执行全面退出
+void StopApplication(bool isFirst)
 {
-    g_sys_interrupted = 1;
+    if (isFirst) {
+        fShutdown = true;
+        return;
+    }
+
+    fShutdown = true;
     Shutdown(nullptr);
 }
 
@@ -154,6 +161,9 @@ void ShutdownExcludeRPCServer()
         consensuseng->UnregisterAppCallback(T_APPTYPE(APPTYPE::paracoin,
             g_cryptoCurrency.GetHID(), g_cryptoCurrency.GetChainNum(), g_cryptoCurrency.GetLocalID()));
     }
+
+    //HC: 模块unregistered后，才能stop MQ
+    g_sys_interrupted = 1;
 
     if (g_pLock) {
         g_pLock->unlock();
@@ -198,14 +208,15 @@ void Shutdown(void* parg)
             g_cryptoCurrency.GetHID(), g_cryptoCurrency.GetChainNum(), g_cryptoCurrency.GetLocalID()));
     }
 
+    //HC: 模块unregistered后，才能stop MQ
+    g_sys_interrupted = 1;
+
     if (g_pLock) {
         g_pLock->unlock();
     }
 
     if (fFirstThread) {
         INFO_FL("Stopping Hyperchain Paracoin...\n");
-
-        fShutdown = true;
 
         CRITICAL_BLOCK_T_MAIN(cs_main)
         {
@@ -472,11 +483,6 @@ bool AppInit2(int argc, char* argv[])
     INFO_FL("Loading blocks will to do global buddy consensus...\n");
     LoadBlockUnChained();
 
-    {
-        COrphanBlockTripleAddressDB db("cr+");
-    }
-
-
     fprintf(stdout, "Loading block index...\n");
     nStart = GetTimeMillis();
     if (!LoadBlockIndex()) {
@@ -514,7 +520,7 @@ bool AppInit2(int argc, char* argv[])
     }
     if (pindexBest != pindexRescan) {
         //HC: 让钱包和最优链保持一致
-        //HCE: Keep wallets consistent with optimal chains 
+        //HCE: Keep wallets consistent with optimal chains
         fprintf(stdout, "Para: Rescanning last %i blocks (from block %i)...\n", pindexBest->nHeight - pindexRescan->nHeight, pindexRescan->nHeight);
         nStart = GetTimeMillis();
         pwalletMain->ScanForWalletTransactions(pindexRescan, true);
@@ -671,11 +677,10 @@ bool AppInit2(int argc, char* argv[])
     }
 
     LatestHyperBlock::Sync();
-    LatestParaBlock::Load();
 
     StartMQHandler();
-    if (!CreateThread(StartNode, NULL))
-        ERROR_FL("Error: CreateThread(StartNode) failed\n");
+
+    hc::CreateThread("StartNode", StartNode, NULL);
 
     if (fServer && !fRPCServerRunning) {
         StartRPCServer();
@@ -689,7 +694,7 @@ bool AppInit2(int argc, char* argv[])
     }
 
 
-    CreateThread(ThreadGetNeighbourChkBlockInfo, NULL);
+    hc::CreateThread("GetNeighbourChkBlockInfo", ThreadGetNeighbourChkBlockInfo, NULL);
 
     return true;
 }

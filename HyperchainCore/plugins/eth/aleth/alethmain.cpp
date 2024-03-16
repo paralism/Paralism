@@ -49,7 +49,7 @@
 
 #include <aleth/buildinfo.h>
 
-#include "utility/threadname.h"
+#include "util/threadname.h"
 
 using namespace std;
 using namespace dev;
@@ -64,12 +64,13 @@ extern void uninitializeCallbackFunctions();
 
 dev::WebThreeDirect *g_ptrWeb3 = nullptr;
 unique_ptr<ModularServer<>> g_jsonrpcIpcServer;
+unique_ptr<SimpleAccountHolder> g_accountHolder;
 
 LoggingOptions loggingOptions;
 std::string logChannels =
 "block blockhdr bq chain client debug discov error ethcap exec host impolite info net "
 "overlaydb p2pcap peer rlpx rpc snap statedb sync timer tq trace vmtrace warn warpcap watch "
-"hc"
+"hc crosschaintx"
 ;
 
 namespace
@@ -136,7 +137,8 @@ public:
         initializeCallbackFunctions();
     }
     ~CallbackRegister() {
-        uninitializeCallbackFunctions();
+        //HC: 在退出时已经调用
+        //uninitializeCallbackFunctions();
     }
 };
 
@@ -234,7 +236,7 @@ int plugin_main(int argc, char** argv)
     if (argc > 1 && (string(argv[1]) == "wallet" || string(argv[1]) == "account"))
     {
         AccountManager accountm;
-        return !accountm.execute(argc, argv);
+        return !accountm.execute(argc, const_cast<const char**>(argv));
     }
 
 
@@ -523,7 +525,7 @@ int plugin_main(int argc, char** argv)
             if (configJSON.empty())
             {
                 cerr << "Config file not found or empty (" << configPath.string() << ")\n";
-                
+
                 return AlethErrors::ConfigFileEmptyOrNotFound;
             }
         }
@@ -736,6 +738,9 @@ int plugin_main(int argc, char** argv)
     }
 
     setupLogging(loggingOptions);
+    std::shared_ptr<char> stoplogger(nullptr, [](char*) {
+        stopLogging();
+        });
 
         //if (!chainConfigIsSet)
     //    // default to mainnet if not already set with any of `--mainnet`, `--ropsten`, `--genesis`, `--config`
@@ -996,8 +1001,6 @@ int plugin_main(int argc, char** argv)
         cout << "Networking disabled. To start, use netstart or pass --bootstrap or a remote host.\n";
 
     unique_ptr<rpc::SessionManager> sessionManager;
-    unique_ptr<SimpleAccountHolder> accountHolder;
-
 
     AddressHash allowedDestinations;
 
@@ -1009,6 +1012,10 @@ int plugin_main(int argc, char** argv)
             // "unlockAccount" functionality is done in the AccountHolder.
             if (!alwaysConfirm || allowedDestinations.count(_t.to))
                 return true;
+
+            //HC: 这里改成直接返回false，账户授权交易失败，参见调用本函数的代码：SimpleAccountHolder::authenticate
+            //HC: 主要原因是hc已经在等待输入中，这里无法输入数据了
+            return false;
 
             string r = getResponse(_t.userReadable(isProxy,
                 [&](TransactionSkeleton const& _t) -> pair<bool, string>
@@ -1035,15 +1042,15 @@ int plugin_main(int argc, char** argv)
         >;
 
         sessionManager.reset(new rpc::SessionManager());
-        accountHolder.reset(new SimpleAccountHolder([&](){ return web3.ethereum(); }, getAccountPassword, keyManager, authenticator));
-        auto ethFace = new rpc::Eth(*web3.ethereum(), *accountHolder.get());
+        g_accountHolder.reset(new SimpleAccountHolder([&](){ return web3.ethereum(); }, getAccountPassword, keyManager, authenticator));
+        auto ethFace = new rpc::Eth(*web3.ethereum(), *g_accountHolder.get());
         rpc::TestFace* testEth = nullptr;
         if (testingMode)
             testEth = new rpc::Test(*web3.ethereum());
 
         g_jsonrpcIpcServer.reset(new FullServer(
             ethFace, new rpc::Net(web3),
-            new rpc::Web3(web3.clientVersion()), new rpc::Personal(keyManager, *accountHolder, *web3.ethereum()),
+            new rpc::Web3(web3.clientVersion()), new rpc::Personal(keyManager, *g_accountHolder, *web3.ethereum()),
             new rpc::AdminEth(*web3.ethereum(), *gasPricer.get(), keyManager, *sessionManager.get()),
             new rpc::AdminNet(web3, *sessionManager.get()),
             new rpc::Debug(*web3.ethereum()),
@@ -1070,11 +1077,12 @@ int plugin_main(int argc, char** argv)
                 web3.addNode(p.first, p.second.first);
 
         if (bootstrap) {
-            //HCE: Add nodes for different network
-            std::vector<std::pair<Public, const char*>> nodes = defaultBootNodes_Sandbox();
+            //HC: Add nodes for different network, 
+            //HC：To sandbox network, use Boot Nodes in configuration file，这样才能支持配置私网
+            std::vector<std::pair<Public, const char*>> nodes;
             if (mapArgs.count("-model")) {
                 string model = mapArgs["-model"];
-                if (model == "informal") {
+               if (model == "informal") {
                     //HCE: informal network
                     nodes = defaultBootNodes_Informal();
                 } else if (model == "formal") {

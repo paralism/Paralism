@@ -219,6 +219,7 @@ bytesSec dev::decryptAES128CTR(bytesConstRef _k, h128 const& _iv, bytesConstRef 
     }
 }
 
+//HC: 根据签名或者说 v r s 返回公钥
 Public dev::recover(Signature const& _sig, h256 const& _message)
 {
     int v = _sig[64];
@@ -264,7 +265,7 @@ Signature dev::sign(Secret const& _k, h256 const& _hash)
     ss.v = static_cast<uint8_t>(v);
     if (ss.s > c_secp256k1n / 2)
     {
-        ss.v = static_cast<uint8_t>(ss.v ^ 1);
+        ss.v = static_cast<uint8_t>(ss.v ^ 1); //HC: 异或运算，固定为1
         ss.s = h256(c_secp256k1n - u256(ss.s));
     }
     assert(ss.s <= c_secp256k1n / 2);
@@ -276,7 +277,7 @@ bool dev::verify(Public const& _p, Signature const& _s, h256 const& _hash)
     // TODO: Verify w/o recovery (if faster).
     if (!_p)
         return false;
-    return _p == recover(_s, _hash);
+    return _p == recover(_s, _hash); //HC: 判断公钥是否相等
 }
 
 bool dev::verify(PublicCompressed const& _key, h512 const& _signature, h256 const& _hash)

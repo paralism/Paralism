@@ -102,10 +102,17 @@ struct LoggingOptions
     strings includeChannels;
     strings excludeChannels;
     bool vmTrace = false;
+
+    //HCE: 
+    bool isToFile = false;
+    std::string outputPath = ".";
+    std::string outputFile = "hc-aleth.log";
 };
 
 // Should be called in every executable
 void setupLogging(LoggingOptions const& _options);
+
+void stopLogging();
 
 bool isVmTraceEnabled();
 

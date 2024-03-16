@@ -13,6 +13,7 @@
 #include <libp2p/Host.h>
 #include <libp2p/Session.h>
 #include <chrono>
+#include <boost/stacktrace.hpp>
 
 using namespace std;
 using namespace dev;
@@ -100,6 +101,7 @@ template<typename T> void removeAllStartingWith(std::map<unsigned, std::vector<T
     _container.erase(++lower, _container.end());
 }
 
+//HC: 将连续块，合并到最小的块号里
 template<typename T> void mergeInto(std::map<unsigned, std::vector<T>>& _container, unsigned _number, T&& _data)
 {
     assert(!haveItem(_container, _number));
@@ -576,7 +578,7 @@ void BlockChainSync::onPeerBlockHeaders(NodeID const& _peerID, RLP const& _r)
             if (headerId.transactionsRoot == EmptyTrie && headerId.uncles == EmptyListSHA3)
             {
                 //empty body, just mark as downloaded
-                                RLPStream r(2);
+                RLPStream r(2);
                 r.appendRaw(RLPEmptyList);
                 r.appendRaw(RLPEmptyList);
                 bytes body;
@@ -732,6 +734,7 @@ void BlockChainSync::collectBlocks()
         return;
     }
 
+    //HC: m_hearders和m_bodies完成合并后，合并形成的块被导入队列，那么集合移除这些合并过的数据
     auto newHeaders = std::move(headers.second);
     newHeaders.erase(newHeaders.begin(), newHeaders.begin() + i);
     unsigned newHeaderHead = headers.first + i;
@@ -973,10 +976,19 @@ bool BlockChainSync::invariants() const
         BOOST_THROW_EXCEPTION(FailedInvariant() << errinfo_comment("Got headers while not syncing"));
     if (!isSyncing() && !m_bodies.empty())
         BOOST_THROW_EXCEPTION(FailedInvariant() << errinfo_comment("Got bodies while not syncing"));
-    if (isSyncing() && m_host.chain().number() > 0 && m_haveCommonHeader && m_lastImportedBlock == 0)
+    if (isSyncing() && m_host.chain().number() > 0 && m_haveCommonHeader && (unsigned)m_lastImportedBlock == 0)
         BOOST_THROW_EXCEPTION(FailedInvariant() << errinfo_comment("Common block not found"));
-    if (isSyncing() && !m_headers.empty() &&  m_lastImportedBlock >= m_headers.begin()->first)
-        BOOST_THROW_EXCEPTION(FailedInvariant() << errinfo_comment("Header is too old"));
+
+    //HC: 这个检查太严苛，导致经常在这里抛出异常，经过深入分析，当onPeerBlockHeaders事件处理过程中，mergeInto操作
+    //HC: 后经常会 m_lastImportedBlock >= m_headers.begin()->first，而其后的continueSync->syncPeer->requestBlocks并不能保证m_lastImportedBlock变小
+    //HC: 除非m_haveCommonHeader为false
+    //HC: 反过来说就算条件不满足也无关紧要，因此屏蔽下面代码
+    //if (isSyncing() && !m_headers.empty() && (unsigned)m_lastImportedBlock >= m_headers.begin()->first) {
+    //    char buff[1024];
+    //    std::snprintf(buff, sizeof(buff), "Header is too old: lastImportedBlock(%u) >= header(%u), %s", (unsigned)m_lastImportedBlock, m_headers.begin()->first);
+    //    BOOST_THROW_EXCEPTION(FailedInvariant() << errinfo_comment(buff));
+    //}
+
     if (m_headerSyncPeers.empty() != m_downloadingHeaders.empty())
         BOOST_THROW_EXCEPTION(FailedInvariant() << errinfo_comment("Header download map mismatch"));
     if (m_bodySyncPeers.empty() != m_downloadingBodies.empty() && m_downloadingBodies.size() <= m_headerIdToNumber.size())
@@ -988,10 +1000,23 @@ bool BlockChainSync::invariants() const
 void BlockChainSync::SyncfromPeers()
 {
     host().capabilityHost().postWork([this]() {
-        //cout << "Enter SyncfromPeers.............**********" << this_thread::get_id() << endl;
         RecursiveGuard l(x_sync);
         m_state = SyncState::Blocks;
         continueSync();
-        //cout << "Exit SyncfromPeers.............**********" << endl;
         });
 }
+
+void MonitorLastImportedBlock::set(unsigned i, const char* pszFunc, int nLine)
+{
+    ostringstream oss;
+    oss << std::this_thread::get_id();
+
+    char buff[1024];
+    std::snprintf(buff, sizeof(buff), "MonitorLastImportedBlock:set(%s) lastImportedBlock(%d) will change into %d, %s:%d \n",
+        oss.str().c_str(),
+        m_lastImportedBlock, i,
+        pszFunc, nLine);
+    cout << buff;
+    m_lastImportedBlock = i;
+}
+

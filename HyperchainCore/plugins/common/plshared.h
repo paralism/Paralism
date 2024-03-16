@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -114,7 +114,7 @@ string doAction(F f, const list<string>& cmdlist, bool fhelp = false, bool uselo
 
 
 std::string PrKey2WIF(const CPrivKey& prikey, bool isCompressed);
-bool WIF2PrKey(const string& strprivkey, bool isCompressed, std::vector<unsigned char>& vchPriKey);
+bool WIF2PrKey(const string& strprivkey, bool& isCompressed, std::vector<unsigned char>& vchPriKey);
 int impwalletkey(const string& strprivkey, const string& strlabel, string& msg);
 Value impwalletkeysfromfile(const Array& params, bool fHelp);
 

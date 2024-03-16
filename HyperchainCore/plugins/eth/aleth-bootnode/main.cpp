@@ -2,6 +2,7 @@
 // Copyright 2018-2019 Aleth Authors.
 // Licensed under the GNU General Public License, Version 3.
 
+
 #include <libdevcore/FileSystem.h>
 #include <libdevcore/LoggingProgramOptions.h>
 #include <libethcore/Common.h>
@@ -33,13 +34,20 @@ string const c_networkConfigFileName_SandBox = c_programName + "-sandbox-network
 class NetworkModel {
 public:
     NetworkModel(po::variables_map vm) {
-        m_networkcfg = c_networkConfigFileName_SandBox;
-        m_name = "Sandbox";
-        m_nodes = defaultBootNodes_Sandbox();
-        m_netflag = NetFlags::sandbox;
+
+        m_networkcfg = c_programName + "-private-network.rlp";
+        m_name = "Private";
+        m_nodes.clear();
+        m_netflag = NetFlags::priva;
         if (vm.count("model")) {
             string model = vm["model"].as<string>();
-            if (model == "informal") {
+            if (model == "sandbox") {
+                m_name = "Sandbox";
+                m_netflag = NetFlags::sandbox;
+                m_networkcfg = c_networkConfigFileName_SandBox;
+                m_nodes = defaultBootNodes_Sandbox();
+            }
+            else if (model == "informal") {
                 m_name = "Informal";
                 m_netflag = NetFlags::informal;
                 m_networkcfg = c_networkConfigFileName_Informal;
@@ -68,6 +76,7 @@ public:
 
 private:
     enum class NetFlags : char {
+        priva, //private
         sandbox,
         informal,
         formal
@@ -170,6 +179,10 @@ int main(int argc, char** argv)
         listenPort = vm["listen"].as<unsigned short>();
 
     setupLogging(loggingOptions);
+    std::shared_ptr<char> stoplogger(nullptr, [](char *) {
+        stopLogging();
+        });
+
     if (loggingOptions.verbosity > 0)
         cout << EthGrayBold << c_programName << ", a C++ Ethereum bootnode implementation" EthReset
              << "\n";

@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -173,6 +173,8 @@ extern bool fDebug;
 extern bool fPrintToConsole;
 extern bool fPrintToDebugFile;
 
+extern bool fPrintCostParse;
+
 extern bool fPrintBacktracking;
 extern bool fPrintBacktracking_node;
 extern std::string strBacktracking_node;
@@ -245,7 +247,7 @@ int64 GetAdjustedTime();
 void AddTimeData(unsigned int ip, int64 nTime);
 std::string FormatFullVersion();
 
-extern string GetHyperChainDataDir();
+extern string GetHyperChainDataDirInApp();
 
 inline int64 GetTimeMillis()
 {
@@ -256,7 +258,7 @@ inline int64 GetTimeMillis()
 class CApplicationSettings{
 public:
     CApplicationSettings()  {
-        _configfile = GetHyperChainDataDir();
+        _configfile = GetHyperChainDataDirInApp();
         _configfile += "/";
         _configfile += "hc.ini";
     }
@@ -637,7 +639,7 @@ inline int64 GetPerformanceCounter()
 inline std::string DateTimeStrFormat(const char* pszFormat, int64 nTime)
 {
     time_t n = nTime;
-    struct tm* ptmTime = gmtime(&n);
+    struct tm* ptmTime = std::localtime(&n);
     char pszTime[200];
     strftime(pszTime, sizeof(pszTime), pszFormat, ptmTime);
     return pszTime;
@@ -899,8 +901,8 @@ inline bool AffinityBugWorkaround(void(*pfn)(void*))
     if (dwPrev2 != dwProcessAffinityMask)
     {
         printf("AffinityBugWorkaround() : SetThreadAffinityMask=%d, ProcessAffinityMask=%d, restarting thread\n", dwPrev2, dwProcessAffinityMask);
-        if (!CreateThread(pfn, NULL))
-            printf("Error: CreateThread() failed\n");
+        //if (!CreateThread(pfn, NULL))
+        //    printf("Error: CreateThread() failed\n");
         return true;
     }
 #endif

@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -31,7 +31,7 @@ using namespace std;
 #include "TcpAccessPoint.hpp"
 #include "UInt128.h"
 #include "NodeManager.h"
-#include "../wnd/common.h"
+#include "../util/common.h"
 #include "../headers/commonstruct.h"
 #include "HCNode.h"
 
@@ -50,6 +50,23 @@ std::string UdpAccessPoint::CLASSNAME = "UdpAP";;
 utility::string_t TcpAccessPoint::CLASSNAME_U = _XPLATSTR("TcpAP");
 std::string TcpAccessPoint::CLASSNAME = "TcpAP";
 
+static const utility::string_t LocalChainJsonKey = _XPLATSTR("chains");
+
+string LocalChainInformation::serialize()
+{
+    json::value obj;
+    obj[_XPLATSTR("hid")] = json::value::number(hId);
+    obj[_XPLATSTR("chainid")] = json::value::number(chainId);
+    obj[_XPLATSTR("localid")] = json::value::number(localId);
+    //obj[_XPLATSTR("hhash")] = json::value::string(s2t(hhash.toHexString()));
+    obj[_XPLATSTR("module")] = json::value::string(s2t(modulename));
+
+    std::stringstream oss;
+    obj.serialize(oss);
+    return oss.str();
+}
+
+
 HCNode::HCNode(const CUInt128 & nodeid) : _nodeid(nodeid)
 {
 }
@@ -58,7 +75,9 @@ HCNode::HCNode(CUInt128 && nodeid) : _nodeid(std::move(nodeid))
 {
 }
 
-HCNode::HCNode(HCNode && node) : _nodeid(std::move(node._nodeid)), _aplist(std::move(node._aplist))
+HCNode::HCNode(HCNode && node) : _nodeid(std::move(node._nodeid)), 
+    _aplist(std::move(node._aplist)), 
+    _localchainlist(std::move(node._localchainlist))
 {
 }
 
@@ -67,6 +86,11 @@ HCNode::HCNode(const HCNode & node) : _nodeid(node._nodeid)
     _aplist.clear();
     for (auto &ap : node._aplist) {
         _aplist.push_back(ap);
+    }
+
+    _localchainlist.clear();
+    for (auto &ap : node._localchainlist) {
+        _localchainlist.push_back(ap);
     }
 }
 
@@ -91,6 +115,11 @@ HCNode & HCNode::operator=(const HCNode & node)
     _aplist.clear();
     for (auto &ap : node._aplist) {
         _aplist.push_back(ap);
+    }
+
+    _localchainlist.clear();
+    for (auto &ap : node._localchainlist) {
+        _localchainlist.push_back(ap);
     }
     return *this;
 }
@@ -125,13 +154,21 @@ string HCNode::serialize()
 
     int i = 0;
     for (auto &ap : _aplist) {
-        objAP[i] = json::value::parse(s2t(ap->serialize()));
-        ++i;
+        objAP[i++] = json::value::parse(s2t(ap->serialize()));
     }
 
     json::value obj;
     obj[_XPLATSTR("ap")] = objAP;
     obj[_XPLATSTR("id")] = json::value::string(s2t(_nodeid.ToHexString()));
+
+
+    json::value objlocalchain = json::value::array(_localchainlist.size());
+
+    i = 0;
+    for (auto& chain : _localchainlist) {
+        objlocalchain[i++] = json::value::parse(s2t(chain->serialize()));
+    }
+    obj[LocalChainJsonKey] = objlocalchain;
 
     std::stringstream oss;
     obj.serialize(oss);
@@ -151,6 +188,11 @@ void HCNode::parse(const string &nodeinfo, HCNode &node)
 
     string aplist = t2s(obj[_XPLATSTR("ap")].serialize());
     node.parseAP(aplist);
+
+    if (obj.has_field(LocalChainJsonKey)) {
+        string localchaininfo = t2s(obj[LocalChainJsonKey].serialize());
+        node.parseLocalChains(localchaininfo);
+    }
 }
 
 
@@ -191,3 +233,76 @@ void HCNode::parseAP(const string &aps)
         _aplist.push_back(ap);
     }
 }
+
+
+std::string HCNode::serializeLocalChains() const
+{
+    json::value obj = json::value::array(_localchainlist.size());
+
+    int i = 0;
+    for (auto& chain : _localchainlist) {
+        obj[i] = json::value::parse(s2t(chain->serialize()));
+        ++i;
+    }
+
+    json::value lcsjson = json::value::object();
+    lcsjson[LocalChainJsonKey] = obj;
+
+    std::stringstream oss;
+    lcsjson.serialize(oss);
+    return oss.str();
+}
+
+
+
+void HCNode::updateLocalChains(const std::map<string, T_APPTYPE>& nodeApps)
+{
+    json::value obj = json::value::array();
+    int i = 0;
+    for (auto& app : nodeApps) {
+        json::value appjson = json::value::object();
+        uint32_t hid = 0;
+        uint16 chainnum = 0;
+        uint16 localid = 0;
+
+        app.second.get(hid, chainnum, localid);
+        if (hid >= 0 && chainnum > 0 && localid > 0) {
+            appjson[_XPLATSTR("hid")] = hid;
+            appjson[_XPLATSTR("chainid")] = chainnum;
+            appjson[_XPLATSTR("localid")] = localid;
+            //appjson[L"hhash"] = ;
+            appjson[_XPLATSTR("module")] = json::value::string(s2t(app.first));
+            obj[i++] = appjson;
+        }
+    }
+    json::value lcsjson = json::value::object();
+    lcsjson[LocalChainJsonKey] = obj;
+    parseLocalChains(t2s(lcsjson.serialize()));
+
+}
+
+void HCNode::parseLocalChains(const string& lcs)
+{
+    json::value objtop = json::value::parse(s2t(lcs));
+
+    if (!objtop.has_field(LocalChainJsonKey)) {
+        return;
+    }
+
+    json::value obj = objtop[LocalChainJsonKey];
+    _localchainlist.clear();
+    size_t num = obj.size();
+    for (size_t i = 0; i < num; i++) {
+        shared_ptr<LocalChainInformation> lci = make_shared<LocalChainInformation>();
+
+        lci->hId = obj[i][_XPLATSTR("hid")].as_integer();
+        lci->chainId = obj[i][_XPLATSTR("chainid")].as_integer();
+        lci->localId = obj[i][_XPLATSTR("localid")].as_integer();
+        //lci->hhash = CCommonStruct::StrToHash256(t2s(obj[i][_XPLATSTR("hhash")].as_string()));
+
+        lci->modulename = t2s(obj[i][_XPLATSTR("module")].as_string());
+
+        _localchainlist.push_back(lci);
+    }
+}
+

@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -494,7 +494,7 @@ public:
         if (nOut >= vout.size())
             throw std::runtime_error("CWalletTx::UnmarkSpent() : nOut out of range");
         vfSpent.resize(vout.size());
-        if (!vfSpent[nOut]) {
+        if (vfSpent[nOut]) {
             vfSpent[nOut] = false;
             fAvailableCreditCached = false;
         }

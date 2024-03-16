@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -33,6 +33,13 @@ SOFTWARE.
 #include <boost/array.hpp>
 #include <boost/foreach.hpp>
 #include <openssl/rand.h>
+
+
+#include <boost/multi_index_container.hpp>
+#include <boost/multi_index/hashed_index.hpp>
+#include <boost/multi_index/member.hpp>
+
+using namespace boost::multi_index;
 
 #ifndef __WXMSW__
 #include <arpa/inet.h>
@@ -131,15 +138,13 @@ extern CCriticalSection cs_mapAlreadyAskFor;
 extern int fUseProxy;
 extern CAddress addrProxy;
 
-class ChkPointInc;
+struct ChkPointInc;
 typedef struct ChkPoint
 {
-    uint32 nChkPointHeight = 0;
+    int32 nChkPointHeight = 0;
     uint256 chkPointHash;
-    uint32 nBstH = 0;
+    int32 nBstH = 0;
     uint256 bestHash;
-    uint32 nLatestHeight = 0;
-    uint256 latestBlkHash;
     CBlockLocatorEx chainloc;
 
 
@@ -159,20 +164,16 @@ typedef struct ChkPoint
         READWRITE(chkPointHash);
         READWRITE(nBstH);
         READWRITE(bestHash);
-        READWRITE(nLatestHeight);
-        READWRITE(latestBlkHash);
         READWRITE(chainloc);
     )
 
-        string ToString()
+    string ToString()
     {
-        int nH = chainloc.vHave.size() > 0 ? (chainloc.vHave.size() - 1) * chainloc.nHeightSpan : 0;
         uint256 hash1 = chainloc.vHave.size() > 0 ? chainloc.vHave.back() : 0;
 
-        return strprintf("chkpoint: %d(%s) best: %d(%s) latest: %d(%s)",
+        return strprintf("chkpoint: %d(%s) best: %d(%s)",
             nChkPointHeight, chkPointHash.ToPreViewString().c_str(),
-            nBstH, bestHash.ToPreViewString().c_str(),
-            nLatestHeight, latestBlkHash.ToPreViewString().c_str());
+            nBstH, bestHash.ToPreViewString().c_str());
     }
 } ChkPoint;
 
@@ -193,8 +194,6 @@ typedef struct ChkPointInc
         READWRITE(chkP.chkPointHash);
         READWRITE(chkP.nBstH);
         READWRITE(chkP.bestHash);
-        READWRITE(chkP.nLatestHeight);
-        READWRITE(chkP.latestBlkHash);
         READWRITE(*blocklocincr);
     )
 } ChkPointInc;
@@ -229,40 +228,33 @@ public:
     bool fDisconnect;
     std::string nodeid;
 
-    //HC: 节点评分,和发送流量控制，避免网速不匹配导致请求过多而浪费网络带宽
-    //HCE: Node scoring and sending traffic control to avoid wasting network bandwidth due to excessive requests due to network speed mismatches
-    int nScore = 0;
-    int64 tmLastReqBlk = 0;
-
-    //HC: 块请求最小间隔
-    //HCE: Block request minimum interval
-    int nMinInterval = 5;      
-
-    //HC: 块请求间隔，nScore越小， nReqblk 越大
-    //HCE: Block request interval, nScore is smaller, nReqblk is larger
-    int64 nReqBlkInterval = 5; 
+    //HC: 节点应答速率，值越大越好
+    int64 m_rating = 0;
 
     //HC: 单位ms
     //HCE: Unit is ms
-    deque<uint> deqNetPingCost;
-    uint nAvgPingCost = 0xffffffff;
+    deque<int> networkPingPongCost = {-1, -1, -1};
+    uint nPingTimes = 0;
+    uint nPingPongTimes = 0;
+    int64 tmLastPing = 0;
+    int64 tmLastPong = 0;
 
-    void RecordSpeed(uint tmDiff)
-    {
-        if (deqNetPingCost.size() > 10) {
-            deqNetPingCost.pop_front();
-        }
-        deqNetPingCost.push_back(tmDiff);
-
-        uint64 sum = 0;
-        for (auto speed : deqNetPingCost) {
-            sum += speed;
-        }
-        nAvgPingCost = sum / deqNetPingCost.size();
+    void SetRating(int64 rating) {
+        m_rating = rating;
     }
 
-    void IncreReqBlkInterval();
-    void DecreReqBlkInterval(int64 timeReqBlk);
+    int64 GetRating() const {
+        return m_rating;
+    }
+
+    void UpdateNodeRating(int _r) {
+        m_rating += _r;
+    };
+
+    //HC：发起ping
+    void Ping();
+    void Pong(int64 tmReq);
+    string PingPongInfo();
 
 
     vector<CInv> vfgetblocksInv;
@@ -278,19 +270,32 @@ public:
     int nfgetRetry = 0;
     int nfAskFor = 0;
 
-    int OnGetFBlocksCompleted(vector<CInv>& vecHaveNot);
+    enum class GetFBlocksState : char
+    {
+        PullingInventory,
+        PullingBlocks,
+        Completed,
+    };
+
+    GetFBlocksState OnGetFBlocksCompleted(int &nHaving, vector<CInv>& vecHaveNot);
     int64 FPullBlocks(const uint256 &hashfork);
     void FPullBlockReached(const CInv &inv);
 
     bool IsNotHavingInvReply()
     {
-        if (nfgetRetry >= 2 && hashlastfget == fgetInvContinue.hash) {
+        if (nfgetRetry >= 3 && hashlastfget == fgetInvContinue.hash) {
             return true;
         }
         return false;
     }
 
     time_t tmlastProcessRecv = 0;
+
+private:
+    //HC: 最近一次同步区块所用参数
+    uint256 lasthashfork;
+    uint256 lastInvContinue;
+    uint256 lasthash;
 
 protected:
     int nRefCount;
@@ -315,8 +320,20 @@ public:
     std::vector<CInv> vInventoryToSend;
     CCriticalSection cs_inventory;
 
-    //HCE: change multimap to map
-    std::multimap<int64, CInv> mapAskFor;
+
+    struct AskFor {
+        int64 tmaskfor;
+        CInv inv;
+    };
+
+    typedef boost::multi_index::multi_index_container<
+        AskFor, indexed_by<
+            hashed_non_unique<member<AskFor, int64, &AskFor::tmaskfor>>,
+            hashed_unique<member<AskFor, CInv, &AskFor::inv>>
+        >
+    > askfor_multi_index;
+    askfor_multi_index mapAskFor;
+
     CCriticalSection cs_askfor;
 
     // publish and subscription
@@ -384,6 +401,9 @@ public:
 private:
     CNode(const CNode&);
     void operator=(const CNode&);
+
+    //HC：从孤块集合中寻找不再孤立的合适块延伸最优链
+    void MakeChainLonger(const CInv& inv);
 
 public:
 
@@ -460,10 +480,10 @@ public:
         return false;
     }
 
-    bool AlreadyAskFor(const CInv& inv)
+    static bool AlreadyAskFor(const CInv& inv)
     {
         CRITICAL_BLOCK(cs_mapAlreadyAskFor)
-            if (mapAlreadyAskedFor.count(inv)) {
+            if (mapAlreadyAskedFor.find(inv) != mapAlreadyAskedFor.end()) {
                 if (GetTime() * 1000000 < mapAlreadyAskedFor[inv] + 2 * 60 * 1000000) {
                     //Request have sent in the past of 2 minutes
                     return true;
@@ -472,12 +492,23 @@ public:
         return false;
     }
 
+    bool AskingFor(const CInv& inv)
+    {
+        auto& inv_index = mapAskFor.get<1>();
+        CRITICAL_BLOCK(cs_askfor)
+            if (inv_index.find(inv) != inv_index.end()) {
+                return true;
+            }
+        return false;
+    }
+
+
     bool AskFor(const CInv& inv)
     {
         // We're using mapAskFor as a priority queue,
         // the key is the earliest time the request can be sent
 
-        if (AlreadyAskFor(inv)) {
+        if (AskingFor(inv) || AlreadyAskFor(inv)) {
             return false;
         }
 
@@ -498,7 +529,8 @@ public:
             inv.ToString().c_str(), nRequestTime);
 
         CRITICAL_BLOCK(cs_askfor)
-            mapAskFor.insert(std::make_pair(nRequestTime, inv));
+            //mapAskFor.insert(std::make_pair(nRequestTime, inv));
+            mapAskFor.insert({nRequestTime, inv});
         return true;
     }
 
@@ -606,6 +638,7 @@ public:
         try {
             BeginMessage(pszCommand);
             int arr[] = { (vSend << args, 0)... };
+            (void)(arr);
             EndMessage();
         }
         catch (...) {
@@ -656,7 +689,6 @@ public:
 
 
     void PushGetBlocks(CBlockIndexSP pindexBegin, uint256 hashEnd);
-    void PushGetBlocksReversely(uint256 hashEnd);
     bool IsSubscribed(unsigned int nChannel);
     void Subscribe(unsigned int nChannel, unsigned int nHops = 0);
     void CancelSubscribe(unsigned int nChannel);

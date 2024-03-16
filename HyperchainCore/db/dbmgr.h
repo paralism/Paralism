@@ -163,7 +163,10 @@ public:
     void RecordMsgInfo(uint64 msgsize, string function, string toPeer);
 
     void bindParam(CppSQLite3Statement &stmt, int i)
-    {}
+    {
+        UNUSED(i);
+        UNUSED(stmt);
+    }
 
     template<typename... Args>
     void bindParam(CppSQLite3Statement &stmt, int i, string &first, Args&&... args)

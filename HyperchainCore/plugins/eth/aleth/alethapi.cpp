@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -28,7 +28,7 @@ SOFTWARE.
 #include "hyperblockmsgs.h"
 #include "utilc.h"
 
-#include "wnd/common.h"
+#include "util/common.h"
 #include "AccountManager.h"
 
 #include <boost/program_options/detail/config_file.hpp>
@@ -52,7 +52,9 @@ SOFTWARE.
 #include <libweb3jsonrpc/Eth.h>
 #include <libweb3jsonrpc/ModularServer.h>
 #include <libweb3jsonrpc/JsonHelper.h>
+#include <libweb3jsonrpc/AccountHolder.h>
 
+#include "../AppPlugins.h"
 
 
 
@@ -65,6 +67,8 @@ namespace fs = boost::filesystem;
 namespace pod = boost::program_options::detail;
 namespace po = boost::program_options;
 
+
+static bool g_isshutdown = true;
 
 std::future<bool> g_aleth_future;
 string g_aleth_argv;
@@ -80,12 +84,14 @@ Logger g_loggerWarning{ createLogger(VerbosityWarning, "hc") };
 
 extern dev::WebThreeDirect *g_ptrWeb3;
 extern unique_ptr<ModularServer<>> g_jsonrpcIpcServer;
+extern unique_ptr<SimpleAccountHolder> g_accountHolder;
 extern string logChannels;
 extern LoggingOptions loggingOptions;
 
 extern void dev::setupLogging(LoggingOptions const& _options);
 
 extern void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "");
+extern void RSyncRemotePullHyperBlock(uint32_t starthid, uint32_t endhid, string nodeid = "");
 extern int plugin_main(int argc, char** argv);
 
 string ToString(const BlockHeader &header);
@@ -95,11 +101,13 @@ struct PluginContext;
 
 bool RegisterTask(void* objFac)
 {
+    UNUSED(objFac);
     return true;
 }
 
 void UnregisterTask(void* objFac)
 {
+    UNUSED(objFac);
 }
 
 
@@ -166,7 +174,7 @@ void AppParseParameters(int argc, char* argv[])
 }
 
 
-string GetHyperChainDataDir()
+string GetHyperChainDataDirInApp()
 {
     string datapath;
     boost::filesystem::path pathDataDir;
@@ -195,7 +203,7 @@ string GetHyperChainDataDir()
 
 string CreateChildDir(const string& childdir)
 {
-    string log_path = GetHyperChainDataDir();
+    string log_path = GetHyperChainDataDirInApp();
     boost::filesystem::path logpath(log_path);
     logpath /= childdir;
     if (!boost::filesystem::exists(logpath)) {
@@ -229,16 +237,32 @@ bool ReadBlockFromChainSpace(const T_LOCALBLOCKADDRESS& addr, bytes& block)
     return true;
 }
 
-bool ForwardFindBlockInMain(const BlockHeader &header, int h1, int h2, BLOCKTRIPLEADDRESS &blktriaddr, vector<int> &vecHyperBlkIdLacking)
+//HC: headers存放m_prevHID相同的块头, 容器中的元素按块号大到小存放
+//HC: 如果找到了, 返回headers中的索引值，该索引所指的块头在超块链上, 否则返回-1
+int ForwardFindBlockInMain(const std::vector<BlockHeader> &headers, int h1, int h2, BLOCKTRIPLEADDRESS &blktriaddr, vector<int> &vecHyperBlkIdLacking)
 {
+    if (headers.size() <= 0) {
+        return -1;
+    }
+
     CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
     h256 hgenesis = g_cryptoEthCurrency.GetHashGenesisBlock();
-    if (header.number() == 0 && header.hash() == hgenesis) {
-        blktriaddr.hid = g_cryptoEthCurrency.GetHID();
-        blktriaddr.chainnum = g_cryptoEthCurrency.GetChainNum();
-        blktriaddr.id = g_cryptoEthCurrency.GetLocalID();
-        hyperchainspace->GetHyperBlockHash(blktriaddr.hid, blktriaddr.hhash);
-        return true;
+
+
+    int64_t prevhid = headers[0].prevHID();
+    int nPos = 0;
+    for (auto &header : headers) {
+        if (prevhid != header.prevHID())
+            return -1; //HC：数据异常
+
+        if (header.number() == 0 && header.hash() == hgenesis) {
+            blktriaddr.hid = g_cryptoEthCurrency.GetHID();
+            blktriaddr.chainnum = g_cryptoEthCurrency.GetChainNum();
+            blktriaddr.id = g_cryptoEthCurrency.GetLocalID();
+            hyperchainspace->GetHyperBlockHash(blktriaddr.hid, blktriaddr.hhash);
+            return nPos;
+        }
+        ++nPos;
     }
 
 
@@ -249,9 +273,11 @@ bool ForwardFindBlockInMain(const BlockHeader &header, int h1, int h2, BLOCKTRIP
         h1 = genesisHID + 1;
     }
 
-    const size_t nMaxLacking = 100;
+    const size_t nMaxLacking = 30;
 
-    for (int i = h1; i <= h2; ++i) {
+    auto minblk = headers.rbegin();     //HC：集合中块号最小的块
+
+    for (int i = h1; i <= h2 && !g_isshutdown; ++i) {
         vector<T_PAYLOADADDR> vecPA;
         T_SHA256 thhash;
         if (hyperchainspace->GetLocalBlocksByHID(i, app, thhash, vecPA)) {
@@ -263,14 +289,18 @@ bool ForwardFindBlockInMain(const BlockHeader &header, int h1, int h2, BLOCKTRIP
                     continue;
                 }
 
-                if (currheader.number() < header.number()) {
+                if (currheader.number() < minblk->number()) {
                     break;
                 }
 
-                if (currheader.number() == header.number() && currheader.hash() == header.hash()) {
-                    blktriaddr = pa->addr;
-                    blktriaddr.hhash = thhash;
-                    return true;
+                int nPosIndex = 0;
+                for (auto& header : headers) {
+                    if (currheader.number() == header.number() && currheader.hash() == header.hash()) {
+                        blktriaddr = pa->addr;
+                        blktriaddr.hhash = thhash;
+                        return nPosIndex;
+                    }
+                    ++nPosIndex;
                 }
             }
         } else {
@@ -280,19 +310,20 @@ bool ForwardFindBlockInMain(const BlockHeader &header, int h1, int h2, BLOCKTRIP
             }
         }
     }
-    return false;
+
+    return -1;
 }
 
 
 //HC: 寻找最后的已经在超块链上的块头
-//HC: @param header 逆向扫描的开始块头. 
+//HC: @param header 逆向扫描的开始块头.
 //HC: @param onchainedblkheader 最后一个已经上超块链的块头
 //HC: @returns False，表示超块缺失，无法正确计算出最后一个已经上链的子块
 
 //HCE: Look for the last block that is already on the Hyperchain
-//HCE: @param header The beginning block of the reverse scan. 
+//HCE: @param header The beginning block of the reverse scan.
 //HCE: @param onchainedblkheader The last one has been on the Hyperchain
-//HCE: @returns False indicates that the Hyperblock is missing and the last subblock that has been chained cannot be calculated correctly
+//HCE: @returns False indicates that the Hyperblock is missing and the last local block that has been chained cannot be calculated correctly
 bool LatestBlockIndexOnChained(const BlockHeader& header, BlockHeader& onchainedblkheader)
 {
     const BlockChain &bc = g_ptrWeb3->ethereum()->blockChain();
@@ -309,7 +340,13 @@ bool LatestBlockIndexOnChained(const BlockHeader& header, BlockHeader& onchained
     uint64 latestHID = LatestHyperBlock::GetHID();
     BlockHeader headerCurr = header;
 
-    while (true) {
+    while (!g_isshutdown) {
+
+        if (headerCurr.number() == 0) {
+            onchainedblkheader = headerCurr;
+            break;
+        }
+
         auto blkheaderhash = headerCurr.hash();
         if(blkheaderCache.contains(blkheaderhash)) {
             boost::optional<HyerBlkLoc> o_blkheader_pos = blkheaderCache.get(blkheaderhash);
@@ -317,6 +354,7 @@ bool LatestBlockIndexOnChained(const BlockHeader& header, BlockHeader& onchained
 
             if (hyperchainspace->CheckHyperBlockHash(inner_val.first, inner_val.second)) {
                 lruHBL.push_front(make_pair(blkheaderhash, inner_val));
+                onchainedblkheader = headerCurr;
                 break;
             }
         }
@@ -324,39 +362,48 @@ bool LatestBlockIndexOnChained(const BlockHeader& header, BlockHeader& onchained
         //HC：超块链上寻找
         BLOCKTRIPLEADDRESS triaddr;
         vector<int> vecHyperBlkIdLacking;
-        if (ForwardFindBlockInMain(headerCurr, headerCurr.prevHID() + 1, latestHID, triaddr, vecHyperBlkIdLacking)) {
+        std::vector<BlockHeader> headers;
+
+        auto headerprevHID = headerCurr.prevHID();
+        BlockHeader headerPrev = bc.info(headerCurr.parentHash());
+
+        headers.emplace_back(std::move(headerCurr));
+        for (;(bool)(headerPrev);) {
+            if (headerprevHID != headerPrev.prevHID())
+                break;
+            headers.emplace_back(std::move(headerPrev));
+            headerPrev = bc.info(headers.rbegin()->parentHash());
+        }
+
+        int nIdx = ForwardFindBlockInMain(headers, headerprevHID + 1, latestHID, triaddr, vecHyperBlkIdLacking);
+        if (nIdx >= 0) {
             HyerBlkLoc loc;
             loc.first = triaddr.hid;
             loc.second = triaddr.hhash;
-            lruHBL.push_front(make_pair(blkheaderhash, loc));
+            onchainedblkheader = headers[nIdx];
+            lruHBL.push_front(make_pair(headers[nIdx].hash(), loc));
             break;
         } else if(vecHyperBlkIdLacking.size() > 0) {
             //HC：本地超块缺失
-            int n = 0;
-            for (auto & hid : vecHyperBlkIdLacking) {
-                if (n++ > 10) {
-                    break;
-                }
-                RSyncRemotePullHyperBlock((uint32_t)hid);
-            }
+            auto n = vecHyperBlkIdLacking.size();
+            RSyncRemotePullHyperBlock(vecHyperBlkIdLacking[0], vecHyperBlkIdLacking[n - 1] + 1);
             goto err;
         }
 
-        if (headerCurr.number() == 0)
-            break;
+        auto rbgheader = headers.rbegin();
 
         //HC: change the Hyperblock range of scanning
-        BlockHeader headerParent = bc.info(headerCurr.parentHash());
-        if(headerCurr.prevHID() > headerParent.prevHID())
-            latestHID = headerCurr.prevHID();
-        headerCurr = headerParent;
+        headerCurr = bc.info(rbgheader->parentHash());
+        latestHID = rbgheader->prevHID();
     }
 
     for (auto & elm : lruHBL) {
         blkheaderCache.insert(elm.first, elm.second);
     }
 
-    onchainedblkheader = headerCurr;
+    if (g_isshutdown)
+        goto err;
+
     return true;
 
 err:
@@ -364,7 +411,7 @@ err:
 }
 
 //HC: 子链最新块切回到高度更小的块
-//HCE: The latest block of the subchain switches back to the block with a smaller height
+//HCE: The latest block of the solo chain switches back to the block with a smaller height
 bool SwitchChainTo(const BlockHeader& pindexBlock)
 {
     eth::Client *cli = g_ptrWeb3->ethereum();
@@ -375,9 +422,10 @@ bool SwitchChainTo(const BlockHeader& pindexBlock)
 }
 
 //HC: 提交本模块子链到共识层与其他子链一起参与全局共识
-//HCE: Submit the subchain of this module to the consensus layer to participate in the global consensus with other sub-chains
+//HCE: Submit the solo chain of this module to the consensus layer to participate in the global consensus with other sub-chains
 bool CommitChainToConsensus(deque<PostingBlock>& deqblock, string& requestid, string& errmsg)
 {
+    UNUSED(requestid);
     ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::getInstance();
 
     vector<string> vecMTRootHash;
@@ -427,7 +475,7 @@ bool CommitGenesisToConsensus(const bytes& block, string& requestid, string& err
 }
 
 //HC: 进入共识全局阶段时，共识引擎会回调本函数，以便提交子链到共识层，参与全局共识
-//HCE: When entering the consensus global stage, the consensus engine will call back this function to submit the subchain to the consensus layer to participate in the global consensus
+//HCE: When entering the consensus global stage, the consensus engine will call back this function to submit the solo chain to the consensus layer to participate in the global consensus
 bool PutChainCb()
 {
     deque<PostingBlock> deqblock;
@@ -436,11 +484,14 @@ bool PutChainCb()
     bool isSwithBestToValid = false;
     BlockHeader pindexValidStarting;
 
+    if (!g_ptrWeb3) {
+        return false;
+    }
     eth::Client *cli = g_ptrWeb3->ethereum();
     const BlockChain &bc = g_ptrWeb3->ethereum()->blockChain();
     const ChainParams &chainparas = cli->chainParams();
 
-    setThreadName(StringFormat("CB-%d", std::this_thread::get_id()));
+    //setThreadName(StringFormat("CB-%d", std::this_thread::get_id()));
 
     LOG(g_logger) << "Prepare for committing ethereum blocks to global consensus...";
 
@@ -449,7 +500,7 @@ bool PutChainCb()
     ////FIBER_SWITCH_CRITICAL_BLOCK_T_MAIN(50)
     {
         if (!cli->wouldSeal()) {
-            LOG(g_logger) << "Cannot commit ethereum subchain when it isn't mining.";
+            LOG(g_logger) << "Cannot commit ethereum solo chain when it isn't mining.";
             return false;
         }
 
@@ -459,7 +510,7 @@ bool PutChainCb()
 
         if (!LatestBlockIndexOnChained(bc.info(), headerStart)) {
             cli->suspendSealing();
-            LOG(g_logger) << "Cannot commit ethereum subchain because cannot confirm the latest block on the Hyper chain";
+            LOG(g_logger) << "Cannot commit ethereum solo chain because cannot confirm the latest block on the Hyper chain";
             return false;
         }
         cli->resumeSealing();
@@ -550,6 +601,7 @@ bool PutChainCb()
 
 bool CheckChainCb(vector<T_PAYLOADADDR>& vecPA)
 {
+    UNUSED(vecPA);
     return true;
 }
 
@@ -563,7 +615,7 @@ bool AcceptChainCb(map<T_APPTYPE, vector<T_PAYLOADADDR>>& mapPayload, uint32_t& 
 }
 
 //HC: 共识引擎回调本函数，检查子链的合法性
-//HCE: The consensus engine calls back this function to check the legitimacy of the subchain
+//HCE: The consensus engine calls back this function to check the legitimacy of the solo chain
 bool CheckChainCbWhenOnChaining(vector<T_PAYLOADADDR>& vecPA, uint32_t prevhid, T_SHA256& tprevhhash)
 {
     if (vecPA.size() == 0) {
@@ -576,7 +628,7 @@ bool CheckChainCbWhenOnChaining(vector<T_PAYLOADADDR>& vecPA, uint32_t prevhid, 
         if (!CryptoEthCurrency::ResolveBlock(block, b.payload)) {
             LOG(g_loggerWarning) << "CheckChainCbWhenOnChaining: Failed to call ResolveBlock";
 
-            return false; 
+            return false;
         }
         vecBlock.push_back(std::move(block));
     }
@@ -603,12 +655,15 @@ bool CheckChainCbWhenOnChaining(vector<T_PAYLOADADDR>& vecPA, uint32_t prevhid, 
 
 bool GetVPath(T_LOCALBLOCKADDRESS& sAddr, T_LOCALBLOCKADDRESS& eAddr, vector<string>& vecVPath)
 {
-
+    UNUSED(sAddr);
+    UNUSED(eAddr);
+    UNUSED(vecVPath);
     return false;
 }
 
 bool GetNeighborNodes(list<string>& listNodes)
 {
+    UNUSED(listNodes);
     return false;
 
     /*
@@ -659,10 +714,12 @@ void uninitializeCallbackFunctions()
         consensuseng->UnregisterAppCallback(T_APPTYPE(APPTYPE::ethereum,
             g_cryptoEthCurrency.GetHID(), g_cryptoEthCurrency.GetChainNum(), g_cryptoEthCurrency.GetLocalID()));
     }
+    cout << "\taleth: UnregisterAppCallback\n";
 }
 
+
 //HC: 用传入的参数，启动以太坊子链
-//HCE：With the passed parameters, start the Ethereum subchain
+//HCE：With the passed parameters, start the Ethereum solo chain
 void async_start_module(char* cmdline, string &datadir)
 {
     map<string, string> mapArgs;
@@ -686,7 +743,7 @@ void async_start_module(char* cmdline, string &datadir)
         return;
     }
 
-        auto currency_data_path = fs::path(datadir) / g_cryptoEthCurrency.GetCurrencyConfigPath();
+    auto currency_data_path = fs::path(datadir) / g_cryptoEthCurrency.GetCurrencyConfigPath();
 
     auto fn = [&mapArgs, &currency_data_path](map<string, vector<std::pair<string, string>>> &map_MultiArgs, const string &key) {
         if (!map_MultiArgs.count(key)) {
@@ -701,7 +758,8 @@ void async_start_module(char* cmdline, string &datadir)
     std::shared_ptr<char*> app_argv(new char*[map_Aleth_MultiArgs.size() * 2 + 1]);
 
     char **p = app_argv.get();
-    p[0] = "aleth";
+    char moduleName[6] = { "aleth" };
+    p[0] = moduleName;
 
     int app_argc = 1;
     for (auto &key : mapArgs) {
@@ -716,7 +774,8 @@ void async_start_module(char* cmdline, string &datadir)
     g_aleth_future = std::async(std::launch::async, [app_argc, app_argv]() -> bool {
         cout << StringFormat("Aleth module is running in ThreadID : %d \n", std::this_thread::get_id());
 
-        setThreadName("aleth"); 
+        g_isshutdown = false;
+        setThreadName("aleth");
         for (int i = 0; i < app_argc; i++) {
             if (string(app_argv.get()[i]) == "--data-dir" && i + 1 < app_argc) {
                 //auto datadir = fs::path(string(app_argv.get()[i + 1])) / g_cryptoEthCurrency.GetCurrencyConfigPath();
@@ -737,7 +796,6 @@ void async_start_module(char* cmdline, string &datadir)
 
 bool StartApplication(PluginContext* context)
 {
-    bool fRet = false;
     context->SetPluginContext();
 
     g_aleth_argv = "";
@@ -749,7 +807,6 @@ bool StartApplication(PluginContext* context)
         }
     }
 
-    
     if (nIdxRun >= 0) {
         AppParseParameters(context->pc_argc, context->pc_argv);
 
@@ -763,10 +820,16 @@ bool StartApplication(PluginContext* context)
     return true;
 }
 
-void StopApplication()
+void StopApplication(bool isFirst)
 {
+    if (isFirst) {
+        g_isshutdown = true;
+        return;
+    }
+    g_isshutdown = true;
+
     uninitializeCallbackFunctions();
-    g_sys_interrupted = 1;
+    g_sys_interrupted = 1; //HC: 模块unregistered后，才能stop MQ
     ExitHandler::exitHandler(0);
     g_aleth_future.wait();
 }
@@ -777,14 +840,14 @@ bool IsStopped()
     //status = aleth_future.wait_for(std::chrono::milliseconds(10));
     //return (status == std::future_status::ready);
 
-    return !ExitHandler::isrunning();
+    return g_isshutdown || !ExitHandler::isrunning();
 }
 
 string& moveRight(string &strMessage)
 {
     strMessage.insert(strMessage.begin(), '\t');
     auto findpos = strMessage.begin();
-    for (findpos; findpos != strMessage.end(); ++findpos) {
+    for (; findpos != strMessage.end(); ++findpos) {
         if (*findpos == '\n') {
             findpos = strMessage.insert(findpos + 1, '\t');
         }
@@ -792,80 +855,26 @@ string& moveRight(string &strMessage)
     return strMessage;
 }
 
-//HC: 控制台rs命令响应函数，输出当前链基本信息、运行状态等
-//HCE: The console 'rs' command response function outputs the basic information and running status of the current chain
+//HC: 控制台rs命令无参数响应函数
+//HCE: The console 'rs' command response function
 void AppInfo(string& info)
 {
     if (!g_ptrWeb3) {
+        info = "web3 interface uninitialized";
         return;
     }
+
     eth::Client *cli = g_ptrWeb3->ethereum();
     const BlockChain &bc = cli->blockChain();
 
-    ostringstream oss;
-    size_t nPeers = g_ptrWeb3->peerCount();
-    oss << "Aleth module's current coin hash: " << g_cryptoEthCurrency.GetHashPrefixOfGenesis() << endl
-        << "Genesis block address: " << g_cryptoEthCurrency.GetHID() << " "
-        << g_cryptoEthCurrency.GetChainNum() << " "
-        << g_cryptoEthCurrency.GetLocalID() << endl
-        << "Neighbor node amounts: " << nPeers << ", 'e peers' for details" << endl;
-
-
-    auto *sealeng = cli->sealEngine();
-    bool isAllowed = sealeng->isMining() && !!nPeers && !cli->isSuspendSealing(); //cli->wouldSeal();
-
-    bool isSync = cli->isSyncing();
-    string reason = "SealEngine paused";
-    if (nPeers <= 0) {
-        reason = "Not any peers";
-    } else if (cli->isSuspendSealing()) {
-        reason = "Suspend temporarily";
-    }
-
-    oss << "Mining status: " << (isAllowed ? "mining" : string("stopped: ").append(reason)) << endl;
-
-    oss << "Mining isSuspendSealing: " << (cli->isSuspendSealing() ? "Yes" : "No") << endl;
-
-    oss << "Current sealer in use: " << cli->sealer() << endl;
-    oss << "CPU miners of sealer in use: " << EthashCPUMiner::instances() << endl;
-    size_t readySet;
-    auto s = cli->blockQueueStatus(readySet);
-    oss << "BlockQueue size of readySet: " << readySet << endl;
-
-    ostringstream osstmp;
-    osstmp << s;
-    string blockqueuestatus = osstmp.str();
-
-    oss << moveRight(blockqueuestatus) << endl;
-
-    BlockHeader head = cli->working().info();
-    oss << "Working: "
-        << head.number() << " "
-        << head.hash().hex().substr(0,16) << "... "
-        << head.parentHash().hex().substr(0, 16) << "... "
-        << "prevHID: " << head.prevHID() << " "
-        << head.prevHyperBlkHash().hex().substr(0, 16) << "..." << endl;
-    oss << "Transaction queue: "
-        << cli->transactionQueueStatus() << endl;
-
-
-    oss << "Are we updating the chain (syncing or importing a new block)? " << (cli->isSyncing() ? "Yes":"No") << endl;
-    //oss << "Are we syncing the chain? " << (cli->isMajorSyncing() ? "Yes" : "No") << endl;
-
-    osstmp.str("");
-    osstmp << cli->syncStatusNoLock();
-    string syncstatus = osstmp.str();
-    
-    oss << "SyncStatus: \n" << moveRight(syncstatus) << endl;
-
-    //if (!cli->wouldSeal()) {
-    //    oss << "Block generate disabled, use command 'e e' to enable\n";
-    //}
-
-    info = oss.str();
-
     try {
-        info += StringFormat("Last block number: %d %s...\n", bc.number(), bc.currentHash().hex().substr(0, 16));
+        string latestblockinfo;
+        ResolveHeight(bc.number(), latestblockinfo);
+        info = StringFormat("Aleth module lastest block number: %d %s...\n%s\n",
+            bc.number(),
+            bc.currentHash().hex().substr(0, 16),
+            latestblockinfo);
+
         //oss.str("");
         //oss << toJson(bc.info());
         //info += oss.str();
@@ -892,7 +901,8 @@ bool ResolveHeight(int nheight, string& info)
     ostringstream oss;
 
     try {
-        oss << toJson(bc.info(bc.numberHash(nheight)));
+        auto h = bc.numberHash(nheight);
+        oss << toJson(bc.info(h));
         info += oss.str();
     }
     catch (std::exception& e) {
@@ -916,13 +926,13 @@ bool ResolvePayload(const string& payload, string& info)
     return true;
 }
 
-void executecmd(char *command, const list<string>& childcmds)
+void executecmd(const char *command, const list<string>& childcmds)
 {
     list<string> newchildcmds = childcmds;
 
-    std::shared_ptr<char*> app_argv(new char*[newchildcmds.size() + 2]);
+    std::shared_ptr<const char*> app_argv(new const char*[newchildcmds.size() + 2]);
 
-    char **p = app_argv.get();
+    const char **p = app_argv.get();
     p[0] = "aleth";
     p[1] = command;
     int app_argc = 2;
@@ -960,14 +970,21 @@ string ToString(const BlockHeader &header)
     return oss.str();
 }
 
-string callWeb3RPC(const string& rpcmethodname, const Json::Value& param)
+
+
+
+
+template<typename... Args>
+string callWeb3RPC(const string& rpcmethodname, Json::Value& output, const Args&... args)
 {
-    Json::Value output;
     if (!g_jsonrpcIpcServer) {
         output = "Json rpc Server object is nullptr";
     } else {
         Json::Value input(Json::arrayValue);
-        input.append(param);
+
+        std::initializer_list<int>{([&] {
+            input.append(args);
+            }(), 0)...};
 
         jsonrpc::Procedure proc;
         proc.SetProcedureName(rpcmethodname);
@@ -990,10 +1007,10 @@ std::string SearchTriAddrInHyperchain(const BlockHeader &blkhead)
 
     int64_t latestHID = LatestHyperBlock::GetHID();
     int64_t nStartHID = blkhead.prevHID() + 1;
-    if(nStartHID > latestHID)
+    if (nStartHID > latestHID)
         nStartHID = latestHID;
 
-        BLOCKTRIPLEADDRESS triaddr;
+    BLOCKTRIPLEADDRESS triaddr;
     vector<int> vecHyperBlkIdLacking;
 
     int64_t nEndHID = latestHID;
@@ -1018,9 +1035,12 @@ std::string SearchTriAddrInHyperchain(const BlockHeader &blkhead)
     }
 
     string rc;
-    if (ForwardFindBlockInMain(blkhead, nStartHID, nEndHID, triaddr, vecHyperBlkIdLacking)) {
+    std::vector<BlockHeader> headers;
+    headers.emplace_back(std::move(blkhead));
 
-        rc = StringFormat("[%d,%d,%d(%s)]", 
+    if (ForwardFindBlockInMain(headers, nStartHID, nEndHID, triaddr, vecHyperBlkIdLacking) >= 0) {
+
+        rc = StringFormat("[%d,%d,%d(%s)]",
             triaddr.hid, triaddr.chainnum, triaddr.id, triaddr.hhash.toHexString().substr(0,10));
         return rc;
     }
@@ -1054,31 +1074,35 @@ string showEthUsage()
     oss << "       eth logch                                        : show or change log channels\n";
     oss << "       \t\tlogch include\n";
     oss << "       \t\tlogch exclude\n";
+    oss << "       \t\tlogch clear\n";
 
     oss << "       eth nodeid                                       : show Node ID\n";
-    oss << "       eth chain                                        : show chain or query hash of a specified block\n";
+    oss << "       eth block [height]                               : show a specified block\n";
     oss << "       eth peers                                        : show peers\n";
     oss << "       eth ba                                           : query balance for a address\n";
     oss << "       eth sendfrom <fromaccount> <toaddress> <n>       : transfer, unit is wei\n";
     oss << "       eth sendtoaddr <address> <n> [gas] [gasPrice]    : transfer, unit is wei\n";
     oss << "       eth miner <n>                                    : show or change the number of CPU miners\n";
+    oss << "       eth s                                            : query running status\n";
     oss << "       eth e                                            : enable mining\n";
     oss << "       eth d                                            : disable mining\n";
     oss << "       eth a                                            : show or set author\n";
     oss << "       eth tx <txid>                                    : get detailed information about <txid>\n";
-
-
+    oss << "       eth lock <address>                               : lock account\n";
+    oss << "       eth unlock <address> <duration> [password]       : unlock account, <duration> is the length of time in seconds\n";
     return oss.str();
 }
 
 //HC: 处理控制台以太坊子命令
 //HCE: Process console Ethereum subcommands
 //HCE: @param cmdline The command arguments passed in
-//HCE: @param info Command response results 
+//HCE: @param info Command response results
 //HCE: @param savingcommand Command save form for historical review
 //HCE: @returns true if the command has handled.
 bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand)
 {
+    UNUSED(savingcommand);
+
     if (cmdlist.size() == 1) {
         info = showEthUsage();
         return true;
@@ -1101,30 +1125,34 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
 
     std::unordered_map<string, std::function<string(const list<string>&, bool)>> mapcmds = {
 
-         {"ls",[](const list<string>&, bool fhelp) ->string {
-                vector<CryptoEthCurrency> coins;
-                CryptoEthCurrency::GetAllCoins(coins);
+        {"ls",[](const list<string>&, bool) ->string {
+            vector<CryptoEthCurrency> coins;
+            CryptoEthCurrency::GetAllCoins(coins);
 
-                auto currhash = g_cryptoEthCurrency.GetHashGenesisBlock();
+            auto currhash = g_cryptoEthCurrency.GetHashGenesisBlock();
 
-                ostringstream oss;
-                size_t i = 0;
-                for (auto& t : coins) {
-                    bool iscurrcoin = false;
-                    if (currhash == t.GetHashGenesisBlock()) {
-                                                iscurrcoin = true;
-                    }
-                    oss << StringFormat("%c %d\t%s\t[%u,%u,%u]\n",
-                        iscurrcoin ? '*' : ' ',
-                        i++,
-                        t.GetHashPrefixOfGenesis().c_str(),
-                        t.GetHID(), t.GetChainNum(), t.GetLocalID());
+            ostringstream oss;
+            size_t i = 0;
+            for (auto& t : coins) {
+                bool iscurrcoin = false;
+                if (currhash == t.GetHashGenesisBlock()) {
+                    iscurrcoin = true;
                 }
-                oss << "use 'coin ll [NO.]' for coin details\n";
-                return oss.str();
-            } },
+                oss << StringFormat("%c %d\t%s\t[%u,%u,%u]\n",
+                    iscurrcoin ? '*' : ' ',
+                    i++,
+                    t.GetHashPrefixOfGenesis().c_str(),
+                    t.GetHID(), t.GetChainNum(), t.GetLocalID());
+            }
 
-        {"ll",[](const list<string>& l, bool fhelp) ->string {
+            if (coins.size() == 0) {
+                oss << "Not find any coin, use 'eth imp' or 'eth iss' to get one\n";
+            } else 
+                oss << "use 'eth ll [NO.]' for coin details\n";
+            return oss.str();
+        } },
+
+        {"ll",[](const list<string>& l, bool) ->string {
             if (l.size() < 1) {
                 return g_cryptoEthCurrency.ToString();
             }
@@ -1141,7 +1169,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
             return t.ToString();
         } },
 
-        {"df",[](const list<string>& l, bool fhelp) ->string {
+        {"df",[](const list<string>& l, bool) ->string {
             if (l.size() < 1) {
                 return StringFormat("current coin: %s\n",
                     g_cryptoEthCurrency.GetHashPrefixOfGenesis());
@@ -1163,7 +1191,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
             return StringFormat("set '%s' as current coin, please restart aleth module\n", t.GetHashPrefixOfGenesis());
         } },
 
-        {"iss",[](const list<string>& l, bool fhelp) ->string {
+        {"iss",[](const list<string>& l, bool) ->string {
             //return doAction(issuecoin, l, fhelp, false);
             if (l.size() < 1) {
                 return StringFormat("eth iss <filename>\n");
@@ -1174,7 +1202,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
             return "";
         } },
 
-        {"imp",[](const list<string>& l, bool fhelp) ->string {
+        {"imp",[](const list<string>& l, bool) ->string {
             if (l.size() < 3)
                 throw runtime_error("imp <hyperblockId> <chainNumber> <localId> \n");
 
@@ -1199,21 +1227,98 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
             return "Imported successfully";
         } },
 
-        {"acc", [&cli, &bc](const list<string>& childcmds, bool fhelp) ->string {
+        {"acc", [&cli, &bc](const list<string>& childcmds, bool) ->string {
             executecmd("account", childcmds);
             return "";
         } },
 
-        {"wallet", [](const list<string>& childcmds, bool fhelp) ->string {
+        {"wallet", [](const list<string>& childcmds, bool) ->string {
             executecmd("wallet", childcmds);
             return "";
         } },
 
-        {"nodeid", [](const list<string>& childcmds, bool fhelp) ->string {
+        {"nodeid", [](const list<string>&, bool) ->string {
             return StringFormat("Node ID: %s\n", g_ptrWeb3->enode());
         } },
 
-        {"e", [&cli, &bc](const list<string>& childcmds, bool fhelp) ->string {
+        { "s", [&cli, &bc](const list<string>&, bool) ->string {
+            if (!g_ptrWeb3) {
+                return "web3 interface uninitialized";
+            }
+            eth::Client* cli = g_ptrWeb3->ethereum();
+            const BlockChain& bc = cli->blockChain();
+
+            ostringstream oss;
+            size_t nPeers = g_ptrWeb3->peerCount();
+            oss << "Aleth module's current coin hash: " << g_cryptoEthCurrency.GetHashPrefixOfGenesis() << endl
+                << "Genesis block address: " << g_cryptoEthCurrency.GetHID() << " "
+                << g_cryptoEthCurrency.GetChainNum() << " "
+                << g_cryptoEthCurrency.GetLocalID() << endl
+                << "Neighbor node amounts: " << nPeers << ", 'e peers' for details" << endl;
+
+
+            auto* sealeng = cli->sealEngine();
+            bool isAllowed = sealeng->isMining() && !!nPeers && !cli->isSuspendSealing(); //cli->wouldSeal();
+
+            string reason = "SealEngine paused";
+            if (nPeers <= 0) {
+                reason = "Not any peers";
+            }
+            else if (cli->isSuspendSealing()) {
+                reason = "Suspend temporarily";
+            }
+
+            oss << "Mining status: " << (isAllowed ? "mining" : string("stopped: ").append(reason)) << endl;
+
+            oss << "Mining isSuspendSealing: " << (cli->isSuspendSealing() ? "Yes" : "No") << endl;
+
+            oss << "Current sealer in use: " << cli->sealer() << endl;
+            oss << "CPU miners of sealer in use: " << EthashCPUMiner::instances() << endl;
+            size_t readySet;
+            auto s = cli->blockQueueStatus(readySet);
+            oss << "BlockQueue size of readySet: " << readySet << endl;
+
+            ostringstream osstmp;
+            osstmp << s;
+            string blockqueuestatus = osstmp.str();
+
+            oss << moveRight(blockqueuestatus) << endl;
+
+            BlockHeader head = cli->working().info();
+            oss << "Working: "
+                << head.number() << " "
+                << head.hash().hex().substr(0, 16) << "... "
+                << head.parentHash().hex().substr(0, 16) << "... "
+                << "prevHID: " << head.prevHID() << " "
+                << head.prevHyperBlkHash().hex().substr(0, 16) << "..." << endl;
+            oss << "Transaction queue: \n"
+                << cli->transactionQueueStatusDetails() << endl;
+
+
+            oss << "Are we updating the chain (syncing or importing a new block)? " << (cli->isSyncing() ? "Yes" : "No") << endl;
+            //oss << "Are we syncing the chain? " << (cli->isMajorSyncing() ? "Yes" : "No") << endl;
+
+            osstmp.str("");
+            osstmp << cli->syncStatusNoLock();
+            string syncstatus = osstmp.str();
+
+            oss << "SyncStatus: \n" << moveRight(syncstatus) << endl;
+
+            //if (!cli->wouldSeal()) {
+            //    oss << "Block generate disabled, use command 'e e' to enable\n";
+            //}
+            try {
+                oss << StringFormat("Lastest block number: %d %s...\n",
+                    bc.number(),
+                    bc.currentHash().hex().substr(0, 16));
+            }
+            catch (...) {
+            }
+
+            return oss.str();
+        } },
+
+        {"e", [&cli, &bc](const list<string>&, bool) ->string {
             if (cli->wouldSeal()) {
                 return "Mining already started";
             }
@@ -1223,14 +1328,14 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 "Failed to start mining, use 'e log 4' to change log level for more information");
         } },
 
-        {"d", [&cli, &bc](const list<string>& childcmds, bool fhelp) ->string {
+        {"d", [&cli, &bc](const list<string>&, bool) ->string {
             if (cli->wouldSeal()) {
                 cli->stopSealing();
             }
             return cli->wouldSeal() ? "Mining started" : "Mining stopped";
         } },
 
-        { "a", [&cli, &bc](const list<string>& childcmds, bool fhelp) ->string {
+        { "a", [&cli, &bc](const list<string>& childcmds, bool) ->string {
             if (childcmds.size() < 1) {
                 return StringFormat("author is %s", cli->author().hex());
             }
@@ -1248,9 +1353,19 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
 
             return StringFormat("author has changed, new author is %s", cli->author().hex());
         } },
-            //eth_getTransactionByHash
 
-        { "tx", [&cli, &bc](const list<string>& childcmds, bool fhelp) ->string {
+        { "debugtx", [&cli, &bc](const list<string>& childcmds, bool) ->string {
+            if (childcmds.size() <= 0) {
+                return "Input tx's hash";
+            }
+
+            string strHash = *childcmds.begin();
+            Json::Value param = strHash;
+            Json::Value output;
+            return callWeb3RPC("debug_traceTransaction", output, param);
+        } },
+
+        { "tx", [&cli, &bc](const list<string>& childcmds, bool) ->string {
             if (childcmds.size() <= 0) {
                 return "Input tx's hash";
             }
@@ -1270,11 +1385,12 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 }
             }
 
-            Json::Value param = strHash;
-            return callWeb3RPC("eth_getTransactionByHash", param);
+            Json::Value param = toHexPrefixed(h);
+            Json::Value output;
+            return callWeb3RPC("eth_getTransactionByHash", output, param);
         } },
 
-        { "sendfrom", [&cli, &bc](const list<string>& childcmds, bool fhelp) ->string {
+        { "sendfrom", [&cli, &bc](const list<string>& childcmds, bool) ->string {
             if (childcmds.size() < 3)
                 throw runtime_error("sendfrom <fromaccount> <toaddress> <n> [gas] [gasPrice] \n");
 
@@ -1293,10 +1409,11 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                     ++it;
                 }
             }
-            return callWeb3RPC("eth_sendTransaction", param);
+            Json::Value output;
+            return callWeb3RPC("eth_sendTransaction", output, param);
         } },
 
-        { "sendtoaddr", [&cli, &bc](const list<string>& childcmds, bool fhelp) ->string {
+        { "sendtoaddr", [&cli, &bc](const list<string>& childcmds, bool) ->string {
 
             if (childcmds.size() < 2)
                 throw runtime_error("eth sendtoaddr <address> <n> [gas] [gasPrice]\n");
@@ -1316,10 +1433,11 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 }
             }
 
-            return callWeb3RPC("eth_sendTransaction", param);
+            Json::Value output;
+            return callWeb3RPC("eth_sendTransaction", output, param);
         } },
 
-        { "miner", [&cli, &bc](const list<string>& childcmds, bool fhelp) ->string {
+        { "miner", [&cli, &bc](const list<string>& childcmds, bool) ->string {
 
             if (childcmds.size() <= 0) {
                 return StringFormat("Number of CPU miner is %d\n", EthashCPUMiner::instances());
@@ -1331,14 +1449,14 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
             return "ok!\n";
         } },
 
-        { "bucket", [&cli, &bc](const list<string>& childcmds, bool fhelp) ->string {
+        { "bucket", [&cli, &bc](const list<string>&, bool) ->string {
             auto nodetable = g_ptrWeb3->host().nodeTable();
             ostringstream oss;
             oss << *nodetable.get(); //libp2p\NodeTable.h std::ostream& operator<<()
             return oss.str();
         } },
 
-        { "checkchain", [&cli, &bc](const list<string>& childcmds, bool fhelp) ->string {
+        { "checkchain", [&cli, &bc](const list<string>& childcmds, bool) ->string {
 
             BlockHeader blkhead = bc.info();
 
@@ -1367,7 +1485,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
 
             CommadLineProgress progress;
             progress.Start();
-            do 
+            do
             {
                 if (!prevblkhead) {
                     break;
@@ -1394,26 +1512,85 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
         } },
 
 
-        {"ba", [&cli, &bc](const list<string>& childcmds, bool fhelp) ->string {
+        {"ba", [&cli, &bc](const list<string>& childcmds, bool) ->string {
             ostringstream oss;
 
-            Address addr = cli->author();
+            Address addr;   // = cli->author();
             BlockNumber num = LatestBlock;
 
             if (childcmds.size() > 0) {
                 auto iter = childcmds.begin();
                 addr = Address(*iter);
 
-                //++iter;
-                //if (iter != childcmds.end()) {
-                //    num = std::atoi(iter->c_str());
-                //}
+                ++iter;
+                if (iter != childcmds.end()) {
+                    num = std::atoi(iter->c_str());
+                }
+                oss << addr << ": " << formatBalance(cli->balanceAt(addr, num));
             }
-            oss << addr << ": " << formatBalance(cli->balanceAt(addr, num));
+            else {
+                //HC: 查看钱包里所有账户地址
+                AccountManager accountm;
+                auto alladdr = accountm.addresses();
+                for (auto & elm: alladdr) {
+                    oss << elm << ": " << formatBalance(cli->balanceAt(elm, num)) << endl;
+                }
+                oss << "RewardDistribute(" << CrossChainRecvAndRewardDistributeAddress << "): "
+                    << formatBalance(cli->balanceAt(CrossChainRecvAndRewardDistributeAddress, num));
+            }
+
             return oss.str();
         } },
 
-        {"peers", [&cli, &bc](const list<string>& childcmds, bool fhelp) ->string {
+        {"lock", [&cli, &bc](const list<string> &childcmds, bool) ->string {
+            if (childcmds.size() < 1) {
+                return StringFormat("eth lock <address>\n");
+            }
+
+            auto iter = childcmds.begin();
+            std::string address = *iter++;
+
+            Address addr = Address(fromHex(address, WhenError::Throw));
+            if (!g_accountHolder->isRealAccount(addr))
+                return "Invalid or nonexistent address";
+
+            //HC: 如果选项unsafe-transactions启用，那么加锁无效
+            g_accountHolder->unlockAccount(addr, "", 0); //HC: '0' mean lock the account right now
+            return "ok!";
+        } },
+
+
+        {"unlock", [&cli, &bc](const list<string> &childcmds, bool) ->string {
+
+            if (childcmds.size() < 2) {
+                return StringFormat("eth unlock <address> <duration> [password]");
+            }
+
+            auto iter = childcmds.begin();
+            std::string address = *iter++;
+
+            int duration = std::atoi(iter->c_str());
+
+            std::string password;
+            if(++iter != childcmds.end())
+                password = *iter;
+
+            Address addr = Address(fromHex(address, WhenError::Throw));
+            if (!g_accountHolder->isRealAccount(addr))
+                return "Invalid or nonexistent address";
+
+            if (!g_accountHolder->unlockAccount(addr, password, duration)) {
+                return "Invalid password";
+            }
+
+            return "ok!";
+
+            //HC: alternative solution
+            //Json::Value output;
+            //callWeb3RPC("personal_unlockAccount", output, address, password, duration);
+        } },
+
+        {"peers", [&cli, &bc](const list<string>&, bool) ->string {
             ostringstream oss;
             oss << "Active peer count: " << g_ptrWeb3->peerCount() << endl;
             oss << "Peers:\n";
@@ -1423,7 +1600,10 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
             return oss.str();
         } },
 
-        {"chain", [&cli, &bc, &chainpara](const list<string>& childcmds, bool fhelp) ->string {
+        {"block", [&cli, &bc, &chainpara](const list<string>& childcmds, bool) ->string {
+
+            //or callWeb3RPC("eth_getBlockByHash", output, strHash, false);
+
             ostringstream oss;
             oss << "Genesis block hash: " << bc.genesisHash() << endl;
             oss << "Difficulty: 0x"<< std::hex << chainpara.difficulty << endl;
@@ -1432,7 +1612,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
             oss << "networkID: " <<  chainpara.networkID << endl;
             oss << "sealEngine: " <<  chainpara.sealEngineName << endl;
 
-
+            oss << "block: ";
             BlockHeader blkhead;
             if (childcmds.size() > 0) {
                 int blocknum = std::atoi(childcmds.begin()->c_str());
@@ -1444,21 +1624,56 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 oss << toJson(bc.info());
             }
 
-            oss << "\nTriple addr: " << SearchTriAddrInHyperchain(blkhead) << endl;
+            oss << "\nTxs: {\n";
+            TransactionHashes hashs = bc.transactionHashes(blkhead.hash());
+            for (auto h : hashs) {
+                oss << "    " << h.hex() << endl;
+            }
+            oss << "}\n";
 
+            oss << "\nTriple addr: " << SearchTriAddrInHyperchain(blkhead) << endl;
             return oss.str();
         } },
 
-        {"log", [](const list<string>& childcmds, bool fhelp) ->string {
+        {"log", [](const list<string>& childcmds, bool) ->string {
             if (childcmds.size() <= 0) {
-                return StringFormat("Current log level: %d, valid value is <0 ~ 4>\n", loggingOptions.verbosity);
+                return StringFormat("Current log level: %d, valid value is <0 ~ 4>, isToFile: %d\n",
+                    loggingOptions.verbosity, loggingOptions.isToFile);
             }
             loggingOptions.verbosity = std::atoi(childcmds.begin()->c_str());;
             setupLogging(loggingOptions);
             return "Log level of ethereum has changed";
         } },
 
-        {"logch", [](const list<string>& childcmds, bool fhelp) ->string {
+        { "logf", [](const list<string>& childcmds, bool) ->string {
+            string usage = "Usage: e logf [on | off]\n";
+            if (childcmds.size() <= 0) {
+                return StringFormat("%sCurrent log are outputted into file: \'%s\', file name: %s\n",
+                    usage,
+                    (loggingOptions.isToFile ? "Yes" : "No"),
+                    (!loggingOptions.isToFile ? "null" :
+                        loggingOptions.outputPath + "/" +
+                        loggingOptions.outputFile));
+            }
+
+            auto cmd = childcmds.begin();
+            string childcmd = *cmd;
+
+            if (childcmd == "on") {
+                loggingOptions.outputPath = GetHyperChainDataDirInApp();
+                loggingOptions.isToFile = true;
+            } else if (childcmd == "off") {
+                loggingOptions.isToFile = false;
+            } else {
+                return usage;
+            }
+
+            setupLogging(loggingOptions);
+            return "Log file of ethereum has changed";
+        } },
+
+
+        {"logch", [](const list<string>& childcmds, bool) ->string {
             if (childcmds.size() <= 0) {
                 return StringFormat("Current log channels include: %s\nexclude: %s\nAll channels: %s\n",
                         ToString(loggingOptions.includeChannels),
@@ -1489,6 +1704,10 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                 fnChange(loggingOptions.includeChannels, loggingOptions.excludeChannels);
             } else if (*iter == "exclude") {
                 fnChange(loggingOptions.excludeChannels, loggingOptions.includeChannels);
+            } else if (*iter == "clear") {
+                loggingOptions.includeChannels.clear();
+                loggingOptions.excludeChannels.clear();
+                isChanged = true;
             } else {
                 return "invalid command format";
             }
@@ -1537,15 +1756,349 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
 extern "C" BOOST_SYMBOL_EXPORT
 bool TurnOnOffDebugOutput(const string & onoff, string & ret)
 {
+    UNUSED(onoff);
+    UNUSED(ret);
     return true;
 }
 
 extern "C" BOOST_SYMBOL_EXPORT
 std::string GetGenesisBlock(string & payload)
 {
+    UNUSED(payload);
     return std::string("");
 }
 
+extern "C" BOOST_SYMBOL_EXPORT void getrewarddistributeaddress(string & rewardaddress)
+{
+    rewardaddress = CrossChainRecvAndRewardDistributeAddress.hex();
+}
+
+//HC: 跨链交易转入收款交易
+extern "C" BOOST_SYMBOL_EXPORT bool recvfromchain(const map<string, string> &mapparams, string &txhash, string &strError)
+{
+    Json::Value _json;
+
+    if (mapparams.count("to")) {
+        _json["to"] = mapparams.at("to");
+    } else {
+        _json["to"] = CrossChainRecvAndRewardDistributeAddress.hex();
+    }
+
+    string value = UnitConversionToEth(mapparams.at("amount"));
+    _json["value"] = value;
+
+    //HC: 跨链操作中，存放Para链上对应转出交易的 （hash, hid, chainid, localid) 信息
+
+    RLPStream additiondata(4); //HC：准备压入带4个元素的List
+    additiondata.append(mapparams.at("paratxhash"));
+    additiondata.append(std::atol(mapparams.at("para_tx_hid").c_str()));
+    additiondata.append(std::atol(mapparams.at("para_tx_chainid").c_str()));
+    additiondata.append(std::atol(mapparams.at("para_tx_localid").c_str()));
+
+    bytes addition;
+    additiondata.swapOut(addition);
+    _json["data"] = toHex(addition);
+
+    try {
+        if (!mapparams.count("senderprikey")) {
+            throw std::invalid_argument("Please provide 'senderprikey' parameter");
+        }
+
+        _json["senderprikey"] = mapparams.at("senderprikey");
+        Json::Value output;
+        callWeb3RPC("eth_recvCrossChainTransaction", output, _json);
+        txhash = output["hash"].asString();
+
+        return true;
+    } catch (std::exception const& ex) {
+        strError = ex.what();
+    }
+    return false;
+}
+
+//HC: 跨链交易转出交易，转账到Para某个地址
+extern "C" BOOST_SYMBOL_EXPORT bool sendtochain(const map<string, string>&mapparams,
+    string & txhash,
+    string & publickey,
+    uint32_t &genesishid,
+    uint16_t &genesischainid,
+    uint16_t &genesislocalid,
+    string & gensishash,
+    string & strError)
+{
+    if (!g_ptrWeb3) {
+        //HC: web3对象未初始化，不能创建交易
+        strError = "The web3 object is not initialized, cannot create transaction";
+        return false;
+    }
+
+    Json::Value _json;
+
+    _json["from"] = mapparams.at("from");
+    _json["to"] = ZeroAddress.hex();
+
+    string value = UnitConversionToEth(mapparams.at("amount"));
+
+    _json["value"] = value;
+    _json["data"] = mapparams.at("para_recv_script");
+
+    const BlockChain &bc = g_ptrWeb3->ethereum()->blockChain();
+    gensishash = bc.genesisHash().hex();
+
+    try {
+        Json::Value output;
+        callWeb3RPC("eth_sendCrossChainTransaction", output, _json);
+
+        txhash = output["hash"].asString();
+        publickey = output["publickey"].asString();
+
+        genesishid = g_cryptoEthCurrency.GetHID();
+        genesischainid = g_cryptoEthCurrency.GetChainNum();
+        genesislocalid = g_cryptoEthCurrency.GetLocalID();
+
+        return true;
+    }
+    catch (std::exception const& ex) {
+        strError = ex.what();
+    }
+    return false;
+}
+
+extern "C" BOOST_SYMBOL_EXPORT
+bool GetBlockHash(const unsigned char* blockdata, int blockdatalen, unsigned char hash[32])
+{
+    BlockHeader currheader;
+    if (!CryptoEthCurrency::ResolveBlock(currheader, string(reinterpret_cast<const char*>(blockdata), blockdatalen))) {
+        //info = "Fail to call ResolveBlock for ethereum block data";
+        return false;
+    }
+
+    std::memcpy(hash, currheader.hash().data(), 32);
+    return true;
+}
+
+extern "C" BOOST_SYMBOL_EXPORT
+bool GetTxState(const string &txhash, int &blocknum, int64_t &blockstamp,
+    int &blockmaturity,
+    int64_t &hyperId,
+    int64_t &chainId,
+    int64_t &localId,
+    string &desc,
+    string &strError)
+{
+    if (!g_ptrWeb3) {
+        strError = "The web3 object is not initialized, cannot create transaction";
+        return false;
+    }
+
+    auto cli = g_ptrWeb3->ethereum();
+    const BlockChain& bc = cli->blockChain();
+
+    blocknum = -1;
+    blockmaturity = -1;
+
+    hyperId = -1;
+    chainId = 0;
+    localId = 0;
+
+    try {
+
+        h256 h(txhash);
+        if (!cli->isKnownTransaction(h)) {
+            for (Transaction const& pending : cli->pending()) {
+                if (h == pending.sha3()) {
+                    //It is in Transaction Queue, waiting for sealing
+                    Json::FastWriter fastWriter;
+                    ostringstream oss;
+                    oss << fastWriter.write(toJson(pending)) << std::flush;
+                    desc = oss.str();
+                    return true;
+                }
+            }
+        }
+
+        //toJson(client()->localisedTransaction(h));
+        //refer to eth_getTransactionByHash
+        auto localisedt = cli->localisedTransaction(h);
+        blocknum = localisedt.blockNumber();
+
+        blockstamp = 0; //HC: 上层无需用到
+
+        blockmaturity = bc.number() - blocknum;
+
+        //HC：超块链上寻找
+        BlockHeader header = bc.info(localisedt.blockHash());
+
+        int64_t start_hid = header.prevHID() + 1;
+        int64_t end_hid = header.prevHID() + 2;
+
+        BLOCKTRIPLEADDRESS triaddr;
+        vector<int> vecHyperBlkIdLacking;
+
+        std::vector<BlockHeader> headers;
+        headers.emplace_back(std::move(header));
+        if (ForwardFindBlockInMain(headers, start_hid, end_hid, triaddr, vecHyperBlkIdLacking) >=0) {
+            hyperId = triaddr.hid;
+            chainId = triaddr.chainnum;
+            localId = triaddr.id;
+        }
+
+        return true;
+
+    } catch (dev::Exception const& _e) {
+        // Something else went wrong - drop it.
+        strError = _e.what();
+    }
+
+    return false;
+}
+
+extern "C" BOOST_SYMBOL_EXPORT
+bool GetTxDetails(const string &strhash, std::map<string, string> &mapparams, string &strError)
+{
+    if (!g_ptrWeb3) {
+        strError = "The web3 object is not initialized, cannot get transaction";
+        return false;
+    }
+
+    auto cli = g_ptrWeb3->ethereum();
+    bool fFound = false;
+
+    try {
+
+        h256 h(strhash);
+        Transaction tx;
+        if (!cli->isKnownTransaction(h)) {
+            for (Transaction const& pending : cli->pending()) {
+                //It is in Transaction Queue, waiting for sealing
+                if (h == pending.sha3()) {
+                    tx = pending;
+                    fFound = true;
+                    break;
+                }
+            }
+            if (!fFound) {
+                strError = "Failed to get raw transaction";
+                return false;
+            }
+        } else {
+            tx = cli->transaction(h);
+        }
+
+        mapparams["amount"] = UnitConversionToPara(toString(tx.value()));
+        mapparams["from"] = tx.sender().hex();
+        mapparams["para_recv_script"] = toHex(tx.data());
+
+        //HC: 定位交易所在链的区块位置
+        const BlockChain& bc = g_ptrWeb3->ethereum()->blockChain();
+
+        auto localisedt = cli->localisedTransaction(h);
+        BlockHeader header = bc.info(localisedt.blockHash());
+
+        int64_t start_hid = header.prevHID() + 1;
+        int64_t end_hid = header.prevHID() + 2;
+        BLOCKTRIPLEADDRESS triaddr;
+        vector<int> vecHyperBlkIdLacking;
+
+        std::vector<BlockHeader> headers;
+        headers.emplace_back(std::move(header));
+
+        if (ForwardFindBlockInMain(headers, start_hid, end_hid, triaddr, vecHyperBlkIdLacking) < 0) {
+            strError = "Transaction cannot be found on the chain";
+            return false;
+        }
+
+        mapparams["eth_tx_hid"] = StringFormat("%d", triaddr.hid);
+        mapparams["eth_tx_chainid"] = StringFormat("%d", triaddr.chainnum);
+        mapparams["eth_tx_localid"] = StringFormat("%d", triaddr.id);
+
+        mapparams["genesis_block_hash"] = bc.genesisHash().hex();
+
+        TransactionSkeleton t;
+        t.from = tx.sender();
+
+        //HC: 通过交易签名和hash提取公钥
+        Public pubkey = dev::recover(tx.signature(), tx.sha3(WithoutSignature)); 
+        mapparams["eth_tx_publickey"] = toJS(pubkey);
+
+    } catch (dev::Exception const& e) {
+        strError = e.what();
+        return false;
+    }
+
+    return true;
+}
+
+extern "C" BOOST_SYMBOL_EXPORT
+bool VerifyTx(const string &genesispayload,     //交易所在链创世块
+    const string &genesishash,
+    const string &payload,                      //要验证的交易所在块
+    const string &hextxhash,
+    //const std::vector<unsigned char> &sendersignature,
+    const string &senderpublickey,
+    const string &amount, string &errinfo)
+{
+    //HC：1.验证链创世块是否一致
+    BlockHeader genesisheader;
+    bytes genesisblk = CryptoEthCurrency::ExtractBlock(genesispayload);
+    try {
+        genesisheader = BlockHeader(genesisblk);
+        h256 h = genesisheader.hash();
+
+        if (h.hex() != genesishash) {
+            errinfo = "genesis block unmatched";
+            return false;
+        }
+    } catch (Exception& ex) {
+        errinfo = ex.what();
+        return false;
+    }
+
+
+    //HC: how to extract transactions from block, refer to BlockChain::verifyBlock
+    BlockHeader currheader;
+    bytes blk = CryptoEthCurrency::ExtractBlock(payload);
+
+    BlockHeader blkheader;
+    try {
+        blkheader = BlockHeader(blk);
+    } catch (Exception& ex) {
+        errinfo = ex.what();
+        return false;
+    }
+
+    h256 txhash(hextxhash);
+
+    //HC: 2. 验证交易合法性
+    dev::Public pub(senderpublickey);
+    string strValue = UnitConversionToEth(amount);
+
+    u256 value = jsToU256(strValue);
+
+    RLP r(blk);
+    for (RLP const& tr : r[1]) {
+        bytesConstRef d = tr.data();
+        try {
+            Transaction t(d, CheckTransaction::None);
+            if (t.sha3() == txhash) {
+                //HC: 对应的交易在块里找到了，提取公钥
+                auto pk = recover(t.signature(), t.sha3(WithoutSignature));
+                //HC: 3. 验证交易的转账金额以及公钥是否一致
+                if (t.value() == value && pub == pk)
+                    return true;
+                break;
+            }
+        } catch (Exception&) {
+            //ex << errinfo_phase(1);
+            //ex << errinfo_transactionIndex(i);
+            //ex << errinfo_transaction(d.toBytes());
+            break;
+        }
+    }
+
+    errinfo = "invalid transaction";
+    return false;
+}
 
 
 #ifdef WIN32

@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -126,6 +126,7 @@ enum
         const bool fWrite = false;              \
         const bool fRead = false;               \
         unsigned int nSerSize = 0;              \
+        (void)(fGetSize); (void)(fWrite); (void)(fRead); (void)(nSerSize);  \
         ser_streamplaceholder s;                \
         s.nType = nType;                        \
         s.nVersion = nVersion;                  \
@@ -140,6 +141,7 @@ enum
         const bool fWrite = true;               \
         const bool fRead = false;               \
         unsigned int nSerSize = 0;              \
+        (void)(fGetSize); (void)(fWrite); (void)(fRead); (void)(nSerSize);  \
         {statements}                            \
     }                                           \
     template<typename Stream>                   \
@@ -150,6 +152,7 @@ enum
         const bool fWrite = false;              \
         const bool fRead = true;                \
         unsigned int nSerSize = 0;              \
+        (void)(fGetSize); (void)(fWrite); (void)(fRead); (void)(nSerSize);  \
         {statements}                            \
     }
 
@@ -318,7 +321,7 @@ public:
 
     unsigned int GetSerializeSize(int, int = 0) const
     {
-        return pend - pbegin;
+        return static_cast<unsigned int>(pend - pbegin);
     }
 
     template<typename Stream>
@@ -494,7 +497,7 @@ void Unserialize(Stream& is, std::basic_string<C>& str, int, int)
 template<typename T, typename A>
 unsigned int GetSerializeSize_impl(const std::vector<T, A>& v, int nType, int nVersion, const boost::true_type&)
 {
-    return (GetSizeOfCompactSize(v.size()) + v.size() * sizeof(T));
+    return (GetSizeOfCompactSize(v.size()) + static_cast<unsigned int>(v.size() * sizeof(T)));
 }
 
 template<typename T, typename A>
@@ -982,7 +985,7 @@ public:
         if (it == vch.begin() + nReadPos && last - first <= nReadPos)
         {
             // special case for inserting at the front when there's room
-            nReadPos -= (last - first);
+            nReadPos -= static_cast<unsigned int>(last - first);
             memcpy(&vch[nReadPos], &first[0], last - first);
         }
         else
@@ -1051,7 +1054,7 @@ public:
         // Rewind by n characters if the buffer hasn't been compacted yet
         if (n > nReadPos)
             return false;
-        nReadPos -= n;
+        nReadPos -= static_cast<unsigned int>(n);
         return true;
     }
 
@@ -1073,7 +1076,7 @@ public:
     short exceptions()           { return exceptmask; }
     short exceptions(short mask) { short prev = exceptmask; exceptmask = mask; setstate(0, "CDataStream"); return prev; }
     CDataStream* rdbuf()         { return this; }
-    int in_avail()               { return size(); }
+    int in_avail()               { return static_cast<int>(size()); }
 
     void SetType(int n)          { nType = n; }
     int GetType()                { return nType; }
@@ -1093,7 +1096,7 @@ public:
             {
                 setstate(std::ios::failbit, "CDataStream::read() : end of data");
                 memset(pch, 0, nSize);
-                nSize = vch.size() - nReadPos;
+                nSize = static_cast<int>(vch.size() - nReadPos);
             }
             memcpy(pch, &vch[nReadPos], nSize);
             nReadPos = 0;
@@ -1115,7 +1118,7 @@ public:
             if (nReadPosNext > vch.size())
             {
                 setstate(std::ios::failbit, "CDataStream::ignore() : end of data");
-                nSize = vch.size() - nReadPos;
+                nSize = static_cast<int>(vch.size() - nReadPos);
             }
             nReadPos = 0;
             vch.clear();

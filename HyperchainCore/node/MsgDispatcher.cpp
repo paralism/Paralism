@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -39,7 +39,7 @@ MsgDispatcher::MsgDispatcher()
     m_context = g_inproc_context;
     m_verbose = 0;
 
-    auto fcreate = [&] {
+    auto fcreate = [&]() -> zmq::socket_t* {
         m_dispatch_inner = new zmq::socket_t(*g_inproc_context, ZMQ_ROUTER);
         m_dispatch_endpoint_i = "inproc://dispatch_inner";
         m_dispatch_inner->bind(m_dispatch_endpoint_i.c_str());
@@ -50,7 +50,7 @@ MsgDispatcher::MsgDispatcher()
         std::bind(&MsgDispatcher::msg_received, this, std::placeholders::_1, std::placeholders::_2);
     m_msghandler.registerSocket(fcreate, f);
 
-    auto fcreatereg = [&] {
+    auto fcreatereg = [&]() -> zmq::socket_t* {
         m_app_reg_inner = new zmq::socket_t(*g_inproc_context, ZMQ_ROUTER);
         m_app_reg_endpoint_i = "inproc://reg_inner";
         m_app_reg_inner->bind(m_app_reg_endpoint_i.c_str());
@@ -60,7 +60,6 @@ MsgDispatcher::MsgDispatcher()
     std::function<void(void*, zmsg*)> freg =
         std::bind(&MsgDispatcher::reg_received, this, std::placeholders::_1, std::placeholders::_2);
     m_msghandler.registerSocket(fcreatereg, freg);
-
 
     connect_to_broker();
 
@@ -107,7 +106,10 @@ void MsgDispatcher::unregister_app_task(TASKTYPE tt)
 void MsgDispatcher::dispatch(const char *taskbuf, int len, const string& ip, uint32_t port)
 {
     if (m_msghandler.getID() == std::this_thread::get_id()) {
-        dispatch_real(taskbuf, len, ip, port);
+        if (port == 0 && ip.empty())
+            dispatch_to_myself(taskbuf, len);
+        else
+            dispatch_real(taskbuf, len, ip, port);
     }
     else {
 
@@ -123,14 +125,56 @@ void MsgDispatcher::dispatch(const char *taskbuf, int len, const string& ip, uin
     }
 }
 
+
+void MsgDispatcher::dispatch_to_myself(const char* taskbuf, int len)
+{
+    NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
+
+    //HCE: Update neighbor node
+    string buff(taskbuf, ProtocolHeaderLen);
+    ITask::setTaskType(&buff[0], TASKTYPE::ACTIVE_NODE);
+
+    //HCE: send task of ActiveNodeTask to myself
+    zmsg activerequest(buff.c_str(), buff.size());
+    send(NODE_T_SERVICE, &activerequest);
+
+    zmsg request((const char*)taskbuf, len);
+    TASKTYPE tt = ITask::getTaskType(taskbuf);
+
+    switch (tt) {
+    case TASKTYPE::CROSS_CHAIN_TX:
+        send(CONSENSUS_T_SERVICE, &request);
+        break;
+
+    //case TASKTYPE::BROADCAST_NEIGHBOR:
+    //    send(NODE_T_SERVICE, &request);
+    //    break;
+
+    //case TASKTYPE::NO_HEADERHASHMTROOT_RSP:
+    //    send(HYPERCHAINSPACE_T_SERVICE, &request);
+    //    break;
+
+    default:
+        if (!_mapAppTask.count(tt)) {
+            //HCE: received unknown message type
+            return;
+        }
+        //HCE: send messages to application
+        send(_mapAppTask[tt], &request);
+    }
+}
+
+
+
 void MsgDispatcher::dispatch_real(const char *taskbuf, int len, const string& ip, uint32_t port)
 {
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
     CUInt128 nodeid = ITask::getTaskNodeID(taskbuf);
 
     //HCE: Check GENHHASH first
-    nodemgr->updateNode(nodeid, ip, port);
     if (!nodemgr->IsNodeInKBuckets(nodeid)) {
+
+        nodemgr->updateNode(nodeid, ip, port);
 
         zmsg request((const char*)taskbuf, len);
         TASKTYPE tt = ITask::getTaskType(taskbuf);
@@ -146,15 +190,17 @@ void MsgDispatcher::dispatch_real(const char *taskbuf, int len, const string& ip
         return;
     }       
 
-    //HCE:: Tell NodeManager to mark node actively
+    //HCE: Tell NodeManager to mark node actively
     //HCE: Update neighbor node
     string buff(taskbuf, ProtocolHeaderLen);
     ITask::setTaskType(&buff[0], TASKTYPE::ACTIVE_NODE);
     buff.append((char*)&port, sizeof(uint32_t));
     buff.append(ip);
 
+    //HCE: send task of ActiveNodeTask to myself
     zmsg activerequest(buff.c_str(), buff.size());
     send(NODE_T_SERVICE, &activerequest);
+
     zmsg request((const char*)taskbuf, len);
     TASKTYPE tt = ITask::getTaskType(taskbuf);
 
@@ -215,7 +261,7 @@ void MsgDispatcher::dispatch_real(const char *taskbuf, int len, const string& ip
             //HCE: received unknown message type
             return;
         }
-        //HCE: send messages to application
+        //HCE: send messages to application module
         send(_mapAppTask[tt], &request);
     }
 }

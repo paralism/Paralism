@@ -359,6 +359,8 @@ void State::setNonce(Address const& _addr, u256 const& _newNonce)
 
 void State::addBalance(Address const& _id, u256 const& _amount)
 {
+    //cout << "addBalance: " << _id.hex() << " " << formatBalance(_amount) << endl;
+
     if (Account* a = account(_id))
     {
         // Log empty account being touched. Empty touched accounts are cleared
@@ -374,6 +376,7 @@ void State::addBalance(Address const& _id, u256 const& _amount)
         // the account as dirty. Dirty account are not removed from the cache
         // and are cleared if empty at the end of the transaction.
         a->addBalance(_amount);
+        //cout << "addBalance: balance:" << _id.hex() << " " << formatBalance(a->balance()) << endl;
     }
     else
         createAccount(_id, {requireAccountStartNonce(), _amount});
@@ -393,6 +396,7 @@ void State::subBalance(Address const& _addr, u256 const& _value)
         BOOST_THROW_EXCEPTION(NotEnoughCash());
 
     // Fall back to addBalance().
+    //cout << "subBalance: " << _addr.hex() << " " << formatBalance(_value) << endl;
     addBalance(_addr, 0 - _value);
 }
 

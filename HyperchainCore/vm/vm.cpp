@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -41,7 +41,7 @@ namespace qjs {
     JSValue CheckCond(JSContext* ctx, const vector<int> tripleaddr, const std::string& localblkhash, T_LOCALBLOCK& localblock)
     {
         if (tripleaddr.size() != 3) {
-            JS_ThrowReferenceError(ctx, "subblock address error");
+            JS_ThrowReferenceError(ctx, "local block address error");
             return JS_EXCEPTION;
         }
 
@@ -51,12 +51,12 @@ namespace qjs {
         addr.set(tripleaddr[0], tripleaddr[1], tripleaddr[2]);
 
         if (!hyperchainspace->GetLocalBlock(addr, localblock)) {
-            JS_ThrowReferenceError(ctx, "subblock %s not exists", addr.tostring().c_str());
+            JS_ThrowReferenceError(ctx, "local block %s not exists", addr.tostring().c_str());
             return JS_EXCEPTION;
         }
 
         if (!localblock.GetAppType().isSmartContract()) {
-            JS_ThrowReferenceError(ctx, "subblock %s doesn't contain contract", addr.tostring().c_str());
+            JS_ThrowReferenceError(ctx, "local block %s doesn't contain contract", addr.tostring().c_str());
             return JS_EXCEPTION;
         }
 

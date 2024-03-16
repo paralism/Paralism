@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -34,6 +34,8 @@ DEALINGS IN THE SOFTWARE.
 #include "serialize.h"
 #include <string>
 #include "uint256.h"
+
+#include <boost/functional/hash.hpp>
 
 extern bool fTestNet;
 static inline unsigned short GetDefaultPort(const bool testnet = fTestNet)
@@ -162,6 +164,8 @@ class CInv
         )
 
         friend bool operator<(const CInv& a, const CInv& b);
+        friend bool operator==(const CInv& a, const CInv& b);
+
 
         bool IsKnownType() const;
         const char* GetCommand() const;
@@ -180,5 +184,15 @@ class CInv
         uint256 hash;
         int height = 0; //HCE:
 };
+
+//namespace boost {
+        inline std::size_t hash_value(CInv const &s) {
+            size_t seed = 0;
+            for(int i = 0; i < 8; i++)
+                boost::hash_combine(seed, s.hash[i]);
+            boost::hash_combine(seed, s.height);
+            return seed;
+        }
+//}
 
 #endif // __INCLUDED_PROTOCOL_H__

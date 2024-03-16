@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -29,9 +29,9 @@ using namespace std;
 class IAccessPoint {
 public:
 	virtual bool open() { assert(false);  return true; };
-	virtual int write(const char *buf, size_t len) { assert(false); return 0; }
+	virtual int write(const char *, size_t) { assert(false); return 0; }
 	virtual void close() { assert(false); }
 	virtual string serialize() { assert(false); return string(""); }
 	virtual int id() const { return 0; }
-	virtual bool isSame(IAccessPoint *other) const { return false; }
+	virtual bool isSame(IAccessPoint *) const { return false; }
 };

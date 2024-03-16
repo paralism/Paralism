@@ -3,6 +3,12 @@
 // Licensed under the GNU General Public License, Version 3.
 
 #include "CommonIO.h"
+#include <boost/interprocess/shared_memory_object.hpp>
+#include <boost/interprocess/mapped_region.hpp>
+#include <boost/process.hpp>
+#include <boost/process/extend.hpp>
+#include <boost/dll.hpp>
+
 #include <libdevcore/FileSystem.h>
 #include <iostream>
 #include <cstdlib>
@@ -15,6 +21,9 @@
 #endif
 #include "Exceptions.h"
 #include <boost/filesystem.hpp>
+
+
+
 using namespace std;
 using namespace dev;
 
@@ -134,57 +143,107 @@ void copyDirectory(boost::filesystem::path const& _srcDir, boost::filesystem::pa
         fs::copy_file(file->path(), _dstDir / file->path().filename());
 }
 
+std::tuple<int, std::string> startProcess(const std::string& processName, const std::vector<std::string>& args)
+{
+    namespace bp = ::boost::process;
+
+    int pid = -1;
+    std::string err;
+
+    try {
+#if defined(_WIN32)
+        auto p = processName + ".exe";
+#else 
+        auto p = processName;
+#endif
+        if (!boost::filesystem::exists(p)) {
+            p = boost::dll::program_location().parent_path().string() + "/" + p;
+            if (!boost::filesystem::exists(p))
+            {
+                err = p + " not exist";
+                return std::make_tuple(pid, err);
+            }
+        }
+        auto env{ ::boost::this_process::environment() };
+        bp::child c(
+            p, env, bp::args(args)
+#if defined(_WIN32)
+            , boost::process::extend::on_setup = [](auto& exec) {
+                exec.creation_flags |= boost::winapi::CREATE_NEW_CONSOLE_;
+            }
+#endif 
+        );
+
+        pid = c.id();
+        c.wait();
+    }
+    catch (boost::process::process_error& exc) {
+        err = exc.what();
+        pid = -1;
+    }
+    return std::make_tuple(pid, err);
+} 
+
 std::string getPassword(std::string const& _prompt)
 {
-#if defined(_WIN32)
-    cout << _prompt << flush;
-    // Get current Console input flags
-    HANDLE hStdin;
-    DWORD fdwSaveOldMode;
-    if ((hStdin = GetStdHandle(STD_INPUT_HANDLE)) == INVALID_HANDLE_VALUE)
-        BOOST_THROW_EXCEPTION(
-            ExternalFunctionFailure() << errinfo_externalFunction("GetStdHandle"));
-    if (!GetConsoleMode(hStdin, &fdwSaveOldMode))
-        BOOST_THROW_EXCEPTION(
-            ExternalFunctionFailure() << errinfo_externalFunction("GetConsoleMode"));
-    // Set console flags to no echo
-    if (!SetConsoleMode(hStdin, fdwSaveOldMode & (~ENABLE_ECHO_INPUT)))
-        BOOST_THROW_EXCEPTION(
-            ExternalFunctionFailure() << errinfo_externalFunction("SetConsoleMode"));
-    // Read the string
-    std::string ret;
-    std::getline(cin, ret);
-    // Restore old input mode
-    if (!SetConsoleMode(hStdin, fdwSaveOldMode))
-        BOOST_THROW_EXCEPTION(
-            ExternalFunctionFailure() << errinfo_externalFunction("SetConsoleMode"));
-    return ret;
-#else
-    struct termios oflags;
-    struct termios nflags;
-    char password[256];
+    //HC: 因为主线程和子线程同时调用getline存在冲突，所以改成从另一个进程获取密码方式
+    //HCE: Because there is a conflict when the main thread and the child thread call 'getline' at the same time, it is changed to obtain the password from another process.
 
-    // disable echo in the terminal
-    tcgetattr(fileno(stdin), &oflags);
-    nflags = oflags;
-    nflags.c_lflag &= ~ECHO;
-    nflags.c_lflag |= ECHONL;
-
-    if (tcsetattr(fileno(stdin), TCSANOW, &nflags) != 0)
-        BOOST_THROW_EXCEPTION(ExternalFunctionFailure() << errinfo_externalFunction("tcsetattr"));
-
-    printf("%s", _prompt.c_str());
-    if (!fgets(password, sizeof(password), stdin))
-        BOOST_THROW_EXCEPTION(ExternalFunctionFailure() << errinfo_externalFunction("fgets"));
-    password[strlen(password) - 1] = 0;
-
-    // restore terminal
-    if (tcsetattr(fileno(stdin), TCSANOW, &oflags) != 0)
-        BOOST_THROW_EXCEPTION(ExternalFunctionFailure() << errinfo_externalFunction("tcsetattr"));
-
-
-    return password;
+#if !defined(_WIN32)
+    //HC: Linux平台不支持输入，只能先解锁账户
+    return "";
 #endif
+
+    namespace bi = boost::interprocess;
+    namespace bp = ::boost::process;
+
+    //HC：随机数
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
+    string sRand(8,'a');
+    for (auto& i : sRand)
+        i = (uint8_t)std::uniform_int_distribution<uint16_t>('a', 'z')(gen);
+
+    string shmname = "aleth_sharememory" + sRand;
+    struct shm_remove
+    {
+        shm_remove(string name) : _shmname(name) { bi::shared_memory_object::remove(_shmname.c_str()); }
+        ~shm_remove() { bi::shared_memory_object::remove(_shmname.c_str()); }
+
+        string _shmname;
+    } remover(shmname);
+
+    //Create a shared memory object.
+    bi::shared_memory_object shm(bi::create_only, shmname.c_str(), bi::read_write);
+
+    //Set size
+    shm.truncate(1024);
+
+    //Map the whole shared memory in this process
+    bi::mapped_region region(shm, bi::read_write);
+
+    //Write all the memory to 0
+    std::memset(region.get_address(), 0, region.get_size());
+
+    std::vector<std::string> args;
+    args.push_back(shmname);
+    args.push_back(_prompt);
+
+    int pid = -1;
+    std::string err;
+
+    cout << "Requesting the account password...\n" << flush;
+
+    std::string exec = "getaccountpwd";
+    std::tie(pid, err) = startProcess(exec, args);
+    if (pid == -1) {
+        cerr << err << endl;
+        return string("");
+    }
+
+    char* s = static_cast<char*>(region.get_address());
+    return string(s);
 }
 
 }  // namespace dev

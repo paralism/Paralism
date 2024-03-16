@@ -12,9 +12,6 @@
 #include <boost/filesystem.hpp>
 #include <boost/dll/import.hpp>
 
-
-MAPARGS mapHCArgs;
-MAPMULTIARGS mapHCMultiArgs;
 std::vector<std::string> vHCCommands;
 
 AppPlugins* g_appPlugin = nullptr;
@@ -31,7 +28,7 @@ bool AppPlugins::APPFUNC::load(const string& appname)
         appIsStopped = applib.get<bool()>("IsStopped");
 
         appStart = applib.get<bool(PluginContext *)>("StartApplication");
-        appStop = applib.get<void()>("StopApplication");
+        appStop = applib.get<void(bool)>("StopApplication");
         appRegisterTask = applib.get<bool(void*)>("RegisterTask");
         appUnregisterTask = applib.get<void(void*)>("UnregisterTask");
         appResolveHeight = applib.get<bool(int, string&)>("ResolveHeight");
@@ -65,16 +62,20 @@ void AppPlugins::APPFUNC::unload()
 
 void AppPlugins::Init()
 {
-    if (mapHCArgs.count("-with")) {
-        for (string& strApp : mapHCMultiArgs["-with"]) {
-            AddApplication(strApp);
+    int i = 0;
+    for (; i < _argc; i++) {
+        //HC: skip non-module options
+        string kv = string(_argv[i]);
+        if (kv.find("-with") == 0) {
+            string appname = kv.substr(6);
+            AddApplication(appname);
         }
     }
 }
 
 void AppPlugins::AddApplication(const string& appname)
 {
-    boost::filesystem::path pathHC(_argv[0]);
+    boost::filesystem::path pathHC(boost::dll::program_location());
     pathHC = boost::filesystem::system_complete(pathHC.branch_path());
     pathHC /= appname;
 
@@ -170,10 +171,11 @@ void AppPlugins::StopApp(const string& appname, bool isErase)
     if (_mapAppFunc.count(appname)) {
         auto & f = _mapAppFunc[appname];
         if (!f.appIsStopped()) {
-            f.appStop();
-            std::cout << "Module " << appname << " is stopped" << endl;
+            f.appStop(true);
+            std::cout << "Module " << appname << " is stopping" << endl;
         }
         else {
+            f.appStop(false);
             std::cout << "Module " << appname << " has stopped" << endl;
         }
         f.appUnregisterTask(handler);
@@ -197,6 +199,13 @@ void AppPlugins::StartAllApp()
 
 void AppPlugins::StopAllApp()
 {
+    //HC: 调用二次完成退出，第一次各模块收到退出通知，置位开始退出 第二次执行全面退出
+    //HC: 这种分开方式消除了模块间的相互影响
+    for (auto& app : _mapAppFunc) {
+        StopApp(app.first, false);
+    }
+
+    //HC: 执行全面退出
     for (auto& app : _mapAppFunc) {
         StopApp(app.first, false);
     }

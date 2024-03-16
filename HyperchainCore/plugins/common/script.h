@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -41,7 +41,7 @@ DEALINGS IN THE SOFTWARE.
 #include <boost/foreach.hpp>
 
 class CTransaction;
-class CMutableTransaction;
+struct CMutableTransaction;
 class CTxOut;
 class CScriptNum;
 struct CScriptWitness;
@@ -51,6 +51,7 @@ class SigningProvider;
 static constexpr size_t WITNESS_V0_SCRIPTHASH_SIZE = 32;
 static constexpr size_t WITNESS_V0_KEYHASH_SIZE = 20;
 static constexpr size_t WITNESS_V1_TAPROOT_SIZE = 32;
+static constexpr size_t WITNESS_CROSSCHAIN_SIZE = 0x68; //HC：也需要调整代码 IsWitnessProgram
 
 
 // Maximum number of non-push operations per script
@@ -524,6 +525,55 @@ public:
         return *this;
     }
 
+    //HC:
+    const_iterator getVector(std::vector<unsigned char>& vch) const
+    {
+        opcodetype opcode;
+
+        const_iterator pc = cbegin();
+        if (!GetOp(pc, opcode, vch)) {
+            return cend();
+        }
+        return pc;
+    }
+
+    bool getNextVector(std::vector<unsigned char>& vch, const_iterator &pc) const
+    {
+        opcodetype opcode;
+
+        if (!GetOp(pc, opcode, vch)) {
+            return false;
+        }
+        return true;
+    }
+
+
+    bool getNextUint(uint64 &n, const_iterator& pc) const
+    {
+        if (pc >= end())
+            return false;
+
+        // Read instruction
+        if (end() - pc < 1)
+            return false;
+
+        unsigned int opcode = *pc;
+        if (opcode >= OP_1 && opcode <= 16 + (OP_1 - 1) ) {
+            n = opcode - (OP_1 - 1);
+            ++pc;
+        } else {
+            opcodetype opcode;
+            std::vector<unsigned char> vch;
+            if (!GetOp(pc, opcode, vch)) {
+                return false;
+            }
+            CBigNum bn(vch);
+            n = bn.getulong();
+        }
+        return true;
+    }
+
+
     CScript& operator<<(const std::vector<unsigned char>& b)
     {
         if (b.size() < OP_PUSHDATA1)
@@ -803,18 +853,31 @@ public:
     }
 
     // A witness program is any valid CScript that consists of a 1-byte push opcode
-    // followed by a data push between 2 and 40 bytes.
+    // followed by a data push between 2 and 0xbb bytes.
     bool IsWitnessProgram(int& version, std::vector<unsigned char>& program) const
     {
-        if (this->size() < 4 || this->size() > 42) {
+        //HCE: check length limit, for cross chain transaction, length is 0x5f bytes
+        if (this->size() < 4 || this->size() > 0x6b) {
             return false;
         }
         if ((*this)[0] != OP_0 && ((*this)[0] < OP_1 || (*this)[0] > OP_16)) {
             return false;
         }
-        if ((size_t)((*this)[1] + 2) == this->size()) {
+
+        //HC: 2 = a 1-byte push opcode + a 1-byte data length
+        int nOffset = 0;
+        int nExtra = 0;
+        if (this->size() >= OP_PUSHDATA1 + 2) {
+            if ((*this)[1] != OP_PUSHDATA1)
+                return false;
+            nOffset = 1;
+            nExtra = 1; //OP_PUSHDATA1 take a 1-byte
+        }
+
+
+        if ((size_t)((*this)[1 + nOffset] + 2 + nExtra) == this->size()) {
             version = DecodeOP_N((opcodetype)(*this)[0]);
-            program = std::vector<unsigned char>(this->begin() + 2, this->end());
+            program = std::vector<unsigned char>(this->begin() + 2 + nOffset, this->end());
             return true;
         }
         return false;
@@ -934,6 +997,10 @@ public:
     bool CheckSchnorrSignature(Span<const unsigned char> sig, Span<const unsigned char> pubkey, SigVersion sigversion, const ScriptExecutionData& execdata, ScriptError* serror = nullptr) const override;
     bool CheckLockTime(const CScriptNum& nLockTime) const override;
     bool CheckSequence(const CScriptNum& nSequence) const override;
+
+    const T* GetTxTo() const {
+        return txTo;
+    }
 };
 
 using TransactionSignatureChecker = GenericTransactionSignatureChecker<CTransaction>;

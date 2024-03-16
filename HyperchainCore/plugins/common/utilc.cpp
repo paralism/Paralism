@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -66,6 +66,15 @@ uint64_t CSpentTime::Elapse()
 void CSpentTime::Reset()
 {
     _StartTimePoint = std::chrono::system_clock::now();
+}
+
+std::string CSpentTime::ToString()
+{
+    time_t now_time = std::chrono::system_clock::to_time_t(_StartTimePoint);
+    char strstamp[32] = { 0 };
+    strftime(strstamp, 32, "%Y-%m-%d %H:%M:%S", localtime(&now_time));
+
+    return strprintf("StartTime:%s Elapse:%d", strstamp, Elapse());
 }
 
 //HCE: two ways for display the progress: percent and already handled

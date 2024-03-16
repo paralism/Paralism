@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -32,7 +32,8 @@ DEALINGS IN THE SOFTWARE.
 #include "serialize.h"
 #include "keyorigin.h"
 #include "signingprovider.h"
-
+#include "AppPlugins.h"
+#include "sysexceptions.h"
 
 using namespace std;
 using namespace boost;
@@ -2482,9 +2483,6 @@ namespace {
         void SerializeInput(S& s, unsigned int nInput, long nType, int nVersion = VERSION) const
         {
             CSerActionSerialize ser_action;
-            const bool fGetSize = false;
-            const bool fWrite = true;
-            const bool fRead = false;
             unsigned int nSerSize = 0;
 
             // In case of SIGHASH_ANYONECANPAY, only the input being signed is serialized
@@ -2517,9 +2515,6 @@ namespace {
         void SerializeOutput(S& s, unsigned int nOutput, long nType, int nVersion = VERSION) const
         {
             CSerActionSerialize ser_action;
-            const bool fGetSize = false;
-            const bool fWrite = true;
-            const bool fRead = false;
             unsigned int nSerSize = 0;
 
             if (fHashSingle && nOutput != nIn)
@@ -3018,6 +3013,94 @@ static bool ExecuteWitnessScript(const Span<const valtype>& stack_span, const CS
     return true;
 }
 
+
+extern uint256 to_uint256(const T_SHA256& hash);
+extern void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "");
+extern bool ResolveBlock(CBlock& block, const char* payload, size_t payloadlen);
+
+//HC: 验证etherum链上的交易
+bool VerifyEthTx(const EthInPoint &ethinputpt, const std::vector<CTxIn> &vin, const std::vector<CTxOut> &vout)
+{
+    int n = vin[0].prevout.n;
+    if (vout.size() > 2)
+        return false;
+
+    CTransaction pretx;
+    if (!pretx.ReadFromDisk(vin[0].prevout)) {
+        BOOST_THROW_EXCEPTION(hc::TransactionVinPrevoutNotExists() << hc::errinfo_comment(vin[0].prevout.ToString()));
+        return false;
+    }
+
+    CAmount amount;
+    //HC: 分析跨链交易的二个输出部分: 提取转入金额、检查找零输出的合法性
+    for (CTxOut out : vout) {
+        int witnessversion;
+        std::vector<unsigned char> witnessprogram;
+        if (!out.scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram))
+            return false;
+
+        if (witnessprogram.size() == WITNESS_V0_KEYHASH_SIZE) {
+            //HC: 跨链交易转入金额
+            amount = out.nValue;
+        }
+        else if (witnessversion == 16 && witnessprogram.size() == WITNESS_CROSSCHAIN_SIZE) {
+            //HC: 检查跨链找零部分，将作为下次跨链的输入
+            CTxDestination address;
+            if (!ExtractDestination(pretx.vout[n].scriptPubKey, address))
+                return false;
+            WitnessCrossChainHash witnessCC = boost::get<WitnessCrossChainHash>(address);
+            witnessCC.recv_address = BaseHash<uint160>();
+            witnessCC.sender_prikey = uint256();
+
+            CTxDestination addressTxDest(witnessCC);
+            CScript scriptChange = GetScriptForDestination(addressTxDest);
+            if (scriptChange != out.scriptPubKey) {
+                return false;
+            }
+        }
+    }
+
+    CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
+    T_LOCALBLOCK localblock;
+    T_LOCALBLOCKADDRESS addr;
+    addr.set(ethinputpt.hid, ethinputpt.chainid, ethinputpt.localid);
+
+    //HC: 读取交易所在子块
+    if (hyperchainspace->GetLocalBlock(addr, localblock)) {
+        auto chaintype = localblock.GetAppType();
+        uint32_t genesishid;
+        uint16 genesischainnum;
+        uint16 genesislocalid;
+
+        chaintype.get(genesishid, genesischainnum, genesislocalid);
+
+        T_LOCALBLOCK genesislocalblock;
+        T_LOCALBLOCKADDRESS genesisblkaddr;
+        genesisblkaddr.set(genesishid, genesischainnum, genesislocalid);
+
+        if (!hyperchainspace->GetLocalBlock(genesisblkaddr, genesislocalblock)) {
+            throw hc::MissingHyperBlock();
+        }
+
+        //HC：验证Eth交易的合法性
+        string strerr;
+        string strAmount = StringFormat("%lld", amount);
+        return AppPlugins::callFunction<bool>("aleth", 
+                    "VerifyTx",
+                    genesislocalblock.GetPayLoad(),
+                    ethinputpt.eth_genesis_block_hash.GetHexNoReverse(),
+                    localblock.GetPayLoad(),
+                    ethinputpt.eth_tx_hash.GetHexNoReverse(),
+                    ethinputpt.eth_tx_publickey.GetHexNoReverse(),
+                    strAmount, strerr);
+
+    } else {
+        throw hc::MissingHyperBlock();
+    }
+
+    return false;
+}
+
 static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, const std::vector<unsigned char>& program, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror, bool is_p2sh)
 {
     CScript exec_script; //!< Actually executed script (last stack item in P2WSH; implied P2PKH script in P2WPKH; leaf script in P2TR)
@@ -3056,6 +3139,52 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         // BIP341 Taproot: 32-byte non-P2SH witness v1 program (which encodes a P2C-tweaked pubkey)
         //HCE: future softfork compatibility
         return true;
+    }
+    else if (witversion == 16 && program.size() == WITNESS_CROSSCHAIN_SIZE) {
+        if (stack.size() == 0) {
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
+        }
+
+        //HC: 扩展的跨链类型
+        const valtype& script_bytes = SpanPopBack(stack);
+        CScript scr(script_bytes.begin(), script_bytes.end());
+
+        EthInPoint ethinputpoint;
+        if (ExtractCrossChainInPoint(scr, ethinputpoint)) {
+            //HC: 对跨链清算交易，验证Eth链上是否有这笔交易, 并且当前转入与Eth交易的转出金额是否一致
+            string errinfo;
+            try {
+                const auto* che = dynamic_cast<const MutableTransactionSignatureChecker*>(&checker);
+                if (che) {
+                    auto* t = che->GetTxTo();
+                    return VerifyEthTx(ethinputpoint, t->vin, t->vout);
+                }
+
+                const auto* cheT = dynamic_cast<const TransactionSignatureChecker*>(&checker);
+                if (!cheT) {
+                    cerr << "VerifyWitnessProgram: unknown checker " << endl;
+                    return false;
+                }
+                auto* t = cheT->GetTxTo();
+                return VerifyEthTx(ethinputpoint, t->vin, t->vout);
+
+            } catch (hc::MissingHyperBlock&) {
+                RSyncRemotePullHyperBlock(ethinputpoint.hid);
+                errinfo = "MissingHyperBlock";
+            } catch (hc::Exception& e) {
+                auto err = boost::get_error_info<hc::errinfo_comment>(e);
+                errinfo = StringFormat("%s: %s", e.what(), *err);
+            }
+
+            set_error(serror, SCRIPT_ERR_VERIFY_ETH_TX);
+            cerr << "VerifyWitnessProgram: VerifyEthTx exception: " << errinfo << endl;
+            return false;
+        }
+        else {
+            //HC: to do
+            //HC: 对跨链Para转出到Eth, 如何验证交易合法性呢？
+            return true;
+        }
     }
     else {
         if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) {
@@ -3349,6 +3478,7 @@ public:
     MutableTransactionSignatureCreator(const CMutableTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, int nHashTypeIn = SIGHASH_ALL)
         : txTo(txToIn), nIn(nInIn), nHashType(nHashTypeIn), amount(amountIn), checker(txTo, nIn, amountIn) {}
     const BaseSignatureChecker& Checker() const override { return checker; }
+    const CMutableTransaction* Tx() const { return txTo; }
     bool CreateSig(const SigningProvider& provider, std::vector<unsigned char>& vchSig, const CKeyID& address, const CScript& scriptCode, SigVersion sigversion) const override
     {
         //CKey key;
@@ -3482,6 +3612,9 @@ static bool SignStep(const SigningProvider& provider, const BaseSignatureCreator
     std::vector<unsigned char> sig;
 
     std::vector<valtype> vSolutions;
+
+    //HC: 从脚本中提取公钥或者公钥hash或者其他，取决于具体的脚本类型
+    //HC: 用于计算签名
     whichTypeRet = Solver(scriptPubKey, vSolutions);
 
     switch (whichTypeRet)     {
@@ -3551,6 +3684,10 @@ static bool SignStep(const SigningProvider& provider, const BaseSignatureCreator
         sigdata.missing_witness_script = uint256(vSolutions[0]);
         return false;
 
+    case TxoutType::WITNESS_CROSSCHAIN:
+        //HC: 签名已经存在tx->fromscriptSig中，所以这里无需任何操作
+        return true;
+
     default:
         return false;
     }
@@ -3598,6 +3735,7 @@ static constexpr unsigned int STANDARD_SCRIPT_VERIFY_FLAGS = MANDATORY_SCRIPT_VE
                         SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS |
                         SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE;
 
+//HC: sigdata：返回的签名，其后通过UpdateInput函数赋值给交易的输入
 bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreator& creator, const CScript& fromPubKey, SignatureData& sigdata)
 {
     if (sigdata.complete) return true;
@@ -3634,6 +3772,17 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
         TxoutType subType;
         solved = solved && SignStep(provider, creator, witnessscript, result, subType, SigVersion::WITNESS_V0, sigdata) && subType != TxoutType::SCRIPTHASH && subType != TxoutType::WITNESS_V0_SCRIPTHASH && subType != TxoutType::WITNESS_V0_KEYHASH;
         result.push_back(std::vector<unsigned char>(witnessscript.begin(), witnessscript.end()));
+        sigdata.scriptWitness.stack = result;
+        sigdata.witness = true;
+        result.clear();
+    }
+    else if (solved && whichType == TxoutType::WITNESS_CROSSCHAIN) {
+        //HC: 本交易所用的输入交易为跨链交易
+        const MutableTransactionSignatureCreator* mutabletxcreator
+            = reinterpret_cast<const MutableTransactionSignatureCreator*>(&creator);
+        const CMutableTransaction* tx = mutabletxcreator->Tx();
+
+        result.push_back(std::vector<unsigned char>(tx->fromscriptSig.begin(), tx->fromscriptSig.end()));
         sigdata.scriptWitness.stack = result;
         sigdata.witness = true;
         result.clear();

@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -26,6 +26,12 @@ DEALINGS IN THE SOFTWARE.
 #include "ObjectFactory.hpp"
 #include "HCMQWrk.h"
 #include "HCMQClient.h"
+
+#include "util/ElapsedTime.h"
+
+#if !defined WIN32 
+#include <sys/syscall.h>
+#endif
 
 #include <boost/thread/tss.hpp>
 
@@ -70,6 +76,14 @@ public:
     //HCE: Notice: at first register workers, then register other zmq sockets.
     void registerSocket(std::function<zmq::socket_t*()> sockcreatefunc, std::function<void(void*, zmsg*)> func);
 
+    void enableStatis(bool enable) {
+        _enablestt = enable;
+    }
+
+    string getStatistics(const std::string_view& header) const {
+        return _taskcoststt.Statistics(header);
+    }
+
     void start(const char* threadname);
     void stop();
     bool isstopped();
@@ -87,6 +101,10 @@ private:
     void registerSocket(zmq::socket_t* s, std::function<void(void*, zmsg*)> func);
 
 private:
+
+#ifndef WIN32
+    std::string _lwp;
+#endif;
 
     bool _isstop = false;
     bool _isstarted = false;
@@ -130,6 +148,9 @@ private:
     int _fiber_count_created_ = 0;
 
     priority_scheduler * _my_scheduler_algo = nullptr;
+
+    bool _enablestt = false;
+    CActionCostStatistics _taskcoststt;
  };
 
 

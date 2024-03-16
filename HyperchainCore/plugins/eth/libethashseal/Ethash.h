@@ -100,7 +100,7 @@ private:
 
     /// A mutex covering m_sealing
     //Mutex m_submitLock;
-        std::shared_timed_mutex m_submitLock;
+    std::shared_timed_mutex m_submitLock;
 
     // external hashrate
     mutable std::unordered_map<h256, std::pair<u256, std::chrono::steady_clock::time_point>>

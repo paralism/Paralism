@@ -2,6 +2,9 @@
 // Copyright 2014-2019 Aleth Authors.
 // Licensed under the GNU General Public License, Version 3.
 
+#include "node/Singleton.h"
+#include "HyperChain/HyperChainSpace.h"
+
 #include "BlockQueue.h"
 #include <thread>
 #include <sstream>
@@ -12,7 +15,7 @@
 #include "VerifiedBlock.h"
 #include "State.h"
 
-#include "utility/threadname.h"
+#include "util/threadname.h"
 
 using namespace std;
 using namespace dev;
@@ -100,26 +103,41 @@ void BlockQueue::verifierBody()
             m_verifying.enqueue(move(bi));
         }
 
-        VerifiedBlock res;
-        swap(work.blockData, res.blockData);
-        try
-        {
-            res.verified = m_bc->verifyBlock(&res.blockData, m_onBad, ImportRequirements::OutOfOrderChecks);
-        }
-        catch (std::exception const& _ex)
-        {
+        auto fnexcep = [this, &work](Exception const& _ex, bool invalidh) {
+
             // bad block.
             // has to be this order as that's how invariants() assumes.
             WriteGuard l2(m_lock);
-            unique_lock<Mutex> l(m_verification);
-            m_readySet.erase(work.hash);
             m_knownBad.insert(work.hash);
-            if (!m_verifying.remove(work.hash))
-                cwarn << "Unexpected exception when verifying block: " << _ex.what();
-            drainVerified_WITH_BOTH_LOCKS();
+            updateBad_WITH_LOCK(work.hash);
 
-            cerr << std::this_thread::get_id() << ": Unexpected exception when verifying block: " << _ex.what()
-                 << " ********, remove from verifying" << endl;
+            //HC: bad block due to invalid hyper block, which is temporary 
+            if (invalidh) {
+                auto hid = boost::get_error_info<errinfo_hID>(_ex);
+                if(hid)
+                    m_knownBadInvalidHBlock.insert(*hid);
+            }
+
+            //cerr << std::this_thread::get_id() << ": Unexpected exception when verifying block: " << _ex.what()
+            //    << " ********, remove from verifying" << endl;
+        };
+
+        VerifiedBlock res;
+        swap(work.blockData, res.blockData);
+        try {
+            res.verified = m_bc->verifyBlock(&res.blockData, m_onBad, ImportRequirements::OutOfOrderChecks);
+
+            //HCE: Remove the element from m_knownBad which has verified in the past
+            if (m_knownBad.count(res.verified.info.hash())) {
+                m_knownBad.erase(res.verified.info.hash());
+            }
+        }
+        catch (InvalidHyperBlock const& _ex) {
+            fnexcep(_ex, true);
+            continue;
+        }
+        catch (Exception const& _ex) {
+            fnexcep(_ex, false);
             continue;
         }
 
@@ -162,6 +180,20 @@ void BlockQueue::verifierBody()
     }
 }
 
+void BlockQueue::onLatestHyperBlockChanged(uint32_t hid, const h256& hhash)
+{
+    LOG(m_logger) << "onLatestHyperBlockChanged " << hid << " hyper block reached";
+
+    WriteGuard l2(m_lock);
+
+    //HC: 新超块到达，部分无效块变成有效，这里简单处理，清空所有的无效块
+    if (m_knownBadInvalidHBlock.count(hid)) {
+        m_knownBadInvalidHBlock.erase(hid);
+        m_knownBad.clear();
+    }
+}
+
+
 void BlockQueue::drainVerified_WITH_BOTH_LOCKS()
 {
     while (!m_verifying.isEmpty() && !m_verifying.next().blockData.empty())
@@ -182,7 +214,7 @@ ImportResult BlockQueue::import(bytesConstRef _block, bool _isOurs)
     // Check if we already know this block.
     h256 h = BlockHeader::headerHashFromBlock(_block);
 
-    LOG(m_loggerDetail) << "Queuing block " << h << " for import...";
+    LOG(m_loggerDetail) << "Queuing block " << h.hex() << " for import...";
 
     UpgradableGuard l(m_lock);
 
@@ -190,7 +222,7 @@ ImportResult BlockQueue::import(bytesConstRef _block, bool _isOurs)
         contains(m_knownBad, h) || contains(m_futureSet, h))
     {
         // Already know about this one.
-        LOG(m_loggerDetail) << "Already known.";
+        LOG(m_loggerDetail) << "Already known. Is it in m_knownBad? " << contains(m_knownBad, h);
         return ImportResult::AlreadyKnown;
     }
 
@@ -330,6 +362,7 @@ void BlockQueue::updateBad_WITH_LOCK(h256 const& _bad)
             {
                 return m_knownBad.count(_b.verified.info.parentHash()) || m_knownBad.count(_b.verified.info.sha3Uncles());
             });
+
             for (auto& b: badVerifying)
             {
                 h256 const& h = b.blockData.size() != 0 ? b.verified.info.hash() : b.verified.info.sha3Uncles();
@@ -379,7 +412,7 @@ bool BlockQueue::doneDrain(h256s const& _bad)
     if (_bad.size())
     {
         // at least one of them was bad.
-        m_knownBad += _bad;
+        //m_knownBad += _bad;
         //cout << "bad size:" << _bad.size() << endl;
 
         for (h256 const& b : _bad) {

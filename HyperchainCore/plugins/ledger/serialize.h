@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -119,6 +119,7 @@ enum
         const bool fWrite = false;              \
         const bool fRead = false;               \
         unsigned int nSerSize = 0;              \
+        (void)(fGetSize); (void)(fWrite); (void)(fRead); (void)(nSerSize);  \
         ser_streamplaceholder s;                \
         s.nType = nType;                        \
         s.nVersion = nVersion;                  \
@@ -133,6 +134,7 @@ enum
         const bool fWrite = true;               \
         const bool fRead = false;               \
         unsigned int nSerSize = 0;              \
+        (void)(fGetSize); (void)(fWrite); (void)(fRead); (void)(nSerSize);  \
         {statements}                            \
     }                                           \
     template<typename Stream>                   \
@@ -143,6 +145,7 @@ enum
         const bool fWrite = false;              \
         const bool fRead = true;                \
         unsigned int nSerSize = 0;              \
+        (void)(fGetSize); (void)(fWrite); (void)(fRead); (void)(nSerSize);  \
         {statements}                            \
     }
 

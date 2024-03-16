@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -91,6 +91,9 @@ DEALINGS IN THE SOFTWARE.
 #define HYPERBLOCK_SYNC_TIMES			(2)
 #define REQUEST_ID_LEN					(32)
 #define MATURITY_TIME					(10 * 60)
+
+#define UNUSED(x)                       (void)(x)
+
 
 enum _ePoeReqState
 {
@@ -422,6 +425,43 @@ typedef struct _tNodeInfo
 
 
 
+//HC: Linux下静态库(如：hyperchainspace)中定义的全局变量，当libparacoin.so libaleth.so等动态库被hc进程加载后会被重新初始化
+//HC：导致不同模块中全局变量不同
+//HC: 即使已经把hyperchainspace在Linux下调整为动态库了，保险起见，仍然改为下面方式
+class MainProgramArgs {
+
+public:
+
+using MAPARGS = std::map<std::string, std::string>;
+using MAPMULTIARGS = std::map<std::string, std::vector<std::string>>;
+
+    MainProgramArgs() {}
+
+    MainProgramArgs(const MainProgramArgs&) = delete;
+    MainProgramArgs& operator=(const MainProgramArgs&) = delete;
+
+    ~MainProgramArgs() {}
+
+    MAPARGS& hcArgs() {
+        return mapHCArgs;
+    };
+
+    MAPMULTIARGS& hcMultiArgs()
+    {
+        return mapHCMultiArgs;
+    }
+
+private:
+    MAPARGS mapHCArgs;
+    MAPMULTIARGS mapHCMultiArgs;
+};
+
+
+#define HC_MAIN_PROGRAM_ARGS    \
+    MainProgramArgs* mpargs = Singleton<MainProgramArgs>::instance();\
+    auto &mapHCArgs = mpargs->hcArgs();\
+    auto &mapHCMultiArgs = mpargs->hcMultiArgs(); \
+    UNUSED(mapHCArgs); UNUSED(mapHCMultiArgs);
 
 
 

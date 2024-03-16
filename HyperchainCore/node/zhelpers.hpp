@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -365,6 +365,17 @@ std::string time2string()
 {
     return time2string(time(nullptr));
 }
+
+//"%Y-%m-%d %H:%M:%S"
+inline static std::string time2stringf(const char* format)
+{
+    std::time_t now = std::time(nullptr);
+
+    char buffer[64] = {0};
+    std::strftime(buffer, sizeof(buffer), format, std::localtime(&now));
+    return string(buffer);
+}
+
 
 inline static void
 s_console(const char *format, ...)

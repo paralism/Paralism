@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -236,12 +236,12 @@ int64 GetAdjustedTime();
 void AddTimeData(unsigned int ip, int64 nTime);
 std::string FormatFullVersion();
 
-extern string GetHyperChainDataDir();
+extern string GetHyperChainDataDirInApp();
 
 class CApplicationSettings{
 public:
     CApplicationSettings()  {
-        _configfile = GetHyperChainDataDir();
+        _configfile = GetHyperChainDataDirInApp();
         _configfile += "/";
         _configfile += "hc.ini";
     }

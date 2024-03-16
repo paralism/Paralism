@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -22,8 +22,8 @@ DEALINGS IN THE SOFTWARE.
 
 #include "newLog.h"
 
-extern "C" std::shared_ptr<spdlog::logger> g_daily_logger = nullptr;
-extern "C" std::shared_ptr<spdlog::logger> g_basic_logger = nullptr;
-extern "C" std::shared_ptr<spdlog::logger> g_rotating_logger = nullptr;
-extern "C" std::shared_ptr<spdlog::logger> g_console_logger = nullptr;
-extern "C" std::shared_ptr<spdlog::logger> g_consensus_console_logger = nullptr;
+std::shared_ptr<spdlog::logger> g_daily_logger = nullptr;
+std::shared_ptr<spdlog::logger> g_basic_logger = nullptr;
+std::shared_ptr<spdlog::logger> g_rotating_logger = nullptr;
+std::shared_ptr<spdlog::logger> g_console_logger = nullptr;
+std::shared_ptr<spdlog::logger> g_consensus_console_logger = nullptr;

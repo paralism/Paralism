@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -55,7 +55,6 @@ extern bool BlockUUIDCb(string& payload, string& uuidpayload);
 extern bool GetVPath(T_LOCALBLOCKADDRESS& sAddr, T_LOCALBLOCKADDRESS& eAddr, vector<string>& vecVPath);
 extern bool GetNeighborNodes(list<string>& listNodes);
 
-extern void ThreadRSyncGetBlock(void* parg);
 extern void ThreadGetNeighbourChkBlockInfo(void* parg);
 
 extern void StartRPCServer();
@@ -77,7 +76,7 @@ bool fExit = true;
 
 extern map<uint256, CBlockIndex*> mapBlockIndex;
 
-string GetHyperChainDataDir()
+string GetHyperChainDataDirInApp()
 {
     string datapath;
     boost::filesystem::path pathDataDir;
@@ -108,7 +107,7 @@ string GetHyperChainDataDir()
 
 string CreateChildDir(const string& childdir)
 {
-    string log_path = GetHyperChainDataDir();
+    string log_path = GetHyperChainDataDirInApp();
     boost::filesystem::path logpath(log_path);
     logpath /= childdir;
     if (!boost::filesystem::exists(logpath)) {
@@ -132,9 +131,14 @@ string GetLockFile()
 
 static std::shared_ptr<boost::interprocess::file_lock> g_pLock;
 
-void StopApplication()
+void StopApplication(bool isFirst)
 {
-    g_sys_interrupted = 1;
+    if (isFirst) {
+        fShutdown = true;
+        return;
+    }
+
+    fShutdown = true;
     Shutdown(nullptr);
 }
 
@@ -152,6 +156,9 @@ void ShutdownExcludeRPCServer()
         consensuseng->UnregisterAppCallback(T_APPTYPE(APPTYPE::ledger,
             g_cryptoToken.GetHID(), g_cryptoToken.GetChainNum(), g_cryptoToken.GetLocalID()));
     }
+
+    //HC: 模块unregistered后，才能stop MQ
+    g_sys_interrupted = 1;
 
     if (g_pLock) {
         g_pLock->unlock();
@@ -194,6 +201,9 @@ void Shutdown(void* parg)
         consensuseng->UnregisterAppCallback(T_APPTYPE(APPTYPE::ledger,
             g_cryptoToken.GetHID(), g_cryptoToken.GetChainNum(), g_cryptoToken.GetLocalID()));
     }
+
+    //HC: 模块unregistered后，才能stop MQ
+    g_sys_interrupted = 1;
 
     if (g_pLock) {
         g_pLock->unlock();
@@ -687,7 +697,6 @@ bool AppInit2(int argc, char* argv[])
         StartRPCServer();
     }
 
-    CreateThread(ThreadRSyncGetBlock, NULL);
     CreateThread(ThreadGetNeighbourChkBlockInfo, NULL);
 
     return true;

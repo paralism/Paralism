@@ -188,24 +188,24 @@ private:
 
     h256 m_parentHash;
     h256 m_sha3Uncles;
-    h256 m_stateRoot;
+    h256 m_stateRoot;               //HCE: The world state after the transaction is executed
     h256 m_transactionsRoot;
     h256 m_receiptsRoot;
     LogBloom m_logBloom;
 
-        int64_t m_number = 0;
+    int64_t m_number = 0;
 
     u256 m_gasLimit;
     u256 m_gasUsed;
     bytes m_extraData;
     int64_t m_timestamp = -1;
 
-	    Address m_author;
+    Address m_author;
     u256 m_difficulty;
 
     std::vector<bytes> m_seal;		///< Additional (RLP-encoded) header fields.
 
-        uint32_t m_prevHID;
+    uint32_t m_prevHID;
     h256 m_prevHyperBlockHash;
 
     mutable Mutex m_sealLock;

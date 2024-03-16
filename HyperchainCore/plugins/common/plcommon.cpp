@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -34,16 +34,19 @@ using namespace std;
 
 #include <boost/config.hpp>
 
-LOGLEVEL floglevel = LOGLEVEL::L_ERROR;
+LOGLEVEL floglevel = LOGLEVEL::L_CRITICAL;
 
 char log_prefix_t[] = "TRACE";
 char log_prefix_d[] = "DEBUG";
 char log_prefix_i[] = "INFO";
 char log_prefix_e[] = "ERROR";
+char log_prefix_cr[] = "CRITICAL";
 char log_prefix_w[] = "WARNING";
 
 char log_prefix_bt[] = "Bt";        //HCE: backtracking
 char log_prefix_btf[] = "BtfNode";  //HCE: backtracking from node
+
+char log_prefix_cp[] = "CostParse";  //HCE: backtracking from node
 
 
 
@@ -92,6 +95,9 @@ extern bool fPrintBacktracking;
 extern bool fPrintBacktracking_node;
 extern std::string strBacktracking_node;
 
+extern bool fPrintCostParse;
+
+
 
 
 void LogBacktracking(const char* format, ...)
@@ -110,6 +116,7 @@ static map<LOGLEVEL, string> mapll = {
     {LOGLEVEL::L_INFO, log_prefix_i },
     {LOGLEVEL::L_WARNING, log_prefix_w},
     {LOGLEVEL::L_ERROR, log_prefix_e},
+    {LOGLEVEL::L_CRITICAL, log_prefix_cr},
 };
 
 static map<string, LOGLEVEL> mapstrll = {
@@ -119,6 +126,7 @@ static map<string, LOGLEVEL> mapstrll = {
         {"info", LOGLEVEL::L_INFO},
         {"warn", LOGLEVEL::L_WARNING},
         {"err", LOGLEVEL::L_ERROR},
+        {"cr", LOGLEVEL::L_CRITICAL},
 };
 
 
@@ -136,7 +144,9 @@ bool TurnOnOffDebugOutput(const string & onoff, string & ret)
         auto ch = std::tolower(c);
         optiononoff.append(1, ch);
     }
-    optionset.insert(optiononoff);
+
+    if(!optiononoff.empty())
+        optionset.insert(optiononoff);
 
     for (auto& ll : mapstrll) {
         if (optionset.count(ll.first)) {
@@ -174,6 +184,12 @@ bool TurnOnOffDebugOutput(const string & onoff, string & ret)
             fPrintBacktracking_node = true;
             strBacktracking_node = option.substr(3);
         }
+        else if (option == "cp") {
+            fPrintCostParse = true;
+        }
+        else if (option == "nocp") {
+            fPrintCostParse = false;
+        }
         else if (option == "nogrep") {
             fPrintgrep = false;
             vecgreps.clear();
@@ -209,6 +225,10 @@ bool TurnOnOffDebugOutput(const string & onoff, string & ret)
         optiononoff = "file";
     }
 
+    if (fPrintCostParse) {
+        optiononoff += "(costparsing)";
+    }
+
     if (fPrintBacktracking) {
         optiononoff += "(backtracking)";
     }
@@ -227,6 +247,16 @@ bool TurnOnOffDebugOutput(const string & onoff, string & ret)
         mdname,
         optiononoff.c_str(), mapll[floglevel].c_str(),
         fPrintgrep, strgreps.c_str() );
+
+    if (optionset.size() == 0) {
+        ret += strprintf("\nUsage: debug %s [option...]\n"
+            "\tOutput target : con/file/both/off\n "
+            "\tLog level: cr/err/warn/info/debug/trace\n"
+            "\tBack tracing: bt/bt:FROMNODEID/nobt\n"
+            "\tCost parse: cp/nocp\n"
+            "\tFilter: grep:PATTERN/nogrep\n",
+            mdname);
+    }
 
     return true;
 }

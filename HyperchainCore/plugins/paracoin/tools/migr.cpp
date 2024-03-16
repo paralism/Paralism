@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -743,46 +743,6 @@ private:
     vector<CDataStream> m_databuf;
 };
 
-class CBlockTripleAddressDBV72 : public CBlockTripleAddressDB
-{
-public:
-    using CBlockTripleAddressDB::CBlockTripleAddressDB;
-
-public:
-    bool LoadBlockTripleAddress(map<uint256, BLOCKTRIPLEADDRESSV72>& mapTriAddr)
-    {
-        return Load("triaddr", [&](CDataStream& ssKey, CDataStream& ssValue) -> bool {
-
-            BLOCKTRIPLEADDRESSV72 blocktripleaddr;
-            ssValue >> blocktripleaddr;
-            uint256 hash;
-            ssKey >> hash;
-            mapTriAddr.insert({ hash, blocktripleaddr });
-            return true;
-            });
-    }
-};
-
-class COrphanBlockTripleAddressDBV72 : public COrphanBlockTripleAddressDB
-{
-public:
-    using COrphanBlockTripleAddressDB::COrphanBlockTripleAddressDB;
-
-public:
-    bool LoadBlockTripleAddress(map<uint256, BLOCKTRIPLEADDRESSV72>& mapTriAddr)
-    {
-        return Load("triaddr", [&](CDataStream& ssKey, CDataStream& ssValue) -> bool {
-
-            BLOCKTRIPLEADDRESSV72 blocktripleaddr;
-            ssValue >> blocktripleaddr;
-            uint256 hash;
-            ssKey >> hash;
-            mapTriAddr.insert({ hash, blocktripleaddr });
-            return true;
-            });
-    }
-};
-
 
 void testbulkwrite(const char* filename)
 {
@@ -1160,29 +1120,7 @@ int main(int argc, char* argv[])
             continue;
         }
 
-
         if (sInput == "3") {
-            CBlockTripleAddressDB btadb("cr+");
-
-            cout << "Please input MaxHID: ";
-            getline(std::istream(cin.rdbuf()), sInput);
-
-            uint32 maxhidInDB = std::atoi(sInput.c_str());
-            bool ret = btadb.WriteMaxHID(maxhidInDB);
-            cout << "Write Max HID: " << ret << endl;
-            continue;
-        }
-
-        if (sInput == "4") {
-            CBlockTripleAddressDB btadb("cr+");
-
-            uint32 maxhidInDB = 0;
-            btadb.ReadMaxHID(maxhidInDB);
-            cout << "Max HID is: " << maxhidInDB << endl;
-            continue;
-        }
-
-        if (sInput == "5") {
             char* filename = "testmigr.dat";
             testbulkwrite(filename);
             CMgrTxDB_Tool txdb("r", filename);

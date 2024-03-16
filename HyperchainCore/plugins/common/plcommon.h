@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -23,6 +23,8 @@ SOFTWARE.
 */
 #pragma once
 
+#include "util/hex.hpp"
+
 #include <cstdarg>
 #include <string>
 #include <vector>
@@ -30,20 +32,6 @@ SOFTWARE.
 std::string strprintf(const char* fmt, ...);
 std::string currentTime();
 int64_t currentMillisecond();
-
-template<class Container>
-std::string ToHexString(const Container& container)
-{
-    std::string rs;
-    rs.resize(container.size() * 2);
-
-    char* p = &rs[0];
-    for (unsigned char c : container) {
-        sprintf(p, "%02x", c);
-        p += 2;
-    }
-    return  rs;
-}
 
 //////////////////////////////////////////////////////////////////////////
 /// log
@@ -102,6 +90,7 @@ enum class LOGLEVEL : char
     L_INFO,
     L_WARNING,
     L_ERROR,
+    L_CRITICAL,
     L_NONE,
 };
 
@@ -110,7 +99,9 @@ extern char log_prefix_t[];
 extern char log_prefix_d[];
 extern char log_prefix_i[];
 extern char log_prefix_e[];
+extern char log_prefix_cr[];
 extern char log_prefix_w[];
+extern char log_prefix_cp[];
 extern char mdname[]; //module name
 
 extern bool fPrintToConsole;
@@ -149,12 +140,22 @@ inline bool canDump()
     (canDump() && floglevel <= LOGLEVEL::L_ERROR) ? \
         log_output<log_prefix_e, false>(__formatex(fmt), ##__VA_ARGS__) : false
 
+#define CRITICAL_FL(fmt, ...) \
+    (canDump() && floglevel <= LOGLEVEL::L_CRITICAL) ? \
+        log_output<log_prefix_cr, false>(__formatex(fmt), ##__VA_ARGS__) : false
+
 #define LogRequestFromNode(fromnode, fmt, ...) \
-    if(fPrintBacktracking_node && fromnode == strBacktracking_node) { \
+    if(fPrintBacktracking_node && fromnode == strBacktracking_node && canDump()) { \
         LogBacktracking(__formatex(fmt), ##__VA_ARGS__); \
     }
 
 #define LogRequest(fmt, ...) \
-    if(fPrintBacktracking) { \
+    if(fPrintBacktracking && canDump()) { \
         LogBacktracking(__formatex(fmt), ##__VA_ARGS__); \
     }
+
+#define LogCostParse(fmt, ...) \
+    if(fPrintCostParse && canDump()) { \
+        log_output<log_prefix_cp, true>(__formatex(fmt), ##__VA_ARGS__); \
+    }
+

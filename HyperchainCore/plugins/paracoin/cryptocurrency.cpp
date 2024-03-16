@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -198,7 +198,7 @@ string CryptoCurrency::GetCurrencyConfigFile(const string& shorthash)
     pathConfig.append(relpath);
 
     if (!pathConfig.is_complete())
-        pathConfig = fs::path(GetHyperChainDataDir()) / pathConfig / "coin.ini";
+        pathConfig = fs::path(GetHyperChainDataDirInApp()) / pathConfig / "coin.ini";
     return pathConfig.string();
 }
 
@@ -211,7 +211,7 @@ string CryptoCurrency::GetCurrencyConfigFile()
     pathConfig.append(relpath);
 
     if (!pathConfig.is_complete())
-        pathConfig = fs::path(GetHyperChainDataDir()) / pathConfig / "coin.ini";
+        pathConfig = fs::path(GetHyperChainDataDirInApp()) / pathConfig / "coin.ini";
     return pathConfig.string();
 }
 
@@ -312,7 +312,7 @@ bool CryptoCurrency::ReadCoinFile(const string& name, string& shorthash, string&
         return true;
     }
 
-    fs::directory_iterator item_begin(GetHyperChainDataDir());
+    fs::directory_iterator item_begin(GetHyperChainDataDirInApp());
     fs::directory_iterator item_end;
 
     for (; item_begin != item_end; item_begin++) {
@@ -360,7 +360,7 @@ bool CryptoCurrency::GetAllCoins(vector<CryptoCurrency>& coins)
     namespace fs = boost::filesystem;
     namespace pod = boost::program_options::detail;
 
-    fs::directory_iterator item_begin(GetHyperChainDataDir());
+    fs::directory_iterator item_begin(GetHyperChainDataDirInApp());
     fs::directory_iterator item_end;
 
     std::list<string> listPath;
@@ -385,7 +385,7 @@ bool CryptoCurrency::SearchCoinByTriple(uint32_t hid, uint16 chainnum, uint16 lo
     namespace fs = boost::filesystem;
     namespace pod = boost::program_options::detail;
 
-    fs::directory_iterator item_begin(GetHyperChainDataDir());
+    fs::directory_iterator item_begin(GetHyperChainDataDirInApp());
     fs::directory_iterator item_end;
 
     std::list<string> listPath;
@@ -413,7 +413,7 @@ bool CryptoCurrency::SearchCoinByName(const string& coinname, string& coinshorth
     namespace fs = boost::filesystem;
     namespace pod = boost::program_options::detail;
 
-    fs::directory_iterator item_begin(GetHyperChainDataDir());
+    fs::directory_iterator item_begin(GetHyperChainDataDirInApp());
     fs::directory_iterator item_end;
 
     std::list<string> listPath;

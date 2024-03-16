@@ -100,13 +100,15 @@ pair<bool, Secret> SimpleAccountHolder::authenticate(dev::eth::TransactionSkelet
 			locked = false;
 	}
 	
-	if (locked && m_getAuthorisation)
-	{
-		if (m_getAuthorisation(_t, isProxyAccount(_t.from)))
-			locked = false;
-		else
-			BOOST_THROW_EXCEPTION(TransactionRefused());
-	}
+    //HC: don't let user input password by command line
+	//if (locked && m_getAuthorisation)
+	//{
+	//	if (m_getAuthorisation(_t, isProxyAccount(_t.from)))
+	//		locked = false;
+	//	else
+	//		BOOST_THROW_EXCEPTION(TransactionRefused());
+	//}
+
 	if (locked)
 		BOOST_THROW_EXCEPTION(AccountLocked());
 	if (isRealAccount(_t.from))

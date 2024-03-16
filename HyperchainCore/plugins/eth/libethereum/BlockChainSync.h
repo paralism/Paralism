@@ -24,6 +24,22 @@ class EthereumCapability;
 class BlockQueue;
 class EthereumPeer;
 
+//HC: Class which use to hook m_lastImportedBlock
+class MonitorLastImportedBlock
+{
+
+public:
+    MonitorLastImportedBlock(const unsigned &r) : m_lastImportedBlock(r) {
+    }
+    void set(unsigned i,const char* pszFunc, int nLine);
+
+    operator unsigned int() const {
+        return m_lastImportedBlock;
+    }
+    unsigned m_lastImportedBlock;
+};
+
+
 /**
  * @brief Base BlockChain synchronization strategy class.
  * Syncs to peers and keeps up to date. Base class handles blocks downloading but does not contain any details on state transfer logic.
@@ -152,7 +168,10 @@ private:
     std::map<NodeID, std::vector<unsigned>> m_bodySyncPeers;
     std::unordered_map<HeaderId, unsigned, HeaderIdHash> m_headerIdToNumber;
     bool m_haveCommonHeader = false;			///< True if common block for our and remote chain has been found
-    unsigned m_lastImportedBlock = 0; 			///< Last imported block number
+
+    unsigned m_lastImportedBlock = 0;                       ///< Last imported block number
+    //MonitorLastImportedBlock m_lastImportedBlock = 0;     ///< Last imported block number, hook m_lastImportedBlock's change
+
     h256 m_lastImportedBlockHash;				///< Last imported block hash
     u256 m_syncingTotalDifficulty;				///< Highest peer difficulty
 

@@ -16,7 +16,7 @@
 #include <memory>
 #include <thread>
 
-#include "utility/threadname.h"
+#include "util/threadname.h"
 #include "node/Singleton.h"
 #include "HyperChain/HyperChainSpace.h"
 
@@ -141,6 +141,9 @@ void Client::init(p2p::Host& _extNet, fs::path const& _dbPath,
     m_gp->update(bc());
 
     m_myHost = &_extNet;
+
+    //HC: evp2p网络栈中, capabilities 指的是节点所支持的网络协议或服务
+    //HC：EthereumCapability 对应eth协议,用于广播区块、交易等数据， WarpCapability: 对应warp协议,用于状态快照同步
     // create Ethereum capability only if we're not downloading the snapshot
     if (_snapshotDownloadPath.empty())
     {
@@ -479,17 +482,13 @@ void Client::syncBlockQueue()
 
     if (ir.liveBlocks.empty())
        return;
+
+    //HC：链发生了变化，切换或者延伸了，所以需要取出旧分支里的交易放入交易队列，重新上链
     onChainChanged(ir);
 }
 
 void Client::syncTransactionQueue()
 {
-    //HCE: Wait for chain switch completely, otherwise maybe cannot pass the following assert when call m_working.sync
-    //HCE: assert(_bc.currentHash() == m_currentBlock.parentHash());
-    //HCE:
-    if (m_chainIsSwitching) {
-        return;
-    }
 
     resyncStateFromChain();
 
@@ -582,6 +581,25 @@ void Client::resyncStateFromChain()
             return;
 
     restartMining();
+
+    // code debug
+    /*{
+        DEV_READ_GUARDED(x_working)
+            while (true) {
+                BlockChain const& bchain = bc();
+                BlockHeader const& workhead = m_working.info();
+                if (bchain.currentHash() != workhead.parentHash()) {
+                    stringstream ss;
+                    ss << std::this_thread::get_id();
+
+                    cout << StringFormat("resyncStateFromChain[%s]: bc().currentHash() != m_working.info().parentHash() [%d  %d]....... \n",
+                        ss.str(), bchain.number(), workhead.number());
+                    this_thread::sleep_for(chrono::seconds(3));
+                    continue;
+                }
+                break;
+            }
+    }*/
 }
 
 void Client::resetWorking() {
@@ -674,7 +692,9 @@ void Client::onChainChanged(ImportRoute const& _ir)
 {
 //  ctrace << "onChainChanged()";
     h256Hash changeds;
-    onDeadBlocks(_ir.deadBlocks, changeds);
+    onDeadBlocks(_ir.deadBlocks, changeds); //HC: 旧分支，准备重新提交到交易队列
+
+    //HC: 最优分支新引入的交易
     vector<h256> goodTransactions;
     goodTransactions.reserve(_ir.goodTransactions.size());
     for (auto const& t: _ir.goodTransactions)
@@ -686,6 +706,7 @@ void Client::onChainChanged(ImportRoute const& _ir)
     auto h = m_host.lock();
     if (h)
         h->removeSentTransactions(goodTransactions);
+
     onNewBlocks(_ir.liveBlocks, changeds);
     if (!isMajorSyncing())
         resyncStateFromChain();
@@ -740,7 +761,7 @@ void Client::rejigSealing()
                 if (m_working.isSealed())
                 {
                     auto& head = m_working.info();
-                    LOG(m_logger) << "Tried to seal sealed block: " 
+                    LOG(m_logger) << "Tried to seal sealed block: "
                         << head.number() << " "
                         << head.hash() << " "
                         << head.parentHash() << " "
@@ -775,6 +796,7 @@ void Client::rejigSealing()
                     }
                 });
                 ctrace << "Generating seal on " << m_sealingInfo.hash(WithoutSeal) << " #" << m_sealingInfo.number();
+                //HCE: Submit the block to the farm, let the miners calculate the hash
                 sealEngine()->generateSeal(m_sealingInfo);
             }
         }
@@ -782,7 +804,7 @@ void Client::rejigSealing()
             m_wouldButShouldnot = true;
     }
 
-    //HCE: Mining, Require Peer Count > 0 
+    //HCE: Mining, Require Peer Count > 0
     if (!m_wouldSeal || m_wouldSuspendSeal || (m_myHost && m_myHost->peerCount() == 0))
         sealEngine()->cancelGeneration();
 
@@ -828,7 +850,7 @@ void Client::doWork(bool _doWait)
     if (hyperchainspace && !hyperchainspace->IsLatestHyperBlockReady()) {
         if (tt.elapsed() > 15.0) {
             //HC: 间隔15秒输出一次
-            //HCE: The output interval is 15 seconds 
+            //HCE: The output interval is 15 seconds
             LOG(m_loggerDetail) << "Hyper chain layer is unready, do nothing...";
             tt.restart();
         }
@@ -1002,18 +1024,35 @@ bool Client::submitSealed(bytes const& _header)
     return m_bq.import(&newBlock, true) == ImportResult::Success;
 }
 
+void Client::resetWorkingInMainThread()
+{
+    executeInMainThread([=]() {
+        completeSync();
+        resetWorking();
+        });
+}
 
 void Client::rewindSyncNotReset(unsigned _n)
 {
-    m_chainIsSwitching = true;
     executeInMainThread([=]() {
-        bc().rewind(_n);
-        onChainChanged(ImportRoute());
+
+        ImportRoute r = bc().rewind(_n);
+
+        //交易重新上链
+        onChainChanged(r);
 
         resetWorking();
-        m_chainIsSwitching = false;
-        });
 
+        //DEV_READ_GUARDED(x_working)
+        //    if (bc().currentHash() != m_working.info().parentHash()) {
+        //        BlockHeader h = BlockHeader(bc().headerData(), BlockDataType::HeaderData);
+        //        LOG(m_logger) << "Client::rewindSyncNotReset:\n"
+        //            << h << "\n"
+        //            << m_working.info();
+        //        assert(false);
+        //    }
+
+        });
 }
 
 
@@ -1024,6 +1063,7 @@ void Client::rewind(unsigned _n)
         onChainChanged(ImportRoute());
     });
 
+    //HCE: wait for rewinding to complete
     for (unsigned i = 0; i < 10; ++i)
     {
         u256 n;
@@ -1051,6 +1091,11 @@ h256 Client::submitTransaction(TransactionSkeleton const& _t, Secret const& _sec
 {
     TransactionSkeleton ts = populateTransactionWithDefaults(_t);
     ts.from = toAddress(_secret);
+    if (ts.crosschain_recv) {
+        if (!ts.to) {
+            ts.to = dev::CrossChainRecvAndRewardDistributeAddress;
+        }
+    }
     Transaction t(ts, _secret);
     return importTransaction(t);
 }
@@ -1072,8 +1117,12 @@ h256 Client::importTransaction(Transaction const& _t)
         // Too low nonce is invalid for sure
         bigint const& req = *boost::get_error_info<errinfo_required>(e);
         bigint const& got = *boost::get_error_info<errinfo_got>(e);
-        if (req > got)
-            throw;
+
+        if (req > got) {
+            if (!_t.isCrossChainParaToEth() || got != 0) {
+                throw;
+            }
+        }
 
         // Checking against pending block doesn't take into account transactions from the same
         // sender, that are currently in Transaction Queue.
@@ -1086,15 +1135,15 @@ h256 Client::importTransaction(Transaction const& _t)
         case ImportResult::Success:
             break;
         case ImportResult::ZeroSignature:
-            BOOST_THROW_EXCEPTION(ZeroSignatureTransaction());
+            BOOST_THROW_EXCEPTION(ZeroSignatureTransaction() << errinfo_hash256((h256)_t.sha3()));
         case ImportResult::OverbidGasPrice:
-            BOOST_THROW_EXCEPTION(GasPriceTooLow());
+            BOOST_THROW_EXCEPTION(GasPriceTooLow() << errinfo_hash256((h256)_t.sha3()));
         case ImportResult::AlreadyKnown:
-            BOOST_THROW_EXCEPTION(PendingTransactionAlreadyExists());
+            BOOST_THROW_EXCEPTION(PendingTransactionAlreadyExists() << errinfo_hash256((h256)_t.sha3()));
         case ImportResult::AlreadyInChain:
-            BOOST_THROW_EXCEPTION(TransactionAlreadyInChain());
+            BOOST_THROW_EXCEPTION(TransactionAlreadyInChain() << errinfo_hash256((h256)_t.sha3()));
         default:
-            BOOST_THROW_EXCEPTION(UnknownTransactionValidationError());
+            BOOST_THROW_EXCEPTION(UnknownTransactionValidationError() << errinfo_hash256((h256)_t.sha3()));
     }
 
     return _t.sha3();
@@ -1148,3 +1197,35 @@ void Client::SyncfromPeers()
     if (auto h = m_host.lock())
         h->SyncfromPeers();
 }
+
+void Client::injectBlocks(std::vector<bytes> const& _blocks)
+{
+    executeInMainThread([=]() {
+
+        bool isNeedSync = false;
+        for (auto& blk : _blocks)
+        {
+            BlockHeader header(blk);
+
+            if (bc().isKnown(header.hash())) {
+                continue;
+            }
+
+            //auto ret = bc().attemptImport(blk, preSeal().db()).first;
+            auto ret = queueBlock(blk, true);
+            if (ret == ImportResult::Success) {
+                LOG(m_logger) << StringFormat("injectBlocks() : %d(%s) is accepted\n\n", header.number(), header.hash().hex());
+            }
+            else {
+                if (ret == ImportResult::UnknownParent)
+                    isNeedSync = true;
+                LOG(m_logger) << StringFormat("injectBlocks() : %d(%s) is rejected for %s\n\n", header.number(), header.hash().hex(), ToString(ret));
+            }
+        }
+        if (isNeedSync) {
+            SyncfromPeers();
+        }
+    });
+}
+
+

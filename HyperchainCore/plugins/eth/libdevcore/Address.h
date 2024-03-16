@@ -32,5 +32,7 @@ extern Address const MaxAddress;
 /// The SYSTEM address.
 extern Address const SystemAddress;
 
+/// Cross chain address
+extern Address const CrossChainRecvAndRewardDistributeAddress;
 }
 

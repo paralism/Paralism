@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -39,11 +39,13 @@ DEALINGS IN THE SOFTWARE.
 #include <db_cxx.h>
 
 class CTxIndex;
+class CCrossChainTxIndex;
 class CDiskBlockIndex;
 class CDiskTxPos;
 class COutPoint;
 class CAddress;
 class CWalletTx;
+class CEthCrossChainTx;
 class CWallet;
 class CAccount;
 class CAccountingEntry;
@@ -495,6 +497,10 @@ public:
     void operator=(const CTxDB&);
 
  public:
+
+    bool ReadTxIndex(const uint256& hash, CCrossChainTxIndex& txindex);
+    bool UpdateTxIndex(const uint256& hash, const CCrossChainTxIndex& txindex);
+
     bool ReadTxIndex(const uint256& hash, CTxIndex& txindex);
     bool UpdateTxIndex(const uint256& hash, const CTxIndex& txindex);
     bool AddTxIndex(const CTransaction& tx, const CDiskTxPos& pos, int nHeight);
@@ -563,6 +569,12 @@ public:
     inline bool ReadVersion(int& nVersion) { return _dbptr->ReadVersion(nVersion); }
     inline bool WriteVersion(int nVersion) { return _dbptr->WriteVersion(nVersion); }
     inline void Close() { _dbptr->Close(); }
+
+
+    //HC: cross-chain
+    inline bool ReadTxIndex(const uint256& hash, CCrossChainTxIndex& txindex) { return _dbptr->ReadTxIndex(hash, txindex); }
+    inline bool UpdateTxIndex(const uint256& hash, const CCrossChainTxIndex& txindex) { return _dbptr->UpdateTxIndex(hash, txindex); }
+
 
     inline bool ReadTxIndex(const uint256& hash, CTxIndex& txindex) { return _dbptr->ReadTxIndex(hash, txindex); }
     inline bool UpdateTxIndex(const uint256& hash, const CTxIndex& txindex) { return _dbptr->UpdateTxIndex(hash, txindex); }
@@ -711,80 +723,6 @@ private:
     boost::shared_ptr<CBlockDB> _dbptr;
 };
 
-class COrphanBlockDB : public CBlockDB
-{
-public:
-    COrphanBlockDB(const char* pszMode = "cr+") : CBlockDB(pszMode, "orphanblock.dat") { }
-private:
-    COrphanBlockDB(const COrphanBlockDB&);
-    void operator=(const COrphanBlockDB&);
-};
-
-
-extern thread_local boost::shared_ptr<COrphanBlockDB> tls_orphanblkdb_instance;
-
-class COrphanBlockDB_Wrapper
-{
-public:
-    COrphanBlockDB_Wrapper(const char* pszMode = "cr+")
-    {
-        if (tls_orphanblkdb_instance.get()) {
-            _dbptr = tls_orphanblkdb_instance;
-        }
-        else {
-            tls_orphanblkdb_instance.reset(new COrphanBlockDB(pszMode));
-            _dbptr = tls_orphanblkdb_instance;
-        }
-    }
-
-    ~COrphanBlockDB_Wrapper()
-    {
-    }
-
-    inline bool ReadBlock(const uint256& hash, CBlock& block) {
-        return _dbptr->ReadBlock(hash, block);
-    }
-
-    inline bool WriteBlock(const CBlock& block) {
-        return _dbptr->WriteBlock(block);
-    }
-
-    inline bool EraseBlock(uint256 hash)
-    {
-        return _dbptr->EraseBlock(hash);
-    }
-
-
-private:
-    boost::shared_ptr<COrphanBlockDB> _dbptr;
-};
-
-class CBlockTripleAddressDB : public CDB
-{
-public:
-    CBlockTripleAddressDB(const char* pszMode = "r+", const char* pszFile = "blocktripleaddress.dat") : CDB(pszFile, pszMode) {}
-
-private:
-    CBlockTripleAddressDB(const CBlockTripleAddressDB&);
-    void operator=(const CBlockTripleAddressDB&);
-public:
-    bool LoadBlockTripleAddress();
-
-    bool ReadMaxHID(uint32& maxhid);
-    bool WriteMaxHID(uint32 hid);
-
-    bool ReadBlockTripleAddress(const uint256& hash, BLOCKTRIPLEADDRESS& addr);
-    bool WriteBlockTripleAddress(const uint256& hash, const BLOCKTRIPLEADDRESS& addr);
-    bool EraseBlockTripleAddress(const uint256& hash);
-};
-
-class COrphanBlockTripleAddressDB : public CBlockTripleAddressDB
-{
-public:
-    COrphanBlockTripleAddressDB(const char* pszMode = "r+") : CBlockTripleAddressDB(pszMode, "orphanblocktripleaddr.dat") {}
-
-};
-
 
 class CAddrDB : public CDB
 {
@@ -869,6 +807,15 @@ public:
     {
         nWalletDBUpdated++;
         return Write(std::make_pair(std::string("tx"), hash), wtx);
+    }
+
+    bool ReadTx(uint256 hash, CEthCrossChainTx& tx) {
+        return Read(std::make_pair(std::string("etx"), hash), tx);
+    }
+
+    bool WriteTx(uint256 hash, const CEthCrossChainTx& tx) {
+        nWalletDBUpdated++;
+        return Write(std::make_pair(std::string("etx"), hash), tx);
     }
 
     bool EraseTx(uint256 hash)
@@ -1063,6 +1010,15 @@ public:
     inline bool WriteTx(uint256 hash, const CWalletTx& wtx) {
         return tls_walletdb_instance->WriteTx(hash, wtx);
     }
+
+    inline bool ReadTx(uint256 hash, CEthCrossChainTx& wtx) {
+        return tls_walletdb_instance->ReadTx(hash, wtx);
+    }
+
+    inline bool WriteTx(uint256 hash, const CEthCrossChainTx& wtx) {
+        return tls_walletdb_instance->WriteTx(hash, wtx);
+    }
+
 
     inline bool EraseTx(uint256 hash) {
         return tls_walletdb_instance->EraseTx(hash);

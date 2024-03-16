@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -56,7 +56,7 @@ enum _ep2pprotocoltype
     P2P_PROTOCOL_NAT_TRAVERSAL_RSP,
     P2P_PROTOCOL_GET_HYPERBLOCK_BY_NO_REQ,
     P2P_PROTOCOL_GET_HYPERBLOCK_BY_NO_RSP,
-    //Optimise consensus
+    //HCE: Optimise consensus
     P2P_PROTOCOL_ON_CHAIN_HASH,
     P2P_PROTOCOL_ON_CHAIN_HASH_RSP
 
@@ -318,7 +318,8 @@ typedef struct _tp2pprotocolonchainrsp
     uint64 uiHyperBlockNum;
     uint64  uiBlockCount;
     T_SHA256 tHyperBlockHash;
-    int8 strHash[DEF_STR_HASH256_LEN]; //HC: 备选链hash
+    int8 strHash[DEF_STR_HASH256_LEN];  //HC: 备选链hash
+                                        //HCE: hash of backup buddy
 
     _tp2pprotocolonchainrsp() {
         memset(strHash, 0, DEF_STR_HASH256_LEN);

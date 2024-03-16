@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -56,6 +56,14 @@ public:
 
     zmq::socket_t* getsocket() { return m_worker.get(); }
 
+    void accumWork() {
+        m_created_work++;
+    }
+
+    void accumWorkCompleted() {
+        m_completed_work++;
+    }
+
 private:
 
     void heartbeat();
@@ -78,5 +86,9 @@ private:
 
     //HCE: Return address, if any
     std::string m_reply_to;
+
+    int m_created_work = 0;
+    int m_completed_work = 0;
+    int m_next_request_work_at = 0;
 };
 

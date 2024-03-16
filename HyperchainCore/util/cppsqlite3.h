@@ -1,4 +1,4 @@
-﻿////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 // CppSQLite3 - A C++ wrapper around the SQLite3 embedded database library.
 //
 // Copyright (c) 2004..2007 Rob Groves. All Rights Reserved. rob.groves@btinternet.com
@@ -53,7 +53,7 @@ public:
 
     virtual ~CppSQLite3Exception();
 
-    const int errorCode() { return mnErrCode; }
+    int errorCode() { return mnErrCode; }
 
     const char* errorMessage() { return mpszErrMess; }
 

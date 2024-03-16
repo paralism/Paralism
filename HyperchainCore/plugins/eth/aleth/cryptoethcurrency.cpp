@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -59,7 +59,7 @@ extern bool CommitGenesisToConsensus(const bytes& block, string& requestid, stri
 extern std::map<std::string, std::string> mapArgs;
 
 
-extern string GetHyperChainDataDir();
+extern string GetHyperChainDataDirInApp();
 extern T_SHA256 to_T_SHA256(const h256& uhash);
 
 string CreateDataChildDir(const string& childdir)
@@ -76,7 +76,7 @@ string CreateDataChildDir(const string& childdir)
 
 
 CApplicationSettings::CApplicationSettings() {
-    _configfile = GetHyperChainDataDir();
+    _configfile = GetHyperChainDataDirInApp();
     _configfile += "/";
     _configfile += "hc.ini";
 }
@@ -110,46 +110,21 @@ string CurrencyConfigPath(const string& shorthash)
     return shorthash;
 }
 
-static std::map<uint32_t, time_t> mapPullingHyperBlock;
-static std::mutex cs_pullingHyperBlock;
 void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "")
 {
-    {
-        std::lock_guard l(cs_pullingHyperBlock);
-        time_t now = time(nullptr);
-        if (mapPullingHyperBlock.count(hid) == 0) {
-            mapPullingHyperBlock.insert({ hid, now });
-        } else {
-            if (now - mapPullingHyperBlock[hid] < 60) {
-                return;
-            } else {
-                mapPullingHyperBlock[hid] = now;
-            }
-        }
-        auto bg = mapPullingHyperBlock.begin();
-        for (; bg != mapPullingHyperBlock.end();) {
-            if (bg->second + 300 < now) {
-                bg = mapPullingHyperBlock.erase(bg);
-            } else {
-                ++bg;
-            }
-        }
+    CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
+    if (hyperchainspace) {
+        hyperchainspace->GetRemoteHyperBlockByID_UntilSuccess(hid, hid + 1,  nodeid);
     }
-    std::thread t([hid, nodeid]() {
-        CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
-        if (hyperchainspace) {
-            if (nodeid.empty()) {
-                hyperchainspace->GetRemoteHyperBlockByID(hid);
-                //INFO_FL("GetRemoteHyperBlockByID: %d", hid);
-            } else {
-                hyperchainspace->GetRemoteHyperBlockByID(hid, nodeid);
-                //INFO_FL("GetRemoteHyperBlockByID: %d, from node: %s", hid, nodeid.c_str());
-            }
-        }
-        });
-    t.detach();
 }
 
+void RSyncRemotePullHyperBlock(uint32_t starthid, uint32_t endhid, string nodeid = "")
+{
+    CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
+    if (hyperchainspace) {
+        hyperchainspace->GetRemoteHyperBlockByID_UntilSuccess(starthid, endhid, nodeid);
+    }
+}
 
 string CryptoEthCurrency::GetCurrencyConfigPath()
 {
@@ -446,7 +421,7 @@ bytes CryptoEthCurrency::ExtractBlock(const string& payload)
 
 std::string CryptoEthCurrency::MakePayload(const bytes& blk)
 {
-    RLPStream block(1); //HC：准备压入1个List
+    RLPStream block(1); //HC：准备压入带1个元素的List
     block.appendList(1)         << blk;
     const bytes &b = block.out();
     return string(b.begin(), b.end());
@@ -591,7 +566,7 @@ std::string CryptoEthCurrency::GetPanGuSettings()
             "timestamp" : "0x62EB346B",
             "parentHash" : "0x0000000000000000000000000000000000000000000000000000000000000000",
             "extraData" : "0x655741534d2074657374206e6574776f726b2030",
-            "gasLimit" : "0x989680",
+            "gasLimit" : "0x5F5E100",
             "previousHID" : 0,
             "previousHHash" : "0x7ba6ba2d20d407737d531cf2e8417b1567ddde85d6ba355145714166e9da3fe4"
           },
@@ -648,7 +623,7 @@ std::string CryptoEthCurrency::GetInformalNetSettings()
             "timestamp" : "0x62EB35BD",
             "parentHash" : "0x0000000000000000000000000000000000000000000000000000000000000000",
             "extraData" : "0x655741534d2074657374206e6574776f726b2030",
-            "gasLimit" : "0x989680",
+            "gasLimit" : "0x5F5E100",
             "previousHID" : 0,
             "previousHHash" : "0x7ba6ba2d20d407737d531cf2e8417b1567ddde85d6ba355145714166e9da3fe4"
           },

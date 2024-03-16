@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -35,13 +35,15 @@ using namespace std;
 #include <boost/archive/binary_oarchive.hpp>
 #include "UdpAccessPoint.hpp"
 
+static const char PingPongTaskVersion = 1; //HC: 节点增加属性信息： 所运行子链， 为了向后兼容加上版本号
+
 class PingPongWithGenBlockHHashRspTask : public ITask, public std::integral_constant<TASKTYPE, TASKTYPE::PING_PONG_WITH_GENHHASH_RSP>
 {
 public:
     using ITask::ITask;
 
     PingPongWithGenBlockHHashRspTask(const HCNodeSH& toNodeSH, const char* buf, size_t buflen) :
-        _toNodeSH(toNodeSH), _buf(buf, buflen) {}
+        _buf(buf, buflen), _toNodeSH(toNodeSH){}
     ~PingPongWithGenBlockHHashRspTask() {}
 
     void exec() override
@@ -57,6 +59,7 @@ public:
         string sBuf(_payload, _payloadlen);
         stringstream ssBuf(sBuf);
 
+        char version = 0;
         T_SHA256 genhhash;
         string localAPS;
         string toAPS;
@@ -64,11 +67,14 @@ public:
         CUInt128 toNodeID2;
         boost::archive::binary_iarchive ia(ssBuf, boost::archive::archive_flags::no_header);
         try {
-            ia >> genhhash;
-            ia >> localAPS;
-            ia >> toAPS;
-            ia >> toNodeID1;
-            ia >> toNodeID2;
+            ia >> version;
+            if (version & PingPongTaskVersion) {
+                ia >> genhhash;
+                ia >> localAPS;
+                ia >> toAPS;
+                ia >> toNodeID1;
+                ia >> toNodeID2;
+            }
         }
         catch (boost::archive::archive_exception &e) {
             g_console_logger->error("{} {}", __FUNCTION__, e.what());
@@ -83,17 +89,33 @@ public:
         NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
         NodeUPKeepThreadPool* nodeUpkeep = Singleton<NodeUPKeepThreadPool>::instance();
 
-        HCNodeSH nodeSH = make_shared<HCNode>(std::move(CUInt128(toNodeID2)));
-        nodeSH->parseAP(toAPS);
-        nodemgr->addNode(nodeSH);
+
+        HCNodeSH nodeSH;
+        HCNodeSH current_node_inmemory = nodemgr->getNode(toNodeID1);
+        if (current_node_inmemory) {
+            if (toNodeID1 != toNodeID2) {
+                //HC：创建新节点对象，替换旧的节点对象
+                nodeSH = make_shared<HCNode>(std::move(CUInt128(toNodeID2)));
+
+                //HC: 拷贝节点属性到新的节点对象
+                *nodeSH = std::move(*current_node_inmemory);
+                nodeSH->setNodeId(toNodeID2.ToHexString());
+
+                //HC:seed节点有2个nodeid，保留toNodeID2
+                nodemgr->GetKBuckets()->RemoveNode(toNodeID1);
+                nodemgr->RemoveFromNodeMap(toNodeID1);
+
+                nodemgr->addNode(nodeSH);
+            }
+        } else {
+            //HC：创建新节点对象
+            nodeSH = make_shared<HCNode>(std::move(CUInt128(toNodeID2)));
+            nodeSH->parseAP(toAPS);
+            nodemgr->addNode(nodeSH);
+        }
+
         nodemgr->EnableNodeActive(toNodeID2, true);
         nodeUpkeep->RemoveNodeFromPingList(toNodeID2);
-
-        //HC:seed节点有2个nodeid，保留toNodeID2
-        if (toNodeID1 != toNodeID2) {
-            nodemgr->GetKBuckets()->RemoveNode(toNodeID1);
-            nodemgr->RemoveFromNodeMap(toNodeID1);
-        }
     }
 
 private:
@@ -119,18 +141,18 @@ public:
         }
 
         NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
-        string strIP;
-        int nPort;
-        nodemgr->myself()->getUDPAP(strIP, nPort);
-        HCNodeSH localSH = make_shared<HCNode>(std::move(nodemgr->getMyNodeId<CUInt128>()));
-        localSH->addAP(std::make_shared<UdpAccessPoint>(nodemgr->GetLocalIP(), nPort));
+
+        HCNodeSH localSH = nodemgr->myself();
 
         for (auto& nodeSH : _vectNodeSH) {
             stringstream ssBuf;
             boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
             try {
+                oa << PingPongTaskVersion;
                 oa << genesis_block_header_hash;
                 oa << localSH->serializeAP();
+                oa << localSH->serializeLocalChains();
+
                 oa << nodeSH->serializeAP();
                 oa << nodeSH->getNodeId<CUInt128>();
             }
@@ -153,23 +175,30 @@ public:
         NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
         CUInt128 MyNodeID = nodemgr->getMyNodeId< CUInt128>();
 
+        char version = 0;
         T_SHA256 genhhash;
         string localAPS;
+        string localchains;
         string toAPS;
         CUInt128 toNodeID;
         boost::archive::binary_iarchive ia(ssBuf, boost::archive::archive_flags::no_header);
         boost::archive::binary_oarchive oa(outBuf, boost::archive::archive_flags::no_header);
         try {
-            ia >> genhhash;
-            ia >> localAPS;
-            ia >> toAPS;
-            ia >> toNodeID;
+            ia >> version;
+            if (version & PingPongTaskVersion) {
+                ia >> genhhash;
+                ia >> localAPS;
+                ia >> localchains;
+                ia >> toAPS;
+                ia >> toNodeID;
 
-            oa << genesis_block_header_hash;
-            oa << localAPS;
-            oa << toAPS;
-            oa << toNodeID;
-            oa << MyNodeID;
+                oa << PingPongTaskVersion;
+                oa << genesis_block_header_hash;
+                oa << localAPS;
+                oa << toAPS;
+                oa << toNodeID;
+                oa << MyNodeID;
+            }
         }
         catch (boost::archive::archive_exception& e) {
             g_console_logger->error("{} {}", __FUNCTION__, e.what());
@@ -185,6 +214,8 @@ public:
         HCNodeSH pubSH = nodemgr->getNode(_sentnodeid);
         if (pubSH) {
             strPubAPS = pubSH->serializeAP();
+            pubSH->parseLocalChains(localchains);      //HC：子链
+
             NodeUPKeepThreadPool* nodeUpkeep = Singleton<NodeUPKeepThreadPool>::instance();
             nodemgr->EnableNodeActive(_sentnodeid, true);   //HC: 记录到活跃桶里
             nodeUpkeep->RemoveNodeFromPingList(_sentnodeid);
@@ -195,8 +226,8 @@ public:
             //HC:该节点已经存在，只更新外网IP
             if (strPubAPS.compare(localAPS) != 0) {
                 nodemgr->mapBroadcastNodeAPS[_sentnodeid].strPubAPS = strPubAPS;
-                nodemgr->mapBroadcastNodeAPS[_sentnodeid].lasttime = time(nullptr);
             }
+            nodemgr->mapBroadcastNodeAPS[_sentnodeid].lasttime = time(nullptr);
         }
         else {
             struct stNodeAPS stTemp;
@@ -205,7 +236,7 @@ public:
             nodemgr->mapBroadcastNodeAPS[_sentnodeid] = stTemp;
         }
 
-        if (pubSH) {        
+        if (pubSH) {
             PingPongWithGenBlockHHashRspTask task(pubSH, outBuf.str().c_str(), outBuf.str().size());
             task.exec();
         }
@@ -237,7 +268,6 @@ public:
                     oa << itr->second.strLanAPS;
                     oa << itr->second.strPubAPS;
                     oa << itr->second.lasttime;
-
                 }
             }
             catch (boost::archive::archive_exception& e) {
@@ -286,7 +316,7 @@ public:
                 string strNodeId;
                 string strLanAPS;
                 string strPubAPS;
-                size_t lasttime;
+                int64_t lasttime;
                 ss >> strNodeId;
                 ss >> strLanAPS;
                 ss >> strPubAPS;
@@ -305,14 +335,12 @@ public:
                     struct stNodeAPS stTemp;
                     stTemp.strLanAPS = strLanAPS;
                     stTemp.strPubAPS = strPubAPS;
-                    stTemp.lasttime = lasttime;
                     nodemgr->mapBroadcastNodeAPS[nodeid] = stTemp;
                 }
             }
         }
         catch (boost::archive::archive_exception& e) {
             g_console_logger->error("{} {}", __FUNCTION__, e.what());
-            return;
         }
     }
 };

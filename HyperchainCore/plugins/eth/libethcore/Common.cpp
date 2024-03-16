@@ -173,5 +173,33 @@ string TransactionSkeleton::userReadable(bool _toProxy, function<pair<bool, stri
 		formatBalance(gas * gasPrice) + ".");
 }
 
+string ToString(ImportResult IR)
+{
+    switch (IR)
+    {
+    case ImportResult::Success:
+        return "Success";
+    case ImportResult::Malformed:
+        return "Malformed";
+    case ImportResult::BadChain:
+        return "BadChain";
+    case ImportResult::FutureTimeKnown:
+        return "FutureTimeKnown";
+    case ImportResult::AlreadyInChain:
+        return "AlreadyInChain";
+    case ImportResult::AlreadyKnown:
+        return "AlreadyKnown";
+    case ImportResult::FutureTimeUnknown:
+        return "FuturenTimeUnknown";
+    case ImportResult::UnknownParent:
+        return "UnknownParent";
+    case ImportResult::OverbidGasPrice:
+        return "OverbidGasPrice";
+    case ImportResult::ZeroSignature:
+        return "ZeroSignature";
+    }
+    return "Unknown";
+}
+
 }
 }

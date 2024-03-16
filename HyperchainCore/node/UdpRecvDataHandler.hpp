@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -40,6 +40,18 @@ public:
     {
         _isstopped = true;
         _dispatcher.stop();
+    }
+
+    bool putToMyself(const char* buf, size_t len)
+    {
+        if (_isstopped) {
+            return true;
+        }
+
+        auto taskbuf = std::make_shared<std::string>(buf, len);
+        _dispatcher.dispatch(taskbuf->c_str(), (int)taskbuf->size(), string(""), 0);
+
+        return true;
     }
 
     bool put(const char* ip, uint32_t port, const char *buf, size_t len)

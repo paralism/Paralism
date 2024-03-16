@@ -19,7 +19,7 @@ FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TOR
 OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 */
-
+#include "AppPlugins.h"
 #include "newLog.h"
 
 #include <cpprest/http_listener.h>
@@ -33,13 +33,13 @@ DEALINGS IN THE SOFTWARE.
 #include "../headers/inter_public.h"
 //#include "../headers/UUFile.h"
 #include "../HttpUnit/HttpUnit.h"
-#include "../wnd/common.h"
+#include "../util/common.h"
 #include "../consensus/buddyinfo.h"
 #include "../consensus/consensus_engine.h"
+#include "util/threadname.h"
 #include "../node/defer.h"
+
 #include "vm/vm.h"
-
-
 
 
 #ifdef WIN32
@@ -224,6 +224,199 @@ void CommandHandler::handle_get(http_request message)
                 http::status_code code;
                 vRet = api.MakeRegistration(data, code);
             }
+        }
+
+        else if (path[0] == _XPLATSTR("SwapPara2Eth")) {
+            auto cntEntryName = query.find(_XPLATSTR("name"));
+            if (cntEntryName == query.end()) {
+                BADPARAMETER(name);
+                return;
+            }
+
+            auto cntEntryFrom = query.find(_XPLATSTR("fromaccount"));
+            if (cntEntryFrom == query.end()) {
+                BADPARAMETER(fromaccount);
+                return;
+            }
+
+            auto cntEntryToChain = query.find(_XPLATSTR("tochain"));
+            if (cntEntryToChain == query.end()) {
+                BADPARAMETER(tochain);
+                return;
+            }
+
+            auto cntEntryAmount = query.find(_XPLATSTR("amount"));
+            if (cntEntryAmount == query.end()) {
+                BADPARAMETER(amount);
+                return;
+            }
+
+            std::string sName = tstringToUtf8(cntEntryName->second);
+            std::string sFrom = tstringToUtf8(cntEntryFrom->second);
+            std::string sToChain = tstringToUtf8(cntEntryToChain->second);
+            std::string sAmount = tstringToUtf8(cntEntryAmount->second);
+
+            std::string sToAdress;
+            auto cntEntryToAdress = query.find(_XPLATSTR("toaddress"));
+            if (cntEntryToAdress != query.end()) {
+                sToAdress = tstringToUtf8(cntEntryToAdress->second);
+            }
+
+            if (sFrom == "\"\"" || sFrom == "\'\'") {
+                sFrom = "";
+            }
+
+            ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::instance();
+            string result = consensuseng->Swap2Eth(sFrom, sToChain, sToAdress, sAmount, sName);
+            vRet = json::value::string(stringToTstring(result));
+        }
+
+        else if (path[0] == _XPLATSTR("SwapEth2Para")) {
+            auto cntEntryName = query.find(_XPLATSTR("name"));
+            if (cntEntryName == query.end()) {
+                BADPARAMETER(name);
+                return;
+            }
+
+            auto cntEntryFrom = query.find(_XPLATSTR("from"));
+            if (cntEntryFrom == query.end()) {
+                BADPARAMETER(from);
+                return;
+            }
+
+            auto cntEntryTo = query.find(_XPLATSTR("to"));
+            if (cntEntryTo == query.end()) {
+                BADPARAMETER(to);
+                return;
+            }
+
+            auto cntEntryAmount = query.find(_XPLATSTR("amount"));
+            if (cntEntryAmount == query.end()) {
+                BADPARAMETER(amount);
+                return;
+            }
+
+            std::string sName = tstringToUtf8(cntEntryName->second);
+            std::string sFrom = tstringToUtf8(cntEntryFrom->second);
+            std::string sTo = tstringToUtf8(cntEntryTo->second);
+            std::string sAmount = tstringToUtf8(cntEntryAmount->second);
+
+            ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::instance();
+            string result = consensuseng->Swap2Para(sFrom, sTo, sAmount, sName);
+            vRet = json::value::string(stringToTstring(result));
+        }
+
+        else if (path[0] == _XPLATSTR("SwapStatus")) {
+            std::string sTxno;
+            auto cntEntryTxno = query.find(_XPLATSTR("txno"));
+            if (cntEntryTxno != query.end())
+                sTxno = tstringToUtf8(cntEntryTxno->second);
+
+            ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::instance();
+            string result = consensuseng->Swap("status", sTxno, "");
+            vRet = json::value::string(stringToTstring(result));
+        }
+
+        else if (path[0] == _XPLATSTR("SwapList")) {
+            ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::instance();
+            string result = consensuseng->Swap("list", "", "");
+            vRet = json::value::string(stringToTstring(result));
+        }
+
+        else if (path[0] == _XPLATSTR("SwapImport")) {
+            std::string sTxhash;
+            auto cntEntryTxhash = query.find(_XPLATSTR("txhash"));
+            if (cntEntryTxhash != query.end())
+                sTxhash = tstringToUtf8(cntEntryTxhash->second);
+
+            ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::instance();
+            string result = consensuseng->Swap("import", sTxhash, "");
+            vRet = json::value::string(stringToTstring(result));
+        }
+
+        else if (path[0] == _XPLATSTR("SwapImportse")) {
+            std::string sTxhash;
+            auto cntEntryTxhash = query.find(_XPLATSTR("txhash"));
+            if (cntEntryTxhash != query.end())
+                sTxhash = tstringToUtf8(cntEntryTxhash->second);
+
+            ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::instance();
+            string result = consensuseng->Swap("importse", sTxhash, "");
+            vRet = json::value::string(stringToTstring(result));
+        }
+
+        else if (path[0] == _XPLATSTR("SwapRename")) {
+            auto cntEntryTxno = query.find(_XPLATSTR("txno"));
+            if (cntEntryTxno == query.end()) {
+                BADPARAMETER(txno);
+                return;
+            }
+
+            auto cntEntryNewname = query.find(_XPLATSTR("newname"));
+            if (cntEntryNewname == query.end()) {
+                BADPARAMETER(newname);
+                return;
+            }
+
+            std::string sTxno = tstringToUtf8(cntEntryTxno->second);
+            std::string sNewname = tstringToUtf8(cntEntryNewname->second);
+
+            ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::instance();
+            string result = consensuseng->Swap("rename", sTxno, sNewname);
+            vRet = json::value::string(stringToTstring(result));
+        }
+
+        else if (path[0] == _XPLATSTR("SwapDelete")) {
+            auto cntEntryTxno = query.find(_XPLATSTR("txno"));
+            if (cntEntryTxno == query.end()) {
+                BADPARAMETER(txno);
+                return;
+            }
+
+            std::string sTxno = tstringToUtf8(cntEntryTxno->second);
+
+            ConsensusEngine* consensuseng = Singleton<ConsensusEngine>::instance();
+            string result = consensuseng->Swap("delete", sTxno, "");
+            vRet = json::value::string(stringToTstring(result));
+        }
+
+        else if (path[0] == _XPLATSTR("GetChainAddress")) {
+            auto cntEntryHid = query.find(_XPLATSTR("hid"));
+            if (cntEntryHid == query.end()) {
+                BADPARAMETER(hid);
+                return;
+            }
+
+            auto cntEntryChainid = query.find(_XPLATSTR("chainid"));
+            if (cntEntryChainid == query.end()) {
+                BADPARAMETER(chainid);
+                return;
+            }
+
+            auto cntEntryLocalid = query.find(_XPLATSTR("localid"));
+            if (cntEntryLocalid == query.end()) {
+                BADPARAMETER(localid);
+                return;
+            }
+
+            auto cntEntryTargetHash = query.find(_XPLATSTR("targetgenesisblockhash"));
+            if (cntEntryTargetHash == query.end()) {
+                BADPARAMETER(targetgenesisblockhash);
+                return;
+            }
+            
+            map<string, string> mapparams;
+            mapparams["hid"] = tstringToUtf8(cntEntryHid->second);
+            mapparams["chainid"] = tstringToUtf8(cntEntryChainid->second);
+            mapparams["localid"] = tstringToUtf8(cntEntryLocalid->second);
+            mapparams["target_genesis_hash"] = tstringToUtf8(cntEntryTargetHash->second);
+
+            string result, strerr;
+            bool ret = AppPlugins::callFunction<bool>("paracoin", "getchainaddress", mapparams, result, strerr);
+            if (ret)
+                vRet = json::value::string(stringToTstring(result));
+            else
+                vRet = json::value::string(stringToTstring(strerr));
         }
 
         else if (path[0] == _XPLATSTR("GetHyperblocks")) {
@@ -1407,9 +1600,9 @@ json::value RestApi::getLocalchain(uint64_t hid, uint64_t chain_num)
     json::value LocalChain;
     int nRet = Singleton<DBmgr>::instance()->getLocalchain(hid, chain_num, blocks, chain_difficulty);
     if (nRet == 0) {
-        LocalChain[_XPLATSTR("chain_num")] = json::value::number(chain_num);	//HCE: subchain number
+        LocalChain[_XPLATSTR("chain_num")] = json::value::number(chain_num);	//HCE: solo chain number
         LocalChain[_XPLATSTR("blocks")] = json::value::number(blocks);			//HCE: Number of localblocks
-        LocalChain[_XPLATSTR("block_chain")] = json::value::string(_XPLATSTR("unknown")); //HCE: subchain type
+        LocalChain[_XPLATSTR("block_chain")] = json::value::string(_XPLATSTR("unknown")); //HCE: solo chain type
         LocalChain[_XPLATSTR("difficulty")] = json::value::number(chain_difficulty);	  //HCE: difficulty
         LocalChain[_XPLATSTR("consensus")] = json::value::string(_XPLATSTR("buddy"));	  //HCE: Consensus algorithm
     }
@@ -1844,7 +2037,13 @@ int RestApi::startRest(int nport)
 
     _isstop = false;
     m_threads.emplace_back(&RestApi::SubmitBatchRegistrationThread);
+    auto it = m_threads.rbegin();
+    hc::SetThreadName(&(*it), "RestApi::SubmitBatchRegistration");
+
     m_threads.emplace_back(&RestApi::RetrySubmitThread);
+    it = m_threads.rbegin();
+    hc::SetThreadName(&(*it), "RestApi::RetrySubmit");
+
 
     return 0;
 }

@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -32,6 +32,9 @@ DEALINGS IN THE SOFTWARE.
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 
+//HCE: Merge local block chain into global buddy chain
+//HCE: @para mapTotalHash Map of hash list
+//HCE: @returns True if success
 bool MergeToGlobalConsensus(map<int32, list<T_SHA256>>& mapTotalHash) {
     ConsensusEngine* pEng = Singleton<ConsensusEngine>::getInstance();
     T_P2PMANAGERSTATUS* pConsensusStatus = pEng->GetConsunsusState();
@@ -57,6 +60,9 @@ bool MergeToGlobalConsensus(map<int32, list<T_SHA256>>& mapTotalHash) {
     return bchange;
 }
 
+//HCE: Resolve T_P2PPROTOCOLGLOBALBUDDYHEADER header
+//HCE: @para pProtocolHeader Pointer to T_P2PPROTOCOLGLOBALBUDDYHEADER data
+//HCE: @returns True if success
 bool ResolveProtocolHeader(const CUInt128& nodeid, T_P2PPROTOCOLGLOBALBUDDYHEADER* pProtocolHeader) {
     ConsensusEngine* pEng = Singleton<ConsensusEngine>::getInstance();
     T_P2PMANAGERSTATUS* pConsensusStatus = pEng->GetConsunsusState();
@@ -79,7 +85,11 @@ bool ResolveProtocolHeader(const CUInt128& nodeid, T_P2PPROTOCOLGLOBALBUDDYHEADE
     return false;
 }
 
-
+//HCE: Resolve T_P2PPROTOCOLGLOBALBUDDYHEADER data
+//HCE: @para pProtocolHeader Pointer to T_P2PPROTOCOLGLOBALBUDDYHEADER data
+//HCE: @para pmapTotalHash Pointer to map of hash list
+//HCE: @para pLackHashList Pointer to list of hash
+//HCE: @returns True if success
 bool ResolveGlobalBuddy(const CUInt128& nodeid, T_P2PPROTOCOLGLOBALBUDDYHEADER* pProtocolHeader, map<int32, list<T_SHA256>>* pmapTotalHash, list<T_SHA256>* pLackHashList) {
     ConsensusEngine* pEng = Singleton<ConsensusEngine>::getInstance();
     T_P2PMANAGERSTATUS* pConsensusStatus = pEng->GetConsunsusState();
@@ -104,6 +114,7 @@ bool ResolveGlobalBuddy(const CUInt128& nodeid, T_P2PPROTOCOLGLOBALBUDDYHEADER* 
                     listChainHash.emplace_back(BlockHash);
 
                     //HC:根据BLOCKHASH检查缺少的BLOCK数据
+                    //HCE: Check the lack block from BlockHash
                     auto r = pConsensusStatus->mapLocalConsensus.find(BlockHash);
                     if (r == pConsensusStatus->mapLocalConsensus.end()) {
                         pLackHashList->emplace_back(BlockHash);
@@ -122,9 +133,14 @@ bool ResolveGlobalBuddy(const CUInt128& nodeid, T_P2PPROTOCOLGLOBALBUDDYHEADER* 
     return false;
 }
 
-
+//HCE: Response to receive listGlobalBuddyChainInfo message 
+//HCE: @para sendnode Sendnode ID
+//HCE: @para _buf Buffer of message data
+//HCE: @para _buflenth Size of message data
+//HCE: @returns void
 void GlobalSendRsp(const CUInt128 sendnode, const char* _buf, uint64 _buflenth) {
     //HC:接收到listGlobalBuddyChainInfo（仅包含块HASH值）信息后的处理
+    //HCE: Response to receive listGlobalBuddyChainInfo message 
     ConsensusEngine* pEng = Singleton<ConsensusEngine>::getInstance();
     T_P2PMANAGERSTATUS* pConsensusStatus = pEng->GetConsunsusState();
 
@@ -144,24 +160,32 @@ void GlobalSendRsp(const CUInt128 sendnode, const char* _buf, uint64 _buflenth) 
     }
 
     //HC:检查hyperblockhash
+    //HCE: Check hyper block hash
     T_SHA256 hyperblockhash = pConsensusStatus->GetConsensusPreHyperBlockHash();
     if (globalBuddyHeader.uiHyperBlockHash != hyperblockhash) {
-        g_consensus_console_logger->warn("GlobalBuddyReq is refused for different hyper block hash");
+        g_consensus_console_logger->info(StringFormat("GlobalBuddyReq is refused for different hyper block hash: (%d)%s %s",
+            globalBuddyHeader.GetBlockCount(),
+            globalBuddyHeader.uiHyperBlockHash.toHexString(),
+            hyperblockhash.toHexString()));
+
         return;
     };
 
-    //HC:检查是否是最新buddy信息
+    //HC: 检查是否是最新buddy信息
+    //HCE: Check if it is the lastest buddy
     CUInt128 nodeid = globalBuddyHeader.GetPeerAddr().GetNodeid();
     T_P2PPROTOCOLGLOBALBUDDYHEADER mapBuddyHeader;
     if (ResolveProtocolHeader(nodeid, &mapBuddyHeader))
     {
         if (mapBuddyHeader.tType.GetTimeStamp() >= globalBuddyHeader.tType.GetTimeStamp()) {
-            //HC:old buddy信息，不处理
+            //HC: old buddy信息，不处理
+            //HCE: old buddy, return
             return;
         }
     }
 
-    //HC:用当前buddy信息替换
+    //HC: 用当前buddy信息替换
+    //HCE: replace with current buddy 
     T_PEERADDRESS peerAddrOut(nodeid);
     T_BUDDYINFO buddyinfo;
     buddyinfo.Set(RECV_REQ, _buflenth, _buf, peerAddrOut);
@@ -170,7 +194,8 @@ void GlobalSendRsp(const CUInt128 sendnode, const char* _buf, uint64 _buflenth) 
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();
     HCNodeSH me = nodemgr->myself();
 
-    //HC:仅每一个子链上的最后一个节点进行合并处理
+    //HC: 仅每一个子链上的最后一个节点进行合并处理
+    //HCE: only the end node in each solo chain handles the message
     bool isEndNodeBuddyChain = pEng->IsEndNode();
     if (isEndNodeBuddyChain) {
         T_P2PPROTOCOLGLOBALBUDDYHEADER protocolheader;
@@ -182,6 +207,8 @@ void GlobalSendRsp(const CUInt128 sendnode, const char* _buf, uint64 _buflenth) 
             if (listLackHash.size() > 0) {
                 //HC:缺少BLOCK数据，向发送方请求
                 //HC:如果在邻居节点中，直接发送，否则发送到发送方转发
+                //HCE: be lack of block data and send request to send node
+                //HCE: If the node is in active KBuckets, send request directly;otherwise send request to send node
                 if (nodemgr->IsNodeInKBuckets(nodeid)) {
                     GlobalBuddyHashBlockTask task(memode, nodeid, nodeid, listLackHash);
                     task.exec();
@@ -194,40 +221,51 @@ void GlobalSendRsp(const CUInt128 sendnode, const char* _buf, uint64 _buflenth) 
             }
             else {
                 //HC:不缺少BLOCK数据，则将合并后的listGlobalBuddyChaininfo发送给对方
+                //HCE: never lack of block data,then send merged listGlobalBuddyChaininfo to send node
                 if (MergeToGlobalConsensus(mapTotalHash)) {
-                    //合并后有变化
+                    //HC: 合并后有变化
+                    //HCE: There are some changes after merge
                     GlobalBuddyHashRspTask task(memode, sendnode, nodeid);
                     task.exec();
                 }
                 //HC:删除已经发送的buddyinfo
+                //HCE: delete buddy already sent
                 pConsensusStatus->mapGlobalBuddyInfo.erase(nodeid);
             }
         }
     }
     else {
         //HC:不是最后一个节点，将数据传给共识队列listLocalBuddyChainInfo的最后一个节点
-        //HC: forward chain data to last node in chain
+        //HCE: forward chain data to last node in chain
         if (pConsensusStatus->listLocalBuddyChainInfo.size() < 2) {
             return;
         }
 
         //HC:仅listLocalBuddyChainInfo上的节点转发，减少转发数据
-
         //HC:listLocalBuddyChainInfo上的最后一个节点
+        //HCE: only the node in listLocalBuddyChainInfo forwards the message in order to reduce the forward data
+        //HCE: the end node in listLocalBuddyChainInfo
         auto endItr = pConsensusStatus->listLocalBuddyChainInfo.end();
         endItr--;
 
         //HC:检查是否向自己发送
+        //HCE: Check if send to itself
         if (endItr->GetPeer().GetPeerAddr().GetNodeid() != globalBuddyHeader.GetPeerAddr().GetNodeid()) {
-            //不用发给自己
+            //HC: 不用发给自己
+            //HCE: don't need to send to itself
             GlobalBuddyHashForwardTask task(endItr->GetPeer().GetPeerAddr().GetNodeid(), _buf, _buflenth);
             task.exec();
         }
     }
 };
 
+//HCE: Response to response to receive listGlobalBuddyChainInfo message 
+//HCE: @para _buf Buffer of message data
+//HCE: @para _buflenth Size of message data
+//HCE: @returns void
 void GlobalBuddyHashRspRsp(const char* buf, int64 buflen){
-    //HC:将接收到的listGlobalBuddyChainInfo信息按照子链合并到本节点listGlobalBuddyChainInfo中
+    //HC: 将接收到的listGlobalBuddyChainInfo信息按照子链合并到本节点listGlobalBuddyChainInfo中
+    //HCE: Merge the received listGlobalBuddyChainInfo to listGlobalBuddyChainInfo in this node according to solo chain
     ConsensusEngine* pEng = Singleton<ConsensusEngine>::getInstance();
     T_P2PMANAGERSTATUS* pConsensusStatus = pEng->GetConsunsusState();
 
@@ -270,6 +308,7 @@ void GlobalBuddyHashRspRsp(const char* buf, int64 buflen){
     HCNodeSH& me = nodemgr->myself();
 
     //HC:自己是转发节点
+    //HCE: me is forward node
     if (destnode != me->getNodeId<CUInt128>()) {
         GlobalBuddyHashRspForwardTask task(destnode, buf, buflen);
         task.exec();
@@ -278,18 +317,24 @@ void GlobalBuddyHashRspRsp(const char* buf, int64 buflen){
 
     T_SHA256 hyperblockhash = pConsensusStatus->GetConsensusPreHyperBlockHash();
     //HC:hyperblockhash检查，如果不同则返回
+    //HCE: check hyper block hash, return if it's different
     if (globalBuddyHeader.uiHyperBlockHash != hyperblockhash) {
-        g_consensus_console_logger->error("GlobalBuddyRsp is refused for different hyper block hash");
+        g_consensus_console_logger->info(StringFormat("GlobalBuddyRsp is refused for different hyper block hash: (%d)%s %s",
+            globalBuddyHeader.GetBlockCount(),
+            globalBuddyHeader.uiHyperBlockHash.toHexString(),
+            hyperblockhash.toHexString()));
+
         return;
     }
 
     //HC:将每条子链合并到本节点listGlobalBuddyChainInfo中
+    //HCE: merge every solo chain into listGlobalBuddyChainInfo of this node
     for (auto& r : mapListConsensus)
         pEng->MergeToGlobalBuddyChains(r.second);
 }
 
 void GlobalBuddyHashRspForwardTask::exec() {
-    //HC: send to requester
+    //HCE: send to requester
     DataBuffer<GlobalBuddyHashRspForwardTask> msgbuf(_buf.c_str());
 
     DBmgr* pDb = Singleton<DBmgr>::getInstance();
@@ -308,6 +353,7 @@ void GlobalBuddyHashRspForwardTask::execRespond() {
 
 void GlobalBuddyHashRspTask::exec() {
     //HC:将合并后的listGlobalBuddyChainInfo信息发送给对方
+    //HCE: send the merged listGlobalBuddyChainInfo to send node
     ConsensusEngine* pEng = Singleton<ConsensusEngine>::getInstance();
     T_P2PMANAGERSTATUS* pConsensusStatus = pEng->GetConsunsusState();
 
@@ -354,7 +400,7 @@ void GlobalBuddyHashRspTask::exec() {
         return;
     }
 
-    //HC: send to requester
+    //HCE: send to requester
     DataBuffer<GlobalBuddyHashRspTask> msgbuf(move(ssBuf.str()));
 
     DBmgr* pDb = Singleton<DBmgr>::getInstance();
@@ -371,6 +417,7 @@ void GlobalBuddyHashRspTask::execRespond() {
 
 void GlobalBuddyHashBlockRspTask::exec() {
     //HC:将子块数据发送给对方
+    //HCE: send block data to requester
     stringstream ssBuf;
     boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
     try {
@@ -398,6 +445,8 @@ void GlobalBuddyHashBlockRspTask::exec() {
 void GlobalBuddyHashBlockRspTask::execRespond() {
     //HC:接收子块数据，搜索子块数据完整的子链，并将该子链合并到listGlobalBuddyChainInfo,
     //HC:并将合并后的listGlobalBuddyChainInfo发送给对方
+    //HCE: receive solo chain data,search completed solo chain and merge it into listGlobalBuddyChainInfo
+    //HCE: send the merged listGlobalBuddyChainInfo to requester
     ConsensusEngine* pEng = Singleton<ConsensusEngine>::getInstance();
     T_P2PMANAGERSTATUS* pConsensusStatus = pEng->GetConsunsusState();
 
@@ -445,12 +494,15 @@ void GlobalBuddyHashBlockRspTask::execRespond() {
     if (ResolveGlobalBuddy(fromnode, &protocolheader, &mapTotalHash, &listLackHash)) {
         if (listLackHash.size() == 0) {
             //HC:不缺少BLOCK数据，则将合并后的listGlobalBuddyChaininfo发送给对方
+            //HCE: be not lack of block data,then send merged listGlobalBuddyChaininfo to requester
             if (MergeToGlobalConsensus(mapTotalHash)) {
                 //HC:合并后有变化
+                //HCE: there are some changes after merged
                 GlobalBuddyHashRspTask task(destnode, _sentnodeid, fromnode);
                 task.exec();
             }
             //HC:删除已经发送的buddyinfo
+            //HCE: delete buddy already sent
             pConsensusStatus->mapGlobalBuddyInfo.erase(fromnode);
         }
     }
@@ -458,6 +510,7 @@ void GlobalBuddyHashBlockRspTask::execRespond() {
 
 void GlobalBuddyHashBlockTask::exec() {
     //HC:发送数据缺少的子块HASH
+    //HCE: send hash of uncompleted block to requester
     stringstream ssBuf;
     boost::archive::binary_oarchive oa(ssBuf, boost::archive::archive_flags::no_header);
     try {
@@ -486,6 +539,7 @@ void GlobalBuddyHashBlockTask::exec() {
 
 void GlobalBuddyHashBlockTask::execRespond() {
     //HC:根据子块HASH准备子块数据，并返回给对方
+    //HCE: prepare block data according to the block hash, and send back to requester
     ConsensusEngine* pEng = Singleton<ConsensusEngine>::getInstance();
     T_P2PMANAGERSTATUS* pConsensusStatus = pEng->GetConsunsusState();
 
@@ -550,6 +604,7 @@ void GlobalBuddyHashBlockTask::execRespond() {
 
 void GlobalBuddyHashForwardTask::exec() {
     //HC:将广播数据传送给子链的最后一个节点
+    //HCE: forward the broadcast message to the end node in each solo chain
     DataBuffer<GlobalBuddyHashForwardTask> datamsgbuf(std::move(_buf));
 
     DBmgr* pDb = Singleton<DBmgr>::getInstance();
@@ -561,11 +616,13 @@ void GlobalBuddyHashForwardTask::exec() {
 
 void GlobalBuddyHashForwardTask::execRespond() {
     //HC:对数据进行处理
+    //HCE: process the data
     GlobalSendRsp(_sentnodeid, _payload, _payloadlen);
 };
 
 void GlobalBuddyHashStartTask::exec() {
     //HC:广播listLocalBuddyChainInfo信息，其中的块数据优化为块HASH值
+    //HCE: broadcast listLocalBuddyChainInfo, and the block data in it is optimized to the hash of the block data
     ConsensusEngine* pEng = Singleton<ConsensusEngine>::getInstance();
     T_P2PMANAGERSTATUS* pConsensusStatus = pEng->GetConsunsusState();
 
@@ -574,7 +631,7 @@ void GlobalBuddyHashStartTask::exec() {
     T_SHA256 preHyperblockHash = pConsensusStatus->GetConsensusPreHyperBlockHash();
     uint64 blockNum = pConsensusStatus->listLocalBuddyChainInfo.size();
     if (blockNum <= 1) {
-        //HC: No any buddy block need to handle
+        //HCE: No any buddy block need to handle
         return;
     }
 
@@ -607,6 +664,7 @@ void GlobalBuddyHashStartTask::exec() {
                 blockinfos.SetLoaclConsensus(localblock.GetPeer(), localblock.GetLocalBlock());
                 T_SHA256 BlockHash = blockinfos.GetLocalBlock().GetHashSelf();
                 //HC:将子块信息插入到mapLocalConsensus中
+                //HCE: Insert block data into mapLocalConsensus
                 auto finditr = pConsensusStatus->mapLocalConsensus.find(BlockHash);
                 if (finditr == pConsensusStatus->mapLocalConsensus.end())
                     pConsensusStatus->mapLocalConsensus[BlockHash] = blockinfos;
@@ -630,11 +688,13 @@ void GlobalBuddyHashStartTask::exec() {
 
 void GlobalBuddyHashStartTask::execRespond() {
     //HC:对广播数据进行处理
+    //HCE: process the broadcast data
     GlobalSendRsp(_sentnodeid, _payload, _payloadlen);
 };
 
 void GlobalBuddyHashSendTask::exec() {
     //HC:广播listGlobalBuddyChainInfo信息，其中的块数据优化为块HASH值
+    //HCE: broadcast listGlobalBuddyChainInfo, and the block data in it is optimized to the hash of the block data
     ConsensusEngine* pEng = Singleton<ConsensusEngine>::getInstance();
     T_P2PMANAGERSTATUS* pConsensusStatus = pEng->GetConsunsusState();
 
@@ -681,6 +741,7 @@ void GlobalBuddyHashSendTask::exec() {
                 blockinfos.SetLoaclConsensus(localblock.GetPeer(), localblock.GetLocalBlock());
                 T_SHA256 BlockHash = blockinfos.GetLocalBlock().GetHashSelf();
                 //HC:将子块信息插入到mapLocalConsensus中
+                //HCE: Insert block data into mapLocalConsensus
                 auto finditr = pConsensusStatus->mapLocalConsensus.find(BlockHash);
                 if (finditr == pConsensusStatus->mapLocalConsensus.end())
                     pConsensusStatus->mapLocalConsensus[BlockHash] = blockinfos;
@@ -708,5 +769,6 @@ void GlobalBuddyHashSendTask::exec() {
 
 void GlobalBuddyHashSendTask::execRespond() {
     //HC:对广播数据进行处理
+    //HCE: process the broadcast data
     GlobalSendRsp(_sentnodeid, _payload, _payloadlen);
 };

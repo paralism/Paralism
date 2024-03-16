@@ -51,6 +51,9 @@ written by
 #include "api.h"
 #include "core.h"
 
+#include <chrono>
+#include <thread>
+#include <iostream>
 using namespace std;
 
 CUDTSocket::CUDTSocket():
@@ -178,12 +181,15 @@ CUDTUnited::~CUDTUnited()
    delete m_pCache;
 }
 
+//HC: startup只能执行一次，这样创建唯一的一个garbageCollect线程，否则容易产生异常，程序也无法正常退出
 int CUDTUnited::startup()
 {
    CGuard gcinit(m_InitLock);
 
    if (m_iInstanceCount++ > 0)
       return 0;
+
+   cout << "CUDTUnited::startup(), single instance object which address is " << this << endl;
 
    // Global initialization code
    #ifdef WIN32
@@ -1372,6 +1378,7 @@ void CUDTUnited::checkTLSValue()
 }
 #endif
 
+//HC: 创建或者更新socket的收发队列，如果端口支持多路，那么用多路复用器中的收发队列
 void CUDTUnited::updateMux(CUDTSocket* s, const sockaddr* addr, const UDPSOCKET* udpsock)
 {
    CGuard cg(m_ControlLock);
@@ -1435,6 +1442,7 @@ void CUDTUnited::updateMux(CUDTSocket* s, const sockaddr* addr, const UDPSOCKET*
    m.m_pSndQueue->init(m.m_pChannel, m.m_pTimer);
    m.m_pRcvQueue = new CRcvQueue;
    m.m_pRcvQueue->init(32, s->m_pUDT->m_iPayloadSize, m.m_iIPversion, 1024, m.m_pChannel, m.m_pTimer);
+
 
    m_mMultiplexer[m.m_iID] = m;
 
@@ -1540,6 +1548,9 @@ void CUDTUnited::updateMux(CUDTSocket* s, const CUDTSocket* ls)
 
       CTimer::sleep();
    }
+
+   //HC: 一个进程只能一个garbageCollect线程
+   cout << "\tCUDTUnited::garbageCollect: " << this_thread::get_id() << " ended" << endl;
 
    #ifndef WIN32
       return NULL;

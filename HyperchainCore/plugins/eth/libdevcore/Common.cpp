@@ -125,4 +125,24 @@ bool isFalse(std::string const& _m)
     return _m == "off" || _m == "no" || _m == "false" || _m == "0";
 }
 
+
+std::string UnitConversionToEth(const std::string& value)
+{
+    //HC: 因为Para的最小单位与eth不同，扩大10^10倍，1Para = 10^18 wei
+    return value + "0000000000";
+}
+
+std::string UnitConversionToPara(const std::string& value)
+{
+    //HC: 因为Para的最小单位与eth不同，扩大10^10倍，1Para = 10^18 wei
+    size_t len = value.size();
+    size_t minlen = sizeof("0000000000"); //11
+    if (len < minlen) {
+        throw invalid_argument("value is too small");
+    }
+
+    return value.substr(0, len - minlen + 1);
+}
+
+
 }  // namespace dev

@@ -104,17 +104,26 @@ public:
     u256 const& balance() const { return m_balance; }
 
     /// Increments the balance of this account by the given amount.
-    void addBalance(u256 _value) { m_balance += _value; changed(); }
+    void addBalance(u256 _value) { 
+        m_balance += _value;
+        changed(); 
+    }
 
     /// @returns the nonce of the account.
     u256 nonce() const { return m_nonce; }
 
     /// Increment the nonce of the account by one.
-    void incNonce() { ++m_nonce; changed(); }
+    void incNonce() { 
+        ++m_nonce; 
+        changed(); 
+    }
 
     /// Set nonce to a new value. This is used when reverting changes made to
     /// the account.
-    void setNonce(u256 const& _nonce) { m_nonce = _nonce; changed(); }
+    void setNonce(u256 const& _nonce) { 
+        m_nonce = _nonce; 
+        changed(); 
+    }
 
     /// @returns the root of the trie (whose nodes are stored in the state db externally to this class)
     /// which encodes the base-state of the account's storage (upon which the storage is overlaid).

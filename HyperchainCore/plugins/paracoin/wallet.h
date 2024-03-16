@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -34,6 +34,7 @@ DEALINGS IN THE SOFTWARE.
 
 
 class CWalletTx;
+class CEthCrossChainTx;
 class CReserveKey;
 class CWalletDB_Wrapper;
 
@@ -45,10 +46,10 @@ class CWallet : public CCryptoKeyStore
 {
 private:
     bool SelectCoinsMinConf(int64 nTargetValue, int nConfMine, int nConfTheirs, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet,
-        const list<CTxDestination>& fromaddrs) const;
+        const list<CTxDestination>& fromaddrs, const CWalletTx& wtxNew) const;
 
     bool SelectCoins(int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet,
-        const list<CTxDestination>& fromaddrs) const;
+        const list<CTxDestination>& fromaddrs, const CWalletTx& wtxNew) const;
 
     CWalletDB_Wrapper *pwalletdbEncryption;
 
@@ -86,6 +87,7 @@ public:
     }
 
     std::map<uint256, CWalletTx> mapWallet;
+
     //HCE: UI
     //std::vector<uint256> vWalletUpdated;
 
@@ -139,15 +141,29 @@ public:
     bool IsMine(const CTxIn& txin) const;
     int64 GetDebit(const CTxIn& txin) const;
 
+    void MarkEthTxSpent(const CTxIn& txin, const uint256& hashusedby);
+    void UnmarkEthTxSpent(const CTxIn& txin);
+
     bool IsMine(const CTxOut& txout) const
     {
         for (const auto& spk_man_pair : m_spk_managers) {
             if (spk_man_pair.second->IsMine(txout.scriptPubKey))
                 return true;
         }
+
+        TxoutType whichType;
+        std::vector<std::vector<unsigned char> > vSolutions;
+        whichType = Solver(txout.scriptPubKey, vSolutions);
+        if (whichType == TxoutType::WITNESS_CROSSCHAIN) {
+            return true;
+        }
+
         return false;
         //return ::IsMine(*this, txout.scriptPubKey);
     }
+
+    bool IsCrossChainAndSpent(const CWalletTx& wtxNew, string& strError);
+
     int64 GetCredit(const CTxOut& txout) const
     {
         if (!MoneyRange(txout.nValue))
@@ -171,6 +187,7 @@ public:
             throw std::runtime_error("CWallet::GetChange() : value out of range");
         return (IsChange(txout) ? txout.nValue : 0);
     }
+
     bool IsMine(const CTransaction& tx) const
     {
         BOOST_FOREACH(const CTxOut& txout, tx.vout)
@@ -178,6 +195,7 @@ public:
                 return true;
         return false;
     }
+
     bool IsFromMe(const CTransaction& tx) const
     {
         return (GetDebit(tx) > 0);
@@ -344,7 +362,7 @@ public:
     unsigned int nTimeReceived;  // time received by this node
     char fFromMe;
     std::string strFromAccount;
-    std::vector<char> vfSpent;
+    std::vector<char> vfSpent;  //HC: 记录是否被花费
 
     // memory only
     mutable char fDebitCached;
@@ -355,6 +373,11 @@ public:
     mutable int64 nCreditCached;
     mutable int64 nAvailableCreditCached;
     mutable int64 nChangeCached;
+
+    mutable bool fromCrossChain = false;
+    mutable string fromethtxhash; //HC: ethereum tx hash
+    mutable BaseHash<uint256> fromgenesisblockhash;
+    mutable CScript fromscriptSig;
 
     // memory only UI hints
     mutable unsigned int nTimeDisplayed;
@@ -426,7 +449,7 @@ public:
             pthis->mapValue["spent"] = str;
         }
 
-        nSerSize += SerReadWrite(s, *(CMerkleTx*)this, nType, nVersion,ser_action);
+        nSerSize += SerReadWrite(s, *(CMerkleTx*)this, nType, nVersion, ser_action);
         READWRITE(vtxPrev);
         READWRITE(mapValue);
         READWRITE(vOrderForm);
@@ -496,7 +519,7 @@ public:
         if (nOut >= vout.size())
             throw std::runtime_error("CWalletTx::UnmarkSpent() : nOut out of range");
         vfSpent.resize(vout.size());
-        if (!vfSpent[nOut]) {
+        if (vfSpent[nOut]) {
             vfSpent[nOut] = false;
             fAvailableCreditCached = false;
         }
@@ -510,6 +533,7 @@ public:
             return false;
         return (!!vfSpent[nOut]);
     }
+
 
     int64 GetDebit() const
     {
@@ -652,6 +676,87 @@ private:
     void GetReceiveOrSentForBalance(list<DestReceived>& listReceived, int nMinDepth) const;
 };
 
+//HC: 跨链交易之以太坊交易
+class CEthCrossChainTx {
+
+public:
+    const CWallet* m_pWallet;
+
+    int nVersion = 1;
+    uint256 m_ethtxHash;    //HC: 以太坊交易hash，这是被使用者
+    uint256 m_txHashBy;     //HC: Para交易的hash，这是使用者
+    bool m_fSpent = false;  //HC: 记录是否被花费
+
+public:
+
+    CEthCrossChainTx(const CWallet* pwalletIn, const uint256& ethhash) : m_ethtxHash(ethhash)
+    {
+        Init(pwalletIn);
+    }
+
+    void MarkSpent(const uint256& txhash)
+    {
+        m_fSpent = true;
+        m_txHashBy = txhash;
+    }
+
+    void UnmarkSpent()
+    {
+        m_fSpent = false;
+        m_txHashBy = uint256();
+    }
+
+    bool IsSpent() const
+    {
+        return m_fSpent;
+    }
+
+
+    bool IsSpent(const CScript& scriptSig) {
+
+        EthInPoint ethinputpoint;
+        ExtractCrossChainInPoint(scriptSig, ethinputpoint);
+
+        if (ReadFromDisk(ethinputpoint.eth_tx_hash)) {
+            return IsSpent();
+        }
+        return false;
+    }
+
+    //bool ReadFromDisk(const uint256& txhash, CCrossChainTxIndex& ccidx)
+    bool ReadFromDisk(const uint256& txhash)
+    {
+        //HC: 从钱包里读或者从交易索引里读，都一样
+        //CTxDB_Wrapper txdb;
+        //if (txdb.ReadTxIndex(txhash, ccidx)) {
+        //    return true;
+        //}
+        //return false;
+        return CWalletDB_Wrapper(m_pWallet->strWalletFile).ReadTx(txhash, *this);
+    }
+
+    bool WriteToDisk()
+    {
+        return CWalletDB_Wrapper(m_pWallet->strWalletFile).WriteTx(m_ethtxHash, *this);
+    }
+
+    IMPLEMENT_SERIALIZE
+    (
+        READWRITE(this->nVersion);
+        nVersion = this->nVersion;
+
+        READWRITE(m_ethtxHash);
+        READWRITE(m_txHashBy);
+        READWRITE(m_fSpent);
+    )
+
+
+private:
+    void Init(const CWallet* pwalletIn)
+    {
+        m_pWallet = pwalletIn;
+    }
+};
 
 //
 // Private key that includes an expiration date in case it never gets used.

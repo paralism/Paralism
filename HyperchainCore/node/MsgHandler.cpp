@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -24,7 +24,7 @@ DEALINGS IN THE SOFTWARE.
 #include "MsgHandler.h"
 #include "defer.h"
 #include "algo.h"
-#include "utility/threadname.h"
+#include "util/threadname.h"
 #include <boost/fiber/all.hpp>
 
 
@@ -93,7 +93,7 @@ void MsgHandler::registerTaskWorker(const char* servicename, std::function<void(
 
 void MsgHandler::start(const char *threadname)
 {
-    _eventloopthread.reset(new thread(&MsgHandler::dispatchMQEvent, this));
+    _eventloopthread.reset(new std::thread(&MsgHandler::dispatchMQEvent, this));
 
     hc::SetThreadName(_eventloopthread.get(), threadname);
     
@@ -120,26 +120,42 @@ bool MsgHandler::isstopped()
 
 using co_tasks= std::list<boost::fibers::fiber>;
 
-inline
-void co_create_start(MsgHandler *h, void *sck, zmsg &&msg, std::function<void(void*, zmsg*)> f)
+inline void co_create_start(MsgHandler* h, zmq::socket_t* sck, zmsg&& msg, std::function<void(void*, zmsg*)> f)
 {
     h->addfiber();
-    boost::fibers::fiber fb(Newfiber([](void *sck, zmsg &&msg, std::function<void(void*, zmsg*)> fn) {
-        fn(sck, &msg);
-    }, "child_task", 0, sck, msg, f));
+    boost::fibers::fiber fb(Newfiber([](void* sck, zmsg&& msg, std::function<void(void*, zmsg*)> fn) {
+    
+            fn(sck, &msg);
+
+         }, "child_task", 0, sck, msg, f));
     fb.detach();
-    return;
 }
 
-inline
-void co_create_start(MsgHandler *h, std::function<void()> f)
+
+inline void co_create_start(MsgHandler *h, HCMQWrk *realwrk, zmsg &&msg, std::function<void(void*, zmsg*)> f)
+{
+    h->addfiber();
+
+    if (realwrk)
+        realwrk->accumWork();
+
+    boost::fibers::fiber fb(Newfiber([](HCMQWrk* wrk, zmsg &&msg, std::function<void(void*, zmsg*)> fn) {
+
+        fn(wrk, &msg);
+        if (wrk)
+            wrk->accumWorkCompleted();
+
+    }, "child_task", 0, realwrk, msg, f));
+    fb.detach();
+}
+
+inline void co_create_start(MsgHandler *h, std::function<void()> f)
 {
     h->addfiber();
     boost::fibers::fiber fb(Newfiber([](std::function<void()> fn) {
         fn();
     }, "timer_child_task", 0, f));
     fb.detach();
-    return;
 }
 
 std::thread::id MsgHandler::getID()
@@ -156,7 +172,12 @@ string MsgHandler::details()
         nfiber_terminated = _my_scheduler_algo->fibers_count();
     }
     ostringstream oss;
-    oss << getID() << " fibers created: " << _fiber_count_created_
+    oss << getID();
+#ifndef WIN32
+    oss << " LWP:" << _lwp;
+#endif
+
+    oss << " fibers created: " << _fiber_count_created_
         << ", deleted: " << nfiber_terminated << " isstopped: " << isstopped();
     return oss.str();
 }
@@ -164,6 +185,12 @@ string MsgHandler::details()
 
 void MsgHandler::dispatchMQEvent()
 {
+#ifndef WIN32
+    ostringstream oss;
+    oss << syscall(SYS_gettid);
+    _lwp = oss.str();
+#endif
+
     //HCE: make sure we use our priority_scheduler rather than default round_robin
     //HCE: scheduling algorithm uses to debug fiber.
     boost::fibers::use_scheduling_algorithm<priority_scheduler>();
@@ -195,55 +222,54 @@ void MsgHandler::dispatchMQEvent_fb()
     size_t wrkcount = _poll_funcs.size();
     co_tasks tasks;
 
-    int npolltimes = 0;
+    int fiber_next_request = 0;;
     while (!_isstop) {
+        //int nfiber_terminated = _my_scheduler_algo->fibers_count();
+        //if (nfiber_terminated >= fiber_next_request ) {
+        //    //HCE: request broker give more messages to do
+        //    for (auto& w : _wrks) {
+        //        w->idle();
+        //    }
+        //    fiber_next_request = nfiber_terminated + maximum_process_ability;
+        //}
 
-        auto rc = zmq::poll(&_poll_items[0], _poll_items.size(), 0);
-        if (!rc) {
-            npolltimes++;
-            boost::this_fiber::sleep_for(std::chrono::milliseconds(50));
-            if (npolltimes < 5) {
-                continue;
-            }
-
+        for (auto& w : _wrks) {
             //HCE: request broker give more messages to do
-            for (auto &w : _wrks) {
-                w->idle();
-            }
+            w->idle();
         }
-        npolltimes = 0;
 
-        zmsg *msg = nullptr;
-        for (size_t i = 0; i < _poll_items.size(); i++) {
-            if (_poll_items[i].revents & ZMQ_POLLIN) {
-                if (i >= wrkcount) {
-                    size_t j = i - wrkcount;
-                    zmsg recvmsg(*_socks[j]);
+        auto rc = zmq::poll(&_poll_items[0], _poll_items.size(), 100);
+        if (rc) {
+            zmsg* msg = nullptr;
+            for (size_t i = 0; i < _poll_items.size(); i++) {
+                if (_poll_items[i].revents & ZMQ_POLLIN) {
+                    if (i >= wrkcount) {
+                        size_t j = i - wrkcount;
+                        zmsg recvmsg(*_socks[j]);
 
-                    //HCE: Call callback function user defined to handle the event
-                    co_create_start(this, _socks[j], std::move(recvmsg), _poll_funcs_s[j]);
-                }
-                else {
-                    //HCE: Received message from broker
-                    zmsg recvmsg(*_wrks[i]->getsocket());
-                    msg = &recvmsg;
+                        //HCE: Call callback function user defined to handle the event
+                        co_create_start(this, _socks[j], std::move(recvmsg), _poll_funcs_s[j]);
+                    } else {
+                        //HCE: Received message from broker
+                        zmsg recvmsg(*_wrks[i]->getsocket());
+                        msg = &recvmsg;
 
-                    assert(msg->parts() >= 3);
+                        assert(msg->parts() >= 3);
 
-                    std::string empty = msg->pop_front();
-                    assert(empty.compare("") == 0);
+                        std::string empty = msg->pop_front();
+                        assert(empty.compare("") == 0);
 
-                    std::string header = msg->pop_front();
-                    assert(header.compare(MDPW_WORKER) == 0);
+                        std::string header = msg->pop_front();
+                        assert(header.compare(MDPW_WORKER) == 0);
 
-                    std::string command = msg->pop_front();
-                    if (command.compare(MDPW_REQUEST) == 0) {
-                        //HCE: handle the event
-                        co_create_start(this, _wrks[i], std::move(recvmsg), _poll_funcs[i]);
-                    }
-                    else {
-                        s_console("MsgHandler: invalid input message (%d)", (int) *(command.c_str()));
-                        msg->dump();
+                        std::string command = msg->pop_front();
+                        if (command.compare(MDPW_REQUEST) == 0) {
+                            //HCE: handle the event
+                            co_create_start(this, _wrks[i], std::move(recvmsg), _poll_funcs[i]);
+                        } else {
+                            s_console("MsgHandler: invalid input message (%d)", (int)*(command.c_str()));
+                            msg->dump();
+                        }
                     }
                 }
             }
@@ -254,7 +280,7 @@ void MsgHandler::dispatchMQEvent_fb()
         for (auto &t : _poll_func_timers) {
             if (t.when < now && !_isstop) {
                 co_create_start(this, t.func);
-                t.when += t.delay;
+                t.when = now + t.delay;
             }
         }
 
@@ -287,6 +313,11 @@ void MsgHandler::handleTask(void *wrk, zmsg *msg)
     auto taskbuf = std::make_shared<string>(std::move(buf));
 
     TASKTYPE tt = *(TASKTYPE*)(taskbuf->c_str() + CUInt128::value + sizeof(ProtocolVer));
+
+    CActionCostStatistics::StatisticsOnce acss;
+    if (_enablestt) {
+        acss = _taskcoststt.NewStatt((int32_t)tt);
+    }
 
     std::shared_ptr<ITask> task = _taskFactory.CreateShared<ITask>(static_cast<uint32_t>(tt), std::move(taskbuf));
     if (!task) {

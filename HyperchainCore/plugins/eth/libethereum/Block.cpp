@@ -293,15 +293,19 @@ pair<TransactionReceipts, bool> Block::sync(BlockChain const& _bc, TransactionQu
     // TRANSACTIONS
     pair<TransactionReceipts, bool> ret;
 
+    //HCE: select a series of transactions from the head of the transaction queue.
     Transactions transactions = _tq.topTransactions(c_maxSyncTransactions, m_transactionSet);
     ret.second = (transactions.size() == c_maxSyncTransactions);  // say there's more to the caller
                                                                   // if we hit the limit
 
     //if (_bc.currentHash() != m_currentBlock.parentHash()) {
     //    BlockHeader h = BlockHeader(_bc.headerData(), BlockDataType::HeaderData);
-    //    LOG(m_logger) << "Block::sync:\n"
+    //    //LOG(m_logger) << "Block::sync:\n"
+    //    cout << "Warning: Block::sync:\n"
     //        << h << "\n"
-    //        << m_currentBlock;
+    //        << m_currentBlock
+    //        << "**********************************************************************"
+    //        << endl;
     //}
 
     assert(_bc.currentHash() == m_currentBlock.parentHash());
@@ -318,6 +322,7 @@ pair<TransactionReceipts, bool> Block::sync(BlockChain const& _bc, TransactionQu
                     if (t.gasPrice() >= _gp.ask(*this))
                     {
 //						Timer t;
+                        //HCE: execute a transaction and put it into 'm_transactions' of the block
                         execute(_bc.lastBlockHashes(), t);
                         ret.first.push_back(m_receipts.back());
                         ++goodTxs;
@@ -556,8 +561,11 @@ u256 Block::enact(VerifiedBlockRef const& _block, BlockChain const& _bc)
                 BlockHeader uncle(i.data(), HeaderData, h);
 
                 BlockHeader uncleParent;
-                if (!_bc.isKnown(uncle.parentHash()))
-                    BOOST_THROW_EXCEPTION(UnknownParent() << errinfo_hash256(uncle.parentHash()));
+
+                //HC: The second parameter should be set false
+                if (!_bc.isKnown(uncle.parentHash(), false))
+                    BOOST_THROW_EXCEPTION(UnknownParent() << errinfo_hash256(uncle.parentHash()) 
+                        << errinfo_comment("Uncle's parent is unknown"));
                 uncleParent = BlockHeader(_bc.block(uncle.parentHash()));
 
                 // m_currentBlock.number() - uncle.number()		m_cB.n - uP.n()
@@ -617,6 +625,7 @@ u256 Block::enact(VerifiedBlockRef const& _block, BlockChain const& _bc)
     DEV_TIMED_ABOVE("applyRewards", 500)
         applyRewards(rewarded, _bc.sealEngine()->blockReward(m_currentBlock.number()));
 
+    //HC: 提交所有账户状态，写入数据库，失败回滚
     // Commit all cached state changes to the state trie.
     bool removeEmptyAccounts = m_currentBlock.number() >= _bc.chainParams().EIP158ForkBlock; // TODO: use EVMSchedule
     DEV_TIMED_ABOVE("commit", 500)
@@ -667,13 +676,35 @@ ExecutionResult Block::execute(
 
 void Block::applyRewards(vector<BlockHeader> const& _uncleBlockHeaders, u256 const& _blockReward)
 {
+    //HC: 检查可用奖励是否够用 
+    auto ba = m_state.balance(CrossChainRecvAndRewardDistributeAddress);
+    if (ba == 0) {
+        //HC: 无可用奖励
+        return;
+    }
+
+    u256 totalRewards = _blockReward;
+    for (auto const& i : _uncleBlockHeaders) {
+        totalRewards +=  _blockReward * (8 + i.number() - m_currentBlock.number()) / 8;
+        totalRewards += _blockReward / 32;
+    }
+
+    if (ba < totalRewards) {
+        //HC: 可用奖励不够
+        return;
+    }
+
     u256 r = _blockReward;
     for (auto const& i: _uncleBlockHeaders)
     {
+        //HC: 给叔块作者的奖励
         m_state.addBalance(i.author(), _blockReward * (8 + i.number() - m_currentBlock.number()) / 8);
         r += _blockReward / 32;
     }
+    //HC: 因带叔块给块的奖励
     m_state.addBalance(m_currentBlock.author(), r);
+
+    m_state.subBalance(CrossChainRecvAndRewardDistributeAddress, totalRewards);
 }
 
 void Block::performIrregularModifications()

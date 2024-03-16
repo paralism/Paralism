@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -40,15 +40,18 @@ using namespace dev::eth;
 
 typedef struct _tagGENESIS_ACC {
 public:
-    bytes genesis;              AccountMap accmap;          std::string jsonconfig;      
+    bytes genesis;
+    AccountMap accmap;
+    std::string jsonconfig;      
     bytes to() {
-        RLPStream block(3); //HC：准备压入2个List
-        block.appendList(1)             << genesis;
+        RLPStream block(3); //HC：准备压入带3个元素的List
+        block.appendList(1) << genesis;     //HC: 第一个元素是一个List数据
 
-                        block.appendList(1)             << jsonconfig;
+        block.appendList(1) << jsonconfig;  //HC: 第二个元素是List数据
 
         int s = accmap.size();
-        block.appendList(1 + s * 3);
+        block.appendList(1 + s * 3);    //HC: 第三个元素是List数据，该List带很多个子元素
+
         block.append(s);
         for (auto & elm : accmap) {
             block.append(elm.first);
@@ -104,7 +107,7 @@ public:
         boost::property_tree::ini_parser::write_ini(_configfile, pt);
     }
 
-    void ReadDefaultApp(string& hash);
+    void ReadDefaultApp(std::string& hash);
 
 private:
     std::string _configfile;
@@ -149,13 +152,13 @@ public:
     }
 
     //HC: 返回加密货币创世块所在超块的子链号
-    //HCE: Get the subchain number of the Hyperblock where the cryptocurrency genesis block is located
+    //HCE: Get the solo chain number of the Hyperblock where the cryptocurrency genesis block is located
     uint16_t GetChainNum() {
         return std::stoul(mapSettings["chainnum"]);
     }
 
     //HC: 返回加密货币创世块所在超块子链的块号
-    //HCE: Get the block number of subchain of the Hyperblock where the cryptocurrency genesis block is located
+    //HCE: Get the block number of solo chain of the Hyperblock where the cryptocurrency genesis block is located
     uint16_t GetLocalID() { return std::stoul(mapSettings["localid"]); }
 
     h256 GetHashGenesisBlock() { return h256(mapSettings["hashgenesisblock"]); }
@@ -199,7 +202,7 @@ public:
         bool ReadCoinFile(const std::string& shorthash, std::string& errormsg);
     bool WriteCoinFile();
 
-    static bool GetAllCoins(vector<CryptoEthCurrency>& coins);
+    static bool GetAllCoins(std::vector<CryptoEthCurrency>& coins);
 
     static bool SearchCoinByTriple(uint32_t hid, uint16 chainnum, uint16 localid, std::string& coinname, std::string& coinshorthash);
 

@@ -87,8 +87,10 @@ Json::Value toJson(dev::eth::BlockHeader const& _bi, SealEngineFace* _sealer)
         res["logsBloom"] = toJS(_bi.logBloom());
         res["timestamp"] = toJS(_bi.timestamp());
 
-                res["prevHID"] = toJS(_bi.prevHID());
+        res["difficulty"] = toJS(_bi.difficulty());
+        res["prevHID"] = toJS(_bi.prevHID());
         res["prevHyperBlockHash"] = toJS(_bi.prevHyperBlkHash());
+
 
         // TODO: remove once JSONRPC spec is updated to use "author" over "miner".
         res["miner"] = toJS(_bi.author());
@@ -203,6 +205,22 @@ Json::Value toJson(dev::eth::LocalisedTransactionReceipt const& _t)
     return res;
 }
 
+void setCrossChainInfo(Json::Value &res, dev::eth::TransactionBase const *pt)
+{
+    if (pt->isCrossChainEthToPara()) {
+        res["CrossChainEthToPara"] = "true";
+    }
+
+    if (pt->isCrossChainParaToEth()) {
+        string triaddr;
+        string paratxhash = pt->parseCrossChainData(triaddr);
+
+        res["CrossChainParaToEth"] = "true";
+        res["paraTxHash"] = paratxhash;
+        res["paraTxPos"] = triaddr;
+    }
+}
+
 Json::Value toJson(dev::eth::Transaction const& _t)
 {
     Json::Value res;
@@ -217,7 +235,10 @@ Json::Value toJson(dev::eth::Transaction const& _t)
     res["sighash"] = toJS(_t.sha3(WithoutSignature));
     res["r"] = toJS(_t.signature().r);
     res["s"] = toJS(_t.signature().s);
-    res["v"] = toJS(_t.rawV());
+    res["v"] = toJS(_t.rawV()); 
+
+    setCrossChainInfo(res, &_t);
+
     return res;
 }
 
@@ -248,6 +269,8 @@ Json::Value toJson(dev::eth::LocalisedTransaction const& _t)
         res["r"] = toJS(_t.signature().r);
         res["s"] = toJS(_t.signature().s);
         res["v"] = toJS(_t.rawV());
+
+        setCrossChainInfo(res, &_t);
     }
     return res;
 }
@@ -367,7 +390,10 @@ TransactionSkeleton toTransactionSkeleton(Json::Value const& _json)
 
     if (!_json["from"].empty())
         ret.from = jsToAddress(_json["from"].asString());
-    if (!_json["to"].empty() && _json["to"].asString() != "0x" && !_json["to"].asString().empty())
+
+    if (!_json["to"].empty() && _json["to"].asString() == "null")
+        ret.to = dev::CrossChainRecvAndRewardDistributeAddress;
+    else if (!_json["to"].empty() && _json["to"].asString() != "0x" && !_json["to"].asString().empty())
         ret.to = jsToAddress(_json["to"].asString());
     else
         ret.creation = true;
@@ -381,7 +407,7 @@ TransactionSkeleton toTransactionSkeleton(Json::Value const& _json)
     if (!_json["gasPrice"].empty())
         ret.gasPrice = jsToU256(_json["gasPrice"].asString());
 
-    if (!_json["data"].empty())							// ethereum.js has preconstructed the data array
+    if (!_json["data"].empty())     // ethereum.js has preconstructed the data array
         ret.data = jsToBytes(_json["data"].asString(), OnFailed::Throw);
 
     if (!_json["code"].empty())

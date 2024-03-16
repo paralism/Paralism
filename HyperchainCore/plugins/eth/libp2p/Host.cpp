@@ -17,7 +17,7 @@
 #include <libdevcore/FileSystem.h>
 #include <boost/algorithm/string.hpp>
 
-#include "utility/threadname.h"
+#include "util/threadname.h"
 
 #include <chrono>
 #include <memory>
@@ -889,6 +889,8 @@ void Host::run(boost::system::error_code const& _ec)
 void Host::startedWorking()
 {
     hc::SetThreadName(-1, "aleth-Host");
+
+    //HC: 是否有支持的网络协议
     if (haveCapabilities())
     {
         startCapabilities();

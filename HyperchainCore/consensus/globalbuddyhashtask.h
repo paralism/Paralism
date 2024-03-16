@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -43,7 +43,11 @@ public:
         _fromnode(fromnode), _tonode(tonode), _destnode(destnode){};
     ~GlobalBuddyHashRspTask() {};
 
+    //HCE: Respond to GlobalBuddyHash message task
+    //HCE: send the merged listGlobalBuddyChainInfo to send node
+    //HCE: @returns void
     void exec() override;
+
     void execRespond() override;
 
 private:
@@ -57,7 +61,13 @@ public:
         _destnode(destnode), _buf(buf, len) {};
     ~GlobalBuddyHashRspForwardTask() {};
 
+    //HCE: Forward GlobalBuddyHashRsp message task
+    //HCE: send to requester
+    //HCE: @returns void
     void exec() override;
+
+    //HCE: Respond to forward GlobalBuddyHashRsp message task
+    //HCE: @returns void
     void execRespond() override;
 
 private:
@@ -74,12 +84,19 @@ public:
         _fromnode(fromnode), _tonode(tonode), _destnode(destnode), _listconsensus(listconsensus) {};
     ~GlobalBuddyHashBlockRspTask() {};
 
+    //HCE: Respond to GlobalBuddyHashBlock message task
+    //HCE: send block data to requester
+    //HCE: @returns void
     void exec() override;
+
+    //HCE: Respond to respond to GlobalBuddyHashBlock message task
+    //HCE: merge the completed solo chain into listGlobalBuddyChainInfo,then send it to requester
+    //HCE: @returns void
     void execRespond() override;
     
 private:
-    list< T_LOCALCONSENSUS > _listconsensus;
     CUInt128 _fromnode, _tonode, _destnode;
+    list< T_LOCALCONSENSUS > _listconsensus;
 };
 
 class GlobalBuddyHashBlockTask : public ITask, public std::integral_constant<TASKTYPE, TASKTYPE::GLOBAL_BUDDY_HASH_BLOCK> {
@@ -91,7 +108,14 @@ public:
 
     ~GlobalBuddyHashBlockTask() {};
 
+    //HCE: Send GlobalBuddyHashBlock message task
+    //HCE: send hash of uncompleted block to requester
+    //HCE: @returns void
     void exec() override;
+
+    //HCE: Respond to GlobalBuddyHashBlock message task
+    //HCE: send the block data to requester according to the block hash 
+    //HCE: @returns void
     void execRespond() override;
 
 private:
@@ -107,7 +131,12 @@ public:
 
     ~GlobalBuddyHashForwardTask() {};
 
+    //HCE: GlobalBuddyHash message forward task
+    //HCE: @returns void
     void exec() override;
+
+    //HCE: Responde to GlobalBuddyHash message forward task
+    //HCE: @returns void
     void execRespond() override;
 
 private:
@@ -121,7 +150,13 @@ public:
 
     ~GlobalBuddyHashStartTask() {};
 
+    //HCE: GlobalBuddyHashStart message task
+    //HCE: broadcast listLocalBuddyChainInfo, and the block data in it is optimized to hash of the block data
+    //HCE: @returns void
     void exec() override;
+
+    //HCE: Responde to GlobalBuddyHashStart message task
+    //HCE: @returns void
     void execRespond() override;
 };
 
@@ -131,6 +166,12 @@ public:
 
     ~GlobalBuddyHashSendTask() {};
 
+    //HCE: GlobalBuddyHashSend message task
+    //HCE: broadcast listGlobalBuddyChainInfo, and the block data in it is optimized to hash of the block data
+    //HCE: @returns void
     void exec() override;
+
+    //HCE: Responde to GlobalBuddyHashSend message task
+    //HCE: @returns void
     void execRespond() override;
 };

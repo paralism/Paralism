@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -1908,8 +1908,12 @@ bool ProcessBlockWithTriaddr(CNode* pfrom, CBlock* pblock, BLOCKTRIPLEADDRESS* p
             }
         }
         else {
-            if (!COrphanBlockTripleAddressDB().WriteBlockTripleAddress(hash, *pblockaddr))
-                return ERROR_FL("COrphanBlockTripleAddressDB::WriteBlockTripleAddress failed");
+            auto db = COrphanBlockTripleAddressDB();
+            BLOCKTRIPLEADDRESS blkaddr;
+            if (!db.ReadBlockTripleAddress(hash, blkaddr) || blkaddr != *pblockaddr) {
+                if (!COrphanBlockTripleAddressDB().WriteBlockTripleAddress(hash, *pblockaddr))
+                    return ERROR_FL("COrphanBlockTripleAddressDB::WriteBlockTripleAddress failed");
+            }
         }
     }
 
@@ -3631,7 +3635,7 @@ CBlock* CreateNewBlock(CReserveKey& reservekey)
 
                 // Read block header
                 //HC: 深度越大越好，深度指交易所在块距离最优链最后块的块数
-                //HCE: The greater the depth, the better, and depth refers to the number of blocks on the exchange at the end of the optimal chain 
+                //HCE: The greater the depth, the better, and depth refers to the number of blocks on the exchange at the end of the optimal chain
                 int nConf = txindex.GetDepthInMainChain();
 
                 dPriority += (double)nValueIn * nConf;
@@ -3642,15 +3646,15 @@ CBlock* CreateNewBlock(CReserveKey& reservekey)
 
             // Priority is sum(valuein * age) / txsize
             //HC: 计算单位size的优先级
-            //HCE: Calculate the priority of the unit size 
+            //HCE: Calculate the priority of the unit size
             dPriority /= ::GetSerializeSize(tx, SER_NETWORK);
 
             if (porphan)
                 porphan->dPriority = dPriority;
             else
                 //HC: dPriority取负数确保高优先级排在map的前面
-                //HCE: dPriority takes a negative number to ensure that high priority is ranked first in the map 
-                mapPriority.insert(make_pair(-dPriority, &(*mi).second)); 
+                //HCE: dPriority takes a negative number to ensure that high priority is ranked first in the map
+                mapPriority.insert(make_pair(-dPriority, &(*mi).second));
 
             if (GetBoolArg("-printpriority"))
             {
@@ -3784,7 +3788,7 @@ void CreateNewChain()
 
                 // Read block header
                 //HC: 深度越大越好，深度指交易所在块距离最优链最后块的块数
-                //HCE: The greater the depth, the better, and depth refers to the number of blocks on the exchange at the end of the optimal chain 
+                //HCE: The greater the depth, the better, and depth refers to the number of blocks on the exchange at the end of the optimal chain
                 int nConf = txindex.GetDepthInMainChain();
 
                 dPriority += (double)nValueIn * nConf;
@@ -3795,15 +3799,15 @@ void CreateNewChain()
 
             // Priority is sum(valuein * age) / txsize
             //HC: 计算单位size的优先级
-            //HCE: Calculate the priority of the unit size 
+            //HCE: Calculate the priority of the unit size
             dPriority /= ::GetSerializeSize(tx, SER_NETWORK);
 
             if (porphan)
                 porphan->dPriority = dPriority;
             else
                 //HC: dPriority取负数确保高优先级排在map的前面
-                //HCE: dPriority takes a negative number to ensure that high priority is ranked first in the map 
-                mapPriority.insert(make_pair(-dPriority, &(*mi).second)); 
+                //HCE: dPriority takes a negative number to ensure that high priority is ranked first in the map
+                mapPriority.insert(make_pair(-dPriority, &(*mi).second));
 
             if (GetBoolArg("-printpriority")) {
                 DEBUG_FL("priority %-20.1f %s\n%s", dPriority, tx.GetHash().ToString().substr(0, 10).c_str(), tx.ToString().c_str());

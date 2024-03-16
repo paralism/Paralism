@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -34,5 +34,32 @@ template <class F> deferrer<F> operator*(defer_dummy, F f) { return { f }; }
 #define DEFER_(LINE) zz_defer##LINE
 #define DEFER(LINE) DEFER_(LINE)
 #define defer auto DEFER(__LINE__) = defer_dummy{} *[&]()
+
+
+//HC: another alternative method
+
+template <typename T>
+struct scope_exit
+{
+    scope_exit(T&& t) : t_{ std::forward<T>(t) } {}
+    ~scope_exit() { t_(); }
+    T t_;
+};
+
+template <typename T>
+scope_exit<T> make_scope_exit(T&& t) {
+    return scope_exit<T> { std::forward<T>(t) };
+}
+
+/*
+//for example:
+int* foo()
+{
+    int* i = new int{ 10 };
+    auto cleanup = make_scope_exit([&i]() mutable { delete i; i = 0; });
+    std::cout << *i << '\n';
+    return i;
+}
+*/
 
 #endif // defer
