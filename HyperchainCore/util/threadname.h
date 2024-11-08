@@ -28,6 +28,4 @@ namespace hc {
     void SetThreadName(std::thread* t, const char* name);
 #endif
 
-    void CreateThread(const char* threadname, void(*pfn)(void*), void* parg);
-
 }

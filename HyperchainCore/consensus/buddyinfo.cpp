@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -30,7 +30,6 @@ DEALINGS IN THE SOFTWARE.
 #include "consensus_engine.h"
 #include "../HyperChain/HyperChainSpace.h"
 
-#include <sstream>
 #include <boost/fiber/all.hpp>
 
 
@@ -433,24 +432,15 @@ void _tp2pmanagerstatus::RemoveAppCallback(const T_APPTYPE & app)
     //HCE: In case of calling the function twice at the same time, cause crash
     std::lock_guard<boost::fibers::mutex> l(s_mtx_cb);
 
-    cout << StringFormat("\tApplication callback removing: %s\n", app.tohexstring());
     if (_mapcbfn.count(app)) {
         auto &app_cb_noti = _mapcbfn[app];
         app_cb_noti->unreging = true;
-
-        int n = 0;
         while (app_cb_noti.use_count() > 1) {
             //HCE: some fibers are using, wait for a while
             boost::this_fiber::sleep_for(std::chrono::milliseconds(300));
-            n++;
-            if (n == 20 || n == 200) {
-                std::ostringstream oss;
-                oss << app_cb_noti->calling_thread;
-                cout << StringFormat("\tApplication calling: %s thread: %s\n", 
-                    cbindexValueName(app_cb_noti->calling_index), oss.str());
-            };
         }
         _mapcbfn.erase(app);
+        cout << StringFormat("\tApplication module removed: %s\n", app.tohexstring());
     }
 }
 

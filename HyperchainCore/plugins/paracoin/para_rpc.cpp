@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -30,7 +30,6 @@ DEALINGS IN THE SOFTWARE.
 
 #include "cryptopp/sha.h"
 #include "headers.h"
-#include "util/threadname.h"
 #include "db.h"
 #include "net.h"
 #include "init.h"
@@ -228,7 +227,7 @@ Value stop(const Array& params, bool fHelp)
     // Shutdown will take long enough that the response should get back
     PrintConsole("Para: executing RPC stop command...unload Para module\n");
 
-    hc::CreateThread("ParaStopShutdown", Shutdown, NULL);
+    CreateThread(Shutdown, NULL);
     return "Server is stopping";
 }
 
@@ -1953,42 +1952,6 @@ Value gettransaction(const Array& params, bool fHelp)
     return entry;
 }
 
-Value listnewtransactions(const Array& params, bool fHelp)
-{
-    if (fHelp)
-        throw runtime_error(
-            "listnewtransactions\n"
-            "Returns up to 20 most recent transactions.");
-
-    CBlock block;
-    BLOCKTRIPLEADDRESS addrblock;
-    char* pWhere = nullptr;
-    CBlockIndexSP spBlkIdx = pindexBest;
-
-    //HC：取1小时前的交易 6(个/5分钟) * 12 = 72
-    int height = spBlkIdx->nHeight > 72 ? (spBlkIdx->nHeight - 72) : 0;
-    while (spBlkIdx && spBlkIdx->nHeight != height) {
-        spBlkIdx = spBlkIdx->pprev();
-    }
-    Array txs;
-    int i = 0;
-    while (spBlkIdx) {
-        if (GetBlockData(spBlkIdx->GetBlockHash(), block, addrblock, &pWhere)) {
-            auto it = block.vtx.rbegin();
-            for (; it != block.vtx.rend(); ++it) {
-                Object entry;
-                entry.push_back(Pair("txid", it->GetHash().GetHex()));
-                entry.push_back(Pair("time", (int64_t)block.nTime));
-                txs.push_back(entry);
-                if (++i == 20) {
-                    return txs;
-                }
-            }
-        }
-        spBlkIdx = spBlkIdx->pprev();
-    }
-    return txs;
-}
 
 Value backupwallet(const Array& params, bool fHelp)
 {
@@ -2108,10 +2071,9 @@ Value walletpassphrase(const Array& params, bool fHelp)
             "walletpassphrase <passphrase> <timeout>\n"
             "Stores the wallet decryption key in memory for <timeout> seconds.");
 
-    hc::CreateThread("ParaTopUpKeyPool", ThreadTopUpKeyPool, NULL);
-
+    CreateThread(ThreadTopUpKeyPool, NULL);
     int* pnSleepTime = new int(params[1].get_int());
-    hc::CreateThread("ParaTopUpKeyPool", ThreadCleanWalletPassphrase, pnSleepTime);
+    CreateThread(ThreadCleanWalletPassphrase, pnSleepTime);
 
     return Value::null;
 }
@@ -2424,7 +2386,6 @@ pair<string, rpcfn_type> pCallTable[] =
     make_pair("gettransaction",         &gettransaction),
     make_pair("gettransactionaddr",     &gettransactionaddr),
     make_pair("listtransactions",       &listtransactions),
-    make_pair("listnewtransactions",    &listnewtransactions),
     make_pair("getwork",                &getwork),
     make_pair("listaccounts",           &listaccounts),
     make_pair("settxfee",               &settxfee),
@@ -2860,7 +2821,7 @@ void ThreadRPCServer2(void* parg)
                 "If the file does not exist, create it with owner-readable-only file permissions.\n"),
             strWhatAmI.c_str(),
             GetConfigFile().c_str());
-        hc::CreateThread("ParaRPCServer2Shutdown", Shutdown, NULL);
+        CreateThread(Shutdown, NULL);
         return;
     }
 
@@ -3249,7 +3210,7 @@ void StartRPCServer()
     for (int i = 0; i < n; i++) {
         std::shared_ptr<boost::asio::io_service> io(new boost::asio::io_service());
         rpcServerList.push_back(io);
-        hc::CreateThread("ParaRPCServer", ThreadRPCServer, io.get());
+        CreateThread(ThreadRPCServer, io.get());
     }
 }
 

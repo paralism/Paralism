@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -35,7 +35,6 @@ DEALINGS IN THE SOFTWARE.
 #include "headers/commonstruct.h"
 #include "headers/lambda.h"
 #include "headers/inter_public.h"
-#include "util/threadname.h"
 
 #include "../node/IAccessPoint.h"
 #include "../node/UdpAccessPoint.hpp"
@@ -385,8 +384,6 @@ void ConsensusEngine::start()
     StartMQHandler();
 
     _threads.emplace_back(&ConsensusEngine::CheckMyVersionThread, this);
-    auto it = _threads.rbegin();
-    hc::SetThreadName(&(*it), "CheckMyVersion");
 }
 
 void ConsensusEngine::stop()

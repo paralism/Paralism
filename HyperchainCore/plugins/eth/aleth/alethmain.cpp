@@ -738,9 +738,6 @@ int plugin_main(int argc, char** argv)
     }
 
     setupLogging(loggingOptions);
-    std::shared_ptr<char> stoplogger(nullptr, [](char*) {
-        stopLogging();
-        });
 
         //if (!chainConfigIsSet)
     //    // default to mainnet if not already set with any of `--mainnet`, `--ropsten`, `--genesis`, `--config`

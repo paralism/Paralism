@@ -1,0 +1,111 @@
+﻿{
+  "configurations": [
+    {
+      "name": "Linux-Debug",
+      //"generator": "Unix Makefiles",
+      "generator": "Ninja", ///root/workspace/ninja/build-cmake
+      "remoteMachineName": "${defaultRemoteMachineName}",
+      "configurationType": "Debug",
+      "remoteCMakeListsRoot": "/root/workspace/hc/src-swap/",
+      "cmakeExecutable": "/root/cmake3.19/bin/cmake",
+      "buildRoot": "${env.USERPROFILE}\\CMakeBuilds\\${workspaceHash}\\build\\${name}",
+      "installRoot": "${env.USERPROFILE}\\CMakeBuilds\\${workspaceHash}\\install\\${name}",
+      "remoteBuildRoot": "/root/workspace/hc/build-swap",
+      "remoteInstallRoot": "/var/tmp/build/${workspaceHash}/install/${name}",
+      "remoteCopySources": true,
+      "remoteCopySourcesOutputVerbosity": "Normal",
+      "remoteCopySourcesConcurrentCopies": "10",
+      "remoteCopySourcesMethod": "rsync",
+      "remoteCopySourcesExclusionList": [ ".vs", "buildwin64", ".git", "junction" ],
+      "rsyncCommandArgs": "-t --delete",
+      "remoteCopyBuildOutput": false,
+      "cmakeCommandArgs": "-DCMAKE_PREFIX_PATH=/usr/local/BerkeleyDB.4.8 -DCMAKE_MAKE_PROGRAM=/root/workspace/ninja/build-cmake/ninja -DPACK_HYPERCHAIN=1",
+      //"cmakeCommandArgs": "-DCMAKE_PREFIX_PATH=/usr/local/BerkeleyDB.4.8 -DCMAKE_MAKE_PROGRAM=/root/workspace/ninja/build-cmake/ninja",
+      "buildCommandArgs": "-j 2 -l 2",
+      "ctestCommandArgs": "",
+      "inheritEnvironments": [ "linux_x64" ],
+      "variables": []
+    },
+    {
+      "name": "Linux-Debug-Copy",
+      //"generator": "Unix Makefiles",
+      "generator": "Ninja", ///root/workspace/ninja/build-cmake
+      "remoteMachineName": "${defaultRemoteMachineName}",
+      "configurationType": "Debug",
+      "remoteCMakeListsRoot": "/root/workspace/hc/src-swap/",
+      "cmakeExecutable": "/root/cmake3.19/bin/cmake1", //特意设置一个不存在的执行文件
+      "remoteBuildRoot": "/root/workspace/hc/build-swap",
+      "remoteCopySources": true,
+      "remoteCopySourcesOutputVerbosity": "Normal",
+      "remoteCopySourcesConcurrentCopies": "10",
+      "remoteCopySourcesMethod": "rsync",
+      "remoteCopySourcesExclusionList": [ ".vs", "buildwin64", ".git", "junction" ],
+      "rsyncCommandArgs": "-t --delete"
+    },
+    {
+      "name": "Linux-Release",
+      "generator": "Ninja", ///root/workspace/ninja/build-cmake
+      "remoteMachineName": "${defaultRemoteMachineName}",
+      "configurationType": "Release",
+      "remoteCMakeListsRoot": "/root/workspace/hc/src-swap/",
+      "cmakeExecutable": "/root/cmake3.19/bin/cmake",
+      "buildRoot": "${env.USERPROFILE}\\CMakeBuilds\\${workspaceHash}\\build\\${name}",
+      "installRoot": "${env.USERPROFILE}\\CMakeBuilds\\${workspaceHash}\\install\\${name}",
+      "remoteBuildRoot": "/root/workspace/hc/build-swap-release",
+      "remoteInstallRoot": "/var/tmp/build/${workspaceHash}/install/${name}",
+      "remoteCopySources": true,
+      "remoteCopySourcesOutputVerbosity": "Normal",
+      "remoteCopySourcesConcurrentCopies": "10",
+      "remoteCopySourcesMethod": "rsync",
+      "remoteCopySourcesExclusionList": [ ".vs", "buildwin64", ".git", "junction" ],
+      "rsyncCommandArgs": "-t --delete",
+      "remoteCopyBuildOutput": false,
+      "cmakeCommandArgs": "-DCMAKE_PREFIX_PATH=/usr/local/BerkeleyDB.4.8 -DCMAKE_MAKE_PROGRAM=/root/workspace/ninja/build-cmake/ninja -DPACK_HYPERCHAIN=1",
+      //"cmakeCommandArgs": "-DCMAKE_PREFIX_PATH=/usr/local/BerkeleyDB.4.8 -DCMAKE_MAKE_PROGRAM=/root/workspace/ninja/build-cmake/ninja",
+      "buildCommandArgs": "-j 2 -l 2",
+      "ctestCommandArgs": "",
+      "inheritEnvironments": [ "linux_x64" ],
+      "variables": []
+    },
+    {
+      "name": "Linux-Release-Paralism",
+      "generator": "Ninja", ///root/workspace/ninja/build-cmake
+      "remoteMachineName": "${defaultRemoteMachineName}",
+      "configurationType": "Release",
+      "remoteCMakeListsRoot": "/root/workspace/hc/src-swap/",
+      "cmakeExecutable": "/root/cmake3.19/bin/cmake",
+      "buildRoot": "${env.USERPROFILE}\\CMakeBuilds\\${workspaceHash}\\build\\${name}",
+      "installRoot": "${env.USERPROFILE}\\CMakeBuilds\\${workspaceHash}\\install\\${name}",
+      "remoteBuildRoot": "/root/workspace/hc/build-swap-release-paralism",
+      "remoteInstallRoot": "/var/tmp/build/${workspaceHash}/install/${name}",
+      "remoteCopySources": true,
+      "remoteCopySourcesOutputVerbosity": "Normal",
+      "remoteCopySourcesConcurrentCopies": "10",
+      "remoteCopySourcesMethod": "rsync",
+      "remoteCopySourcesExclusionList": [ ".vs", "buildwin64", ".git", "junction" ],
+      "rsyncCommandArgs": "-t --delete",
+      "remoteCopyBuildOutput": false,
+      "cmakeCommandArgs": "-DCMAKE_PREFIX_PATH=/usr/local/BerkeleyDB.4.8 -DCMAKE_MAKE_PROGRAM=/root/workspace/ninja/build-cmake/ninja",
+      "buildCommandArgs": "-j 2 -l 2",
+      "ctestCommandArgs": "",
+      "inheritEnvironments": [ "linux_x64" ],
+      "variables": []
+    },
+    {
+      "name": "Linux-Release-Copy",
+      //"generator": "Unix Makefiles",
+      "generator": "Ninja", ///root/workspace/ninja/build-cmake
+      "remoteMachineName": "${defaultRemoteMachineName}",
+      "configurationType": "Release",
+      "remoteCMakeListsRoot": "/root/workspace/hc/src-swap/",
+      "cmakeExecutable": "/root/cmake3.19/bin/cmake1", //特意设置一个不存在的执行文件
+      "remoteBuildRoot": "/root/workspace/hc/build-swap-release",
+      "remoteCopySources": true,
+      "remoteCopySourcesOutputVerbosity": "Normal",
+      "remoteCopySourcesConcurrentCopies": "10",
+      "remoteCopySourcesMethod": "rsync",
+      "remoteCopySourcesExclusionList": [ ".vs", "buildwin64", ".git", "junction" ],
+      "rsyncCommandArgs": "-t --delete"
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -32,7 +32,6 @@ SOFTWARE.
 using namespace std;
 
 extern void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "");
-extern void RSyncRemotePullHyperBlock(uint32_t starthid, uint32_t endhid, string nodeid = "");
 
 Logger cc_loggerDebug{ createLogger(VerbosityDebug, "crosschaintx") };
 Logger cc_loggerWarn{ createLogger(VerbosityWarning, "crosschaintx") };

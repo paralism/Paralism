@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -901,8 +901,8 @@ inline bool AffinityBugWorkaround(void(*pfn)(void*))
     if (dwPrev2 != dwProcessAffinityMask)
     {
         printf("AffinityBugWorkaround() : SetThreadAffinityMask=%d, ProcessAffinityMask=%d, restarting thread\n", dwPrev2, dwProcessAffinityMask);
-        //if (!CreateThread(pfn, NULL))
-        //    printf("Error: CreateThread() failed\n");
+        if (!CreateThread(pfn, NULL))
+            printf("Error: CreateThread() failed\n");
         return true;
     }
 #endif

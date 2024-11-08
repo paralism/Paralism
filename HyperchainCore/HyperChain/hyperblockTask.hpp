@@ -94,12 +94,8 @@ public:
             nodes.insert(elm);
         }
 
-        //HC: don't use sendToNodes, here should use async send
-        vector<CUInt128>::iterator iter = sendNodes.begin();
-        for (; iter != sendNodes.end(); iter++) {
-            g_consensus_console_logger->info("Broadcast Latest HyperBlock [{}] to neighbors [{}]", hyperblock.GetID(), (*iter).ToHexString());
-            nodemgr->sendTo(*iter, msgbuf);
-        }
+        nodemgr->sendToNodes(msgbuf, nodes, true);
+        g_consensus_console_logger->info("Broadcast Latest HyperBlock [{}] to neighbors", hyperblock.GetID());
     }
 
     void execRespond() override

@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -1159,30 +1159,6 @@ bool ResolvePayload(const string& payload, string& info)
 }
 
 
-Value IsMyAddress(const Array& params, bool fHelp)
-{
-    if (fHelp || params.size() < 1) {
-        throw runtime_error("coin myaddr <address> : check <address> if it is in my wallet or not");
-    }
-
-    CTxDestination address = DecodeDestination(params[0].get_str());
-    if (!IsValidDestination(address)) {
-        throw runtime_error("Invalid address");
-    }
-
-    CKey keyPair;
-    string error;
-    CBitcoinAddress paraaddr = pwalletMain->GetKeyFromDestination(address, keyPair, error);
-
-    Array ret;
-    if (!paraaddr.IsValid()) {
-        ret.push_back("No");
-    } else {
-        ret.push_back("Yes");
-    }
-    return ret;
-}
-
 Value IsMyPublickey(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() < 1) {
@@ -1193,7 +1169,7 @@ Value IsMyPublickey(const Array& params, bool fHelp)
     CBitcoinAddress paraaddr(ParseHex(pubkey));
 
     Array ret;
-    //ret.push_back(paraaddr.ToString());
+    ret.push_back(paraaddr.ToString());
 
     if (pwalletMain->HaveKey(paraaddr)) {
         ret.push_back("Yes");
@@ -2611,10 +2587,6 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
              //HCE: query a public key if it belongs to me or not.
             { "myk",[](const list<string>& l, bool fhelp) ->string {
                 return doAction(IsMyPublickey, l, fhelp, false);
-            } },
-
-            { "myaddr",[](const list<string>& l, bool fhelp) ->string {
-                return doAction(IsMyAddress, l, fhelp, false);
             } },
 
             { "db",[](const list<string>& l, bool fhelp) ->string {

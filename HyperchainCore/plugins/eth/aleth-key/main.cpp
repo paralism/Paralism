@@ -84,10 +84,6 @@ int main(int argc, char** argv)
         version();
 
     setupLogging(loggingOptions);
-    std::shared_ptr<char> stoplogger(nullptr, [](char*) {
-        stopLogging();
-        });
-
 
     m.execute();
 

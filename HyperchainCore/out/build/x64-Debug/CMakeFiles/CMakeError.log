@@ -1,0 +1,33 @@
+Determining if the include file pthread.h exists failed with the following output:
+Change Dir: E:/workspace/git/Hyperchain-Core-swap/out/build/x64-Debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):C:/Program Files (x86)/Microsoft Visual Studio/2019/Professional/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe cmTC_4e568 && [1/2] Building C object CMakeFiles\cmTC_4e568.dir\CheckIncludeFile.c.obj
+FAILED: CMakeFiles/cmTC_4e568.dir/CheckIncludeFile.c.obj 
+C:\PROGRA~2\MIB055~1\2019\PROFES~1\VC\Tools\MSVC\1429~1.301\bin\Hostx64\x64\cl.exe  /nologo   /DWIN32 /D_WINDOWS /W3  /MDd /Zi /Ob0 /Od /RTC1 /showIncludes /FoCMakeFiles\cmTC_4e568.dir\CheckIncludeFile.c.obj /FdCMakeFiles\cmTC_4e568.dir\ /FS -c CheckIncludeFile.c
+CheckIncludeFile.c(1): fatal error C1083: 无法打开包括文件: “pthread.h”: No such file or directory
+ninja: build stopped: subcommand failed.
+
+
+
+Performing C++ SOURCE FILE Test fstack-protector-strong failed with the following output:
+Change Dir: E:/workspace/git/Hyperchain-Core-swap/out/build/x64-Debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):C:/Program Files (x86)/Microsoft Visual Studio/2019/Professional/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe cmTC_5ed26 && [1/2] Building CXX object CMakeFiles\cmTC_5ed26.dir\src.cxx.obj
+cl: 命令行 warning D9002 :忽略未知选项“-fstack-protector-strong”
+[2/2] Linking CXX executable cmTC_5ed26.exe
+
+
+Source file was:
+int main() { return 0; }
+Performing C++ SOURCE FILE Test Wimplicit-fallthrough failed with the following output:
+Change Dir: E:/workspace/git/Hyperchain-Core-swap/out/build/x64-Debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):C:/Program Files (x86)/Microsoft Visual Studio/2019/Professional/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe cmTC_2c44a && [1/2] Building CXX object CMakeFiles\cmTC_2c44a.dir\src.cxx.obj
+FAILED: CMakeFiles/cmTC_2c44a.dir/src.cxx.obj 
+C:\PROGRA~2\MIB055~1\2019\PROFES~1\VC\Tools\MSVC\1429~1.301\bin\Hostx64\x64\cl.exe  /nologo /TP   /EHsc /utf-8   /Zi /Od /MDd   -DWimplicit-fallthrough -Wimplicit-fallthrough /showIncludes /FoCMakeFiles\cmTC_2c44a.dir\src.cxx.obj /FdCMakeFiles\cmTC_2c44a.dir\ /FS -c src.cxx
+cl: 命令行 error D8021 :无效的数值参数“/Wimplicit-fallthrough”
+ninja: build stopped: subcommand failed.
+
+
+Source file was:
+int main() { return 0; }

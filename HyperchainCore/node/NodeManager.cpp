@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -59,8 +59,8 @@ void NodeManager::startMQHandler()
     _msghandler.registerTimer(10 * 1000, std::bind(&NodeUPKeepThreadPool::NodeFind, nodeUpkeep), true);
 
     //HC: 每间隔5min获取邻居
-    //HCE: Get neighbor nodes every 3 min
-    _msghandler.registerTimer(3 * 60 * 1000, std::bind(&NodeUPKeepThreadPool::NodeFind, nodeUpkeep));
+    //HCE: Get neighbor nodes every 5 min
+    _msghandler.registerTimer(300 * 1000, std::bind(&NodeUPKeepThreadPool::NodeFind, nodeUpkeep));
 
     _msghandler.registerTimer(12 * 1000, std::bind(&NodeUPKeepThreadPool::NodePing, nodeUpkeep), true);
 

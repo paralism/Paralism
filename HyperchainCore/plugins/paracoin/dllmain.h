@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -1209,10 +1209,6 @@ public:
 
         _msghandler.stop();
         _isStarted = false;
-    }
-
-    bool isStarted() {
-        return _isStarted;
     }
 
     std::string MQID()

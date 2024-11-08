@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -466,7 +466,7 @@ ConsoleCommandHandler::~ConsoleCommandHandler()
 
 void ConsoleCommandHandler::showUsages()
 {
-    _ostream << "Copyright 2016-2024 hyperchain.net (Hyperchain (R)) v" << VERSION_STRING << endl;
+    _ostream << "Copyright 2016-2022 hyperchain.net (Hyperchain (R)) v" << VERSION_STRING << endl;
     _ostream << "These are common commands used in various situations:" << endl;
     _ostream << "The '<>' means that the command has a required argument, and '[]' means an optional argument" << endl << endl;
 

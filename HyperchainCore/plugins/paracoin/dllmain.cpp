@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -31,7 +31,6 @@ SOFTWARE.
 #include "consensus/consensus_engine.h"
 #include "node/NodeManager.h"
 #include "node/defer.h"
-#include "util/threadname.h"
 
 #include "headers.h"
 #include "db.h"
@@ -1310,7 +1309,7 @@ unsigned int static GetNextWorkRequired(const CBlockIndexSP pindexLast)
         cerr << StringFormat("Para: %s failed due to block(%d(%s)) %d, chain has errors, unload module...\n",
             __FUNCTION__,
             pindexLast->nHeight, pindexLast->hashBlock.ToString(), i);
-        hc::CreateThread("Shutdown", Shutdown, NULL);
+        CreateThread(Shutdown, NULL);
         return 1;
     }
 
@@ -1810,7 +1809,7 @@ bool ForwardFindBlockInMain(int blkheight, const uint256 &blkhash, int h1, int h
     }
 
     //(i >= 203239 && i <= 203247) || //HCE: first 172 blocks they are in hyperblock : 203239 ~ 203247
-    for (int i = h1; i <= h2 && !fShutdown; ++i) {
+    for (int i = h1; i <= h2; ++i) {
         vector<T_PAYLOADADDR> vecPA;
         T_SHA256 thhash;
         if (hyperchainspace->GetLocalBlocksByHID(i, app, thhash, vecPA)) {
@@ -2912,7 +2911,7 @@ bool CheckDiskSpace(uint64 nAdditionalBytes)
         //ThreadSafeMessageBox(strMessage, "Hyperchain", wxOK | wxICON_EXCLAMATION);
         cerr << StringFormat("Para: %s, unload module...", strMessage);
 
-        hc::CreateThread("Shutdown", Shutdown, NULL);
+        CreateThread(Shutdown, NULL);
         return false;
     }
     return true;
@@ -5620,12 +5619,9 @@ void static BitcoinMiner(CWallet* pwallet)
     CReserveKey reservekey(pwallet);
     unsigned int nExtraNonce = 0;
 
-    while (true) {
-        if (AffinityBugWorkaround(ThreadBitcoinMiner)) {
-            hc::CreateThread("BitcoinMiner", ThreadBitcoinMiner, pwallet);
+    while (true)     {
+        if (AffinityBugWorkaround(ThreadBitcoinMiner))
             return;
-        }
-
         if (fShutdown)
             return;
 
@@ -5777,7 +5773,8 @@ void GenerateBitcoins(bool fGenerate, CWallet* pwallet)
         //HCE: start a miner thread.
         //for (int i = 0; i < nAddThreads; i++)
         {
-            hc::CreateThread("BitcoinMiner", ThreadBitcoinMiner, pwallet);
+            if (!CreateThread(ThreadBitcoinMiner, pwallet))
+                ERROR_FL("Error: CreateThread(ThreadParacoinMiner) failed\n");
             Sleep(10);
         }
     }

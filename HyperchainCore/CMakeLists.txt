@@ -1,4 +1,4 @@
-#Copyright 2016-2024 hyperchain.net (Hyperchain)
+#Copyright 2016-2022 hyperchain.net (Hyperchain)
 #Distributed under the MIT software license, see the accompanying
 #file COPYING or https://opensource.org/licenses/MIT.
 
@@ -36,7 +36,7 @@ SET(CMAKE_CXX_FLAGS_RELEASE "${HC_FLAG} -O3")
 elseif(WIN32)
 
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /MD")
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Zi /Od /MDd")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /ZI /Od /MDd")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /utf-8")
 
 ADD_DEFINITIONS(/D__WXMSW__ /DNOMINMAX /DUDT_EXPORTS -DWIN32)

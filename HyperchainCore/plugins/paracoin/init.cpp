@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -28,7 +28,6 @@ DEALINGS IN THE SOFTWARE.
 #include "node/Singleton.h"
 #include "headers/commonstruct.h"
 #include "consensus/consensus_engine.h"
-#include "util/threadname.h"
 
 #include "headers.h"
 #include "db.h"
@@ -140,10 +139,12 @@ void StopApplication(bool isFirst)
 {
     if (isFirst) {
         fShutdown = true;
+        g_sys_interrupted = 1;
         return;
     }
 
     fShutdown = true;
+    g_sys_interrupted = 1;
     Shutdown(nullptr);
 }
 
@@ -161,9 +162,6 @@ void ShutdownExcludeRPCServer()
         consensuseng->UnregisterAppCallback(T_APPTYPE(APPTYPE::paracoin,
             g_cryptoCurrency.GetHID(), g_cryptoCurrency.GetChainNum(), g_cryptoCurrency.GetLocalID()));
     }
-
-    //HC: 模块unregistered后，才能stop MQ
-    g_sys_interrupted = 1;
 
     if (g_pLock) {
         g_pLock->unlock();
@@ -207,9 +205,6 @@ void Shutdown(void* parg)
         consensuseng->UnregisterAppCallback(T_APPTYPE(APPTYPE::paracoin,
             g_cryptoCurrency.GetHID(), g_cryptoCurrency.GetChainNum(), g_cryptoCurrency.GetLocalID()));
     }
-
-    //HC: 模块unregistered后，才能stop MQ
-    g_sys_interrupted = 1;
 
     if (g_pLock) {
         g_pLock->unlock();
@@ -679,8 +674,8 @@ bool AppInit2(int argc, char* argv[])
     LatestHyperBlock::Sync();
 
     StartMQHandler();
-
-    hc::CreateThread("StartNode", StartNode, NULL);
+    if (!CreateThread(StartNode, NULL))
+        ERROR_FL("Error: CreateThread(StartNode) failed\n");
 
     if (fServer && !fRPCServerRunning) {
         StartRPCServer();
@@ -694,7 +689,7 @@ bool AppInit2(int argc, char* argv[])
     }
 
 
-    hc::CreateThread("GetNeighbourChkBlockInfo", ThreadGetNeighbourChkBlockInfo, NULL);
+    CreateThread(ThreadGetNeighbourChkBlockInfo, NULL);
 
     return true;
 }

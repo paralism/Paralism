@@ -112,8 +112,6 @@ struct LoggingOptions
 // Should be called in every executable
 void setupLogging(LoggingOptions const& _options);
 
-void stopLogging();
-
 bool isVmTraceEnabled();
 
 // Simple non-thread-safe logger with fixed severity and channel for each message

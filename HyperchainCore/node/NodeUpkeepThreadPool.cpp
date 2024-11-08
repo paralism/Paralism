@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -82,8 +82,8 @@ void NodeUPKeepThreadPool::PreparePullList()
     }
 }
 
-//HC: 每3min取k桶16个节点获取10个邻居
-//HCE: Pick 16 nodes in KBuckets and get 10 neighbor nodes every 3 min
+//HC: 每5min取k桶16个节点获取10个邻居
+//HCE: Pick 16 nodes in KBuckets and get 10 neighbor nodes every 5 min
 void NodeUPKeepThreadPool::NodeFind()
 {
     NodeManager* nodemgr = Singleton<NodeManager>::getInstance();

@@ -36,9 +36,7 @@ DEALINGS IN THE SOFTWARE.
 #include "../util/common.h"
 #include "../consensus/buddyinfo.h"
 #include "../consensus/consensus_engine.h"
-#include "util/threadname.h"
 #include "../node/defer.h"
-
 #include "vm/vm.h"
 
 
@@ -2037,13 +2035,7 @@ int RestApi::startRest(int nport)
 
     _isstop = false;
     m_threads.emplace_back(&RestApi::SubmitBatchRegistrationThread);
-    auto it = m_threads.rbegin();
-    hc::SetThreadName(&(*it), "RestApi::SubmitBatchRegistration");
-
     m_threads.emplace_back(&RestApi::RetrySubmitThread);
-    it = m_threads.rbegin();
-    hc::SetThreadName(&(*it), "RestApi::RetrySubmit");
-
 
     return 0;
 }

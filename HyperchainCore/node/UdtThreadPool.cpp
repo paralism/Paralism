@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -23,7 +23,6 @@ DEALINGS IN THE SOFTWARE.
 #include "newLog.h"
 #include "defer.h"
 #include "headers/inter_public.h"
-#include "util/threadname.h"
 
 #include "UdtThreadPool.h"
 #include "UdpRecvDataHandler.hpp"
@@ -86,14 +85,9 @@ void UdtThreadPool::start()
     m_actioncoststt.AddAction(2, "epoll-FillSets");
 
     m_listenthread = std::thread(&UdtThreadPool::Listen, this);
-    hc::SetThreadName(&m_listenthread, "UdtThreadPool::Listen");
 
-
-    for (size_t i = 0; i < m_recvthreads_num; i++) {
+    for (size_t i = 0; i < m_recvthreads_num; i++)
         m_recvthreads.push_back(std::thread(&UdtThreadPool::ProcessDataRecv, this));
-        auto it = m_recvthreads.rbegin();
-        hc::SetThreadName(&(*it), "UdtThreadPool::ProcessDataRecv");
-    }
 }
 
 void UdtThreadPool::stop()
@@ -152,8 +146,7 @@ string UdtThreadPool::getUdtStatics()
             for (auto s : sendsock.second.udtsckset) {
                 status = UDT::getsockstate(s);
                 auto sr = sendsock.second.sockrecv[s];
-                oss << StringFormat("sck:%x(%s recv:%d,%s) ", s,
-                    udtstatusdesc[status], sr.nrecv, time2string_s(sr.tmlastrecv));
+                oss << StringFormat("sck:(%s recv:%d,%s) ", udtstatusdesc[status], sr.nrecv, time2string_s(sr.tmlastrecv));
             }
             oss << "\n";
         }

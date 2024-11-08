@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -118,13 +118,6 @@ void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "")
     }
 }
 
-void RSyncRemotePullHyperBlock(uint32_t starthid, uint32_t endhid, string nodeid = "")
-{
-    CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
-    if (hyperchainspace) {
-        hyperchainspace->GetRemoteHyperBlockByID_UntilSuccess(starthid, endhid, nodeid);
-    }
-}
 
 string CryptoEthCurrency::GetCurrencyConfigPath()
 {

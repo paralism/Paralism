@@ -2,7 +2,6 @@
 // Copyright 2018-2019 Aleth Authors.
 // Licensed under the GNU General Public License, Version 3.
 
-
 #include <libdevcore/FileSystem.h>
 #include <libdevcore/LoggingProgramOptions.h>
 #include <libethcore/Common.h>
@@ -179,10 +178,6 @@ int main(int argc, char** argv)
         listenPort = vm["listen"].as<unsigned short>();
 
     setupLogging(loggingOptions);
-    std::shared_ptr<char> stoplogger(nullptr, [](char *) {
-        stopLogging();
-        });
-
     if (loggingOptions.verbosity > 0)
         cout << EthGrayBold << c_programName << ", a C++ Ethereum bootnode implementation" EthReset
              << "\n";

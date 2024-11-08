@@ -132,11 +132,9 @@ void setSinkPolicy(log_sink<boost::log::sinks::text_ostream_backend> *sink, Logg
     sink->set_formatter(&formatter);
 }
 
-boost::shared_ptr<log_sink<boost::log::sinks::text_ostream_backend>> g_sink;
 void setupLogging(LoggingOptions const& _options)
 {
     auto sink = boost::make_shared<log_sink<boost::log::sinks::text_ostream_backend>>();
-    g_sink = sink;
 
     boost::shared_ptr<std::ostream> stream{&std::cout, boost::null_deleter{}};
     sink->locked_backend()->add_stream(stream);
@@ -164,22 +162,6 @@ void setupLogging(LoggingOptions const& _options)
     }));
 
     g_vmTraceEnabled = _options.vmTrace;
-}
-
-//HC: https://blog.csdn.net/Max_Cong/article/details/83176559
-void stopLogging()
-{
-#if defined(NDEBUG)
-    boost::shared_ptr<boost::log::core> core = boost::log::core::get();
-    // Remove the sink from the core, so that no records are passed to it
-    core->remove_sink(g_sink);
-    // Break the feeding loop
-    g_sink->stop();
-    // Flush all log records that may have left buffered
-    g_sink->flush();
-
-    g_sink.reset();
-#endif
 }
 
 bool isVmTraceEnabled()

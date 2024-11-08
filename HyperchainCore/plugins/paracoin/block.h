@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -1027,11 +1027,6 @@ public:
     }
 
     bool ReadFromScript(const CScriptWitness& scriptWitness) {
-        //HC: 传统交易scriptWitness.stack的size为0
-        if (scriptWitness.stack.size() <= 0) {
-            return false;
-        }
-
         EthInPoint ethinputpoint;
         auto v = scriptWitness.stack[0];
         CScript s(v.begin(), v.end());

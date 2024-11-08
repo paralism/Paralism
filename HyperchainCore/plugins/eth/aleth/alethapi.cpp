@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -68,8 +68,6 @@ namespace pod = boost::program_options::detail;
 namespace po = boost::program_options;
 
 
-static bool g_isshutdown = true;
-
 std::future<bool> g_aleth_future;
 string g_aleth_argv;
 
@@ -91,7 +89,6 @@ extern LoggingOptions loggingOptions;
 extern void dev::setupLogging(LoggingOptions const& _options);
 
 extern void RSyncRemotePullHyperBlock(uint32_t hid, string nodeid = "");
-extern void RSyncRemotePullHyperBlock(uint32_t starthid, uint32_t endhid, string nodeid = "");
 extern int plugin_main(int argc, char** argv);
 
 string ToString(const BlockHeader &header);
@@ -237,32 +234,16 @@ bool ReadBlockFromChainSpace(const T_LOCALBLOCKADDRESS& addr, bytes& block)
     return true;
 }
 
-//HC: headers存放m_prevHID相同的块头, 容器中的元素按块号大到小存放
-//HC: 如果找到了, 返回headers中的索引值，该索引所指的块头在超块链上, 否则返回-1
-int ForwardFindBlockInMain(const std::vector<BlockHeader> &headers, int h1, int h2, BLOCKTRIPLEADDRESS &blktriaddr, vector<int> &vecHyperBlkIdLacking)
+bool ForwardFindBlockInMain(const BlockHeader &header, int h1, int h2, BLOCKTRIPLEADDRESS &blktriaddr, vector<int> &vecHyperBlkIdLacking)
 {
-    if (headers.size() <= 0) {
-        return -1;
-    }
-
     CHyperChainSpace* hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
     h256 hgenesis = g_cryptoEthCurrency.GetHashGenesisBlock();
-
-
-    int64_t prevhid = headers[0].prevHID();
-    int nPos = 0;
-    for (auto &header : headers) {
-        if (prevhid != header.prevHID())
-            return -1; //HC：数据异常
-
-        if (header.number() == 0 && header.hash() == hgenesis) {
-            blktriaddr.hid = g_cryptoEthCurrency.GetHID();
-            blktriaddr.chainnum = g_cryptoEthCurrency.GetChainNum();
-            blktriaddr.id = g_cryptoEthCurrency.GetLocalID();
-            hyperchainspace->GetHyperBlockHash(blktriaddr.hid, blktriaddr.hhash);
-            return nPos;
-        }
-        ++nPos;
+    if (header.number() == 0 && header.hash() == hgenesis) {
+        blktriaddr.hid = g_cryptoEthCurrency.GetHID();
+        blktriaddr.chainnum = g_cryptoEthCurrency.GetChainNum();
+        blktriaddr.id = g_cryptoEthCurrency.GetLocalID();
+        hyperchainspace->GetHyperBlockHash(blktriaddr.hid, blktriaddr.hhash);
+        return true;
     }
 
 
@@ -273,11 +254,9 @@ int ForwardFindBlockInMain(const std::vector<BlockHeader> &headers, int h1, int 
         h1 = genesisHID + 1;
     }
 
-    const size_t nMaxLacking = 30;
+    const size_t nMaxLacking = 100;
 
-    auto minblk = headers.rbegin();     //HC：集合中块号最小的块
-
-    for (int i = h1; i <= h2 && !g_isshutdown; ++i) {
+    for (int i = h1; i <= h2; ++i) {
         vector<T_PAYLOADADDR> vecPA;
         T_SHA256 thhash;
         if (hyperchainspace->GetLocalBlocksByHID(i, app, thhash, vecPA)) {
@@ -289,18 +268,14 @@ int ForwardFindBlockInMain(const std::vector<BlockHeader> &headers, int h1, int 
                     continue;
                 }
 
-                if (currheader.number() < minblk->number()) {
+                if (currheader.number() < header.number()) {
                     break;
                 }
 
-                int nPosIndex = 0;
-                for (auto& header : headers) {
-                    if (currheader.number() == header.number() && currheader.hash() == header.hash()) {
-                        blktriaddr = pa->addr;
-                        blktriaddr.hhash = thhash;
-                        return nPosIndex;
-                    }
-                    ++nPosIndex;
+                if (currheader.number() == header.number() && currheader.hash() == header.hash()) {
+                    blktriaddr = pa->addr;
+                    blktriaddr.hhash = thhash;
+                    return true;
                 }
             }
         } else {
@@ -310,8 +285,7 @@ int ForwardFindBlockInMain(const std::vector<BlockHeader> &headers, int h1, int 
             }
         }
     }
-
-    return -1;
+    return false;
 }
 
 
@@ -340,13 +314,7 @@ bool LatestBlockIndexOnChained(const BlockHeader& header, BlockHeader& onchained
     uint64 latestHID = LatestHyperBlock::GetHID();
     BlockHeader headerCurr = header;
 
-    while (!g_isshutdown) {
-
-        if (headerCurr.number() == 0) {
-            onchainedblkheader = headerCurr;
-            break;
-        }
-
+    while (true) {
         auto blkheaderhash = headerCurr.hash();
         if(blkheaderCache.contains(blkheaderhash)) {
             boost::optional<HyerBlkLoc> o_blkheader_pos = blkheaderCache.get(blkheaderhash);
@@ -354,7 +322,6 @@ bool LatestBlockIndexOnChained(const BlockHeader& header, BlockHeader& onchained
 
             if (hyperchainspace->CheckHyperBlockHash(inner_val.first, inner_val.second)) {
                 lruHBL.push_front(make_pair(blkheaderhash, inner_val));
-                onchainedblkheader = headerCurr;
                 break;
             }
         }
@@ -362,48 +329,39 @@ bool LatestBlockIndexOnChained(const BlockHeader& header, BlockHeader& onchained
         //HC：超块链上寻找
         BLOCKTRIPLEADDRESS triaddr;
         vector<int> vecHyperBlkIdLacking;
-        std::vector<BlockHeader> headers;
-
-        auto headerprevHID = headerCurr.prevHID();
-        BlockHeader headerPrev = bc.info(headerCurr.parentHash());
-
-        headers.emplace_back(std::move(headerCurr));
-        for (;(bool)(headerPrev);) {
-            if (headerprevHID != headerPrev.prevHID())
-                break;
-            headers.emplace_back(std::move(headerPrev));
-            headerPrev = bc.info(headers.rbegin()->parentHash());
-        }
-
-        int nIdx = ForwardFindBlockInMain(headers, headerprevHID + 1, latestHID, triaddr, vecHyperBlkIdLacking);
-        if (nIdx >= 0) {
+        if (ForwardFindBlockInMain(headerCurr, headerCurr.prevHID() + 1, latestHID, triaddr, vecHyperBlkIdLacking)) {
             HyerBlkLoc loc;
             loc.first = triaddr.hid;
             loc.second = triaddr.hhash;
-            onchainedblkheader = headers[nIdx];
-            lruHBL.push_front(make_pair(headers[nIdx].hash(), loc));
+            lruHBL.push_front(make_pair(blkheaderhash, loc));
             break;
         } else if(vecHyperBlkIdLacking.size() > 0) {
             //HC：本地超块缺失
-            auto n = vecHyperBlkIdLacking.size();
-            RSyncRemotePullHyperBlock(vecHyperBlkIdLacking[0], vecHyperBlkIdLacking[n - 1] + 1);
+            int n = 0;
+            for (auto & hid : vecHyperBlkIdLacking) {
+                if (n++ > 10) {
+                    break;
+                }
+                RSyncRemotePullHyperBlock((uint32_t)hid);
+            }
             goto err;
         }
 
-        auto rbgheader = headers.rbegin();
+        if (headerCurr.number() == 0)
+            break;
 
         //HC: change the Hyperblock range of scanning
-        headerCurr = bc.info(rbgheader->parentHash());
-        latestHID = rbgheader->prevHID();
+        BlockHeader headerParent = bc.info(headerCurr.parentHash());
+        if(headerCurr.prevHID() > headerParent.prevHID())
+            latestHID = headerCurr.prevHID();
+        headerCurr = headerParent;
     }
 
     for (auto & elm : lruHBL) {
         blkheaderCache.insert(elm.first, elm.second);
     }
 
-    if (g_isshutdown)
-        goto err;
-
+    onchainedblkheader = headerCurr;
     return true;
 
 err:
@@ -714,9 +672,10 @@ void uninitializeCallbackFunctions()
         consensuseng->UnregisterAppCallback(T_APPTYPE(APPTYPE::ethereum,
             g_cryptoEthCurrency.GetHID(), g_cryptoEthCurrency.GetChainNum(), g_cryptoEthCurrency.GetLocalID()));
     }
-    cout << "\taleth: UnregisterAppCallback\n";
+    cout << "aleth: UnregisterAppCallback\n";
 }
 
+static bool g_isshutdown = true;
 
 //HC: 用传入的参数，启动以太坊子链
 //HCE：With the passed parameters, start the Ethereum solo chain
@@ -819,17 +778,17 @@ bool StartApplication(PluginContext* context)
 
     return true;
 }
-
 void StopApplication(bool isFirst)
 {
     if (isFirst) {
         g_isshutdown = true;
+        g_sys_interrupted = 1;
         return;
     }
-    g_isshutdown = true;
 
+    g_isshutdown = true;
+    g_sys_interrupted = 1;
     uninitializeCallbackFunctions();
-    g_sys_interrupted = 1; //HC: 模块unregistered后，才能stop MQ
     ExitHandler::exitHandler(0);
     g_aleth_future.wait();
 }
@@ -1035,10 +994,7 @@ std::string SearchTriAddrInHyperchain(const BlockHeader &blkhead)
     }
 
     string rc;
-    std::vector<BlockHeader> headers;
-    headers.emplace_back(std::move(blkhead));
-
-    if (ForwardFindBlockInMain(headers, nStartHID, nEndHID, triaddr, vecHyperBlkIdLacking) >= 0) {
+    if (ForwardFindBlockInMain(blkhead, nStartHID, nEndHID, triaddr, vecHyperBlkIdLacking)) {
 
         rc = StringFormat("[%d,%d,%d(%s)]",
             triaddr.hid, triaddr.chainnum, triaddr.id, triaddr.hhash.toHexString().substr(0,10));
@@ -1144,11 +1100,7 @@ bool ConsoleCmd(const list<string>& cmdlist, string& info, string& savingcommand
                     t.GetHashPrefixOfGenesis().c_str(),
                     t.GetHID(), t.GetChainNum(), t.GetLocalID());
             }
-
-            if (coins.size() == 0) {
-                oss << "Not find any coin, use 'eth imp' or 'eth iss' to get one\n";
-            } else 
-                oss << "use 'eth ll [NO.]' for coin details\n";
+            oss << "use 'coin ll [NO.]' for coin details\n";
             return oss.str();
         } },
 
@@ -1934,10 +1886,7 @@ bool GetTxState(const string &txhash, int &blocknum, int64_t &blockstamp,
 
         BLOCKTRIPLEADDRESS triaddr;
         vector<int> vecHyperBlkIdLacking;
-
-        std::vector<BlockHeader> headers;
-        headers.emplace_back(std::move(header));
-        if (ForwardFindBlockInMain(headers, start_hid, end_hid, triaddr, vecHyperBlkIdLacking) >=0) {
+        if (ForwardFindBlockInMain(header, start_hid, end_hid, triaddr, vecHyperBlkIdLacking)) {
             hyperId = triaddr.hid;
             chainId = triaddr.chainnum;
             localId = triaddr.id;
@@ -1999,11 +1948,7 @@ bool GetTxDetails(const string &strhash, std::map<string, string> &mapparams, st
         int64_t end_hid = header.prevHID() + 2;
         BLOCKTRIPLEADDRESS triaddr;
         vector<int> vecHyperBlkIdLacking;
-
-        std::vector<BlockHeader> headers;
-        headers.emplace_back(std::move(header));
-
-        if (ForwardFindBlockInMain(headers, start_hid, end_hid, triaddr, vecHyperBlkIdLacking) < 0) {
+        if (!ForwardFindBlockInMain(header, start_hid, end_hid, triaddr, vecHyperBlkIdLacking)) {
             strError = "Transaction cannot be found on the chain";
             return false;
         }

@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -28,7 +28,7 @@ using namespace std;
 
 void SoftwareInfo()
 {
-    cout << "Copyright 2016-2024 hyperchain.net (Hyperchain (R))" << endl;
+    cout << "Copyright 2016-2022 hyperchain.net (Hyperchain (R))" << endl;
     cout << "Version " << VERSION_STRING << endl << endl;
 }
 

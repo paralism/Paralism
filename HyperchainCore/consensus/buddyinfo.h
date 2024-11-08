@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -138,8 +138,6 @@ typedef struct _tagCONSENSUSNOTIFYSTATE
 {
     CONSENSUSNOTIFY notify_fns;
     bool unreging = false;           //whether application is unregistering
-    cbindex calling_index = cbindex::IDLE;
-    std::thread::id calling_thread;
 
 public:
 
@@ -407,11 +405,7 @@ typedef struct _tp2pmanagerstatus
             }
             auto fn = std::get<static_cast<size_t>(I)>(appnoti.second->notify_fns);
             if (fn) {
-                appnoti.second->calling_index = I;
-                appnoti.second->calling_thread = std::this_thread::get_id();
                 fn(args...);
-                appnoti.second->calling_index = cbindex::IDLE;
-                appnoti.second->calling_thread = std::thread::id();
             }
         }
         return true;
@@ -431,11 +425,7 @@ typedef struct _tp2pmanagerstatus
             auto spnotistate = _mapcbfn.at(app);
             auto fn = std::get<static_cast<size_t>(I)>(spnotistate->notify_fns);
             if (fn) {
-                spnotistate->calling_index = I;
-                spnotistate->calling_thread = std::this_thread::get_id();
-                auto ret = (fn(args...) ? (CBRET::REGISTERED_TRUE) : (CBRET::REGISTERED_FALSE));
-                spnotistate->calling_index = cbindex::IDLE;
-                spnotistate->calling_thread = std::thread::id();
+                return fn(args...) ? (CBRET::REGISTERED_TRUE) : (CBRET::REGISTERED_FALSE);
             }
         }
         return CBRET::UNREGISTERED;

@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -53,7 +53,6 @@ DEALINGS IN THE SOFTWARE.
 #include <sstream>
 
 #include "util/common.h"
-#include "util/threadname.h"
 
 #include "db/RestApi.h"
 #include "db/dbmgr.h"
@@ -535,69 +534,59 @@ void stopAll()
     consensuseng->requestStop();
 
     if (g_appPlugin) {
-        cout << "Stopping Applications...";
+        cout << "Stopping Applications..." << endl;
         g_appPlugin->StopAllApp();
-        cout << "Stopped" << endl;
     }
 
     g_sys_interrupted = 1; //HC: stop MQ
     auto datahandler = Singleton<UdpRecvDataHandler>::getInstance();
     if (datahandler) {
-        cout << "Stopping UdpRecvDataHandler...";
+        cout << "Stopping UdpRecvDataHandler..." << endl;
         datahandler->stop();
-        cout << "Stopped" << endl;
     }
 
     if (consensuseng) {
-        cout << "Stopping Consensuseng...";
+        cout << "Stopping Consensuseng..." << endl;
         consensuseng->stop();
-        cout << "Stopped" << endl;
     }
     CHyperChainSpace *hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
     if (hyperchainspace) {
-        cout << "Stopping Hyperchain Space...";
+        cout << "Stopping Hyperchain Space..." << endl;
         hyperchainspace->stop();
-        cout << "Stopped" << endl;
     }
 
     NodeUPKeepThreadPool* nodeUpkeepThreadpool = Singleton<NodeUPKeepThreadPool>::getInstance();
     if (nodeUpkeepThreadpool) {
-        cout << "Stopping NodeUPKeepThreadPool...";
+        cout << "Stopping NodeUPKeepThreadPool..." << endl;
         nodeUpkeepThreadpool->stop();
-        cout << "Stopped" << endl;
     }
 
     NodeManager* nmg = Singleton<NodeManager>::getInstance();
     if (nmg) {
-        cout << "Stopping NodeManager...";
+        cout << "Stopping NodeManager..." << endl;
         nmg->stop();
-        cout << "Stopped" << endl;
     }
 
     UdtThreadPool *udpthreadpool = Singleton<UdtThreadPool, const char*, uint32_t>::getInstance();
     if (udpthreadpool) {
-        cout << "Stopping UDT...\n";
+        cout << "Stopping UDT..." << endl;
         udpthreadpool->stop();
-        cout << "UDT Stopped" << endl;
     }
 
     if (g_nodetype != NodeType::LedgerRPCClient) {
-        cout << "Stopping Rest Server...";
+        cout << "Stopping Rest Server..." << endl;
         RestApi::stopRest();
-        cout << "Stopped" << endl;
     }
 
     HCMQBroker *brk = Singleton<HCMQBroker>::getInstance();
     if (brk) {
-        cout << "Stopping HCBroker...";
+        cout << "Stopping HCBroker..." << endl;
         brk->stop();
-        cout << "Stopped" << endl;
     }
 
     if (Singleton<DBmgr>::instance()->isOpen()) {
-        cout << "Closing Database...";
+        cout << "Closing Database" << endl;
         Singleton<DBmgr>::instance()->close();
-        cout << "Closed" << endl;
     }
 }
 
@@ -1042,18 +1031,7 @@ static google_breakpad::ExceptionHandler* exceptionhandler = nullptr;
 //HCE: @returns void
 void checkupdate(boost::filesystem::path pathHC)
 {
-    std::function<void(int)> sleepfn = [](int sleepseconds) {
-        int i = 0;
-        int maxtimes = sleepseconds * 1000 / 200;
-        while (i++ < maxtimes) {
-            if (g_sys_interrupted) {
-                break;
-            }
-            this_thread::sleep_for(chrono::milliseconds(300));
-        }
-    };
-
-    while (!g_sys_interrupted) {
+    while (true) {
         //HCE: Check if HC needs to update
         UpdateInfo updateinfo(pathHC);
         string localmd5;
@@ -1080,7 +1058,7 @@ void checkupdate(boost::filesystem::path pathHC)
 
         }
 
-        sleepfn(13 * 60 * 60);
+        std::this_thread::sleep_for(std::chrono::hours(13));
     }
 }
 
@@ -1375,7 +1353,7 @@ int main(int argc, char *argv[])
     pathHC = boost::filesystem::system_complete(pathHC);
 
     std::thread thrCheck(checkupdate, pathHC);
-    hc::SetThreadName(&thrCheck, "checkupdate");
+    thrCheck.detach();
 
     ConsoleCommandHandler *console =
         Singleton<ConsoleCommandHandler, std::streambuf* , std::streambuf*>::instance(cin.rdbuf(), cout.rdbuf());
@@ -1392,9 +1370,6 @@ int main(int argc, char *argv[])
         boost::filesystem::current_path(pathHC);
         execlp("./Autoupdate", "Autoupdate", (char*)0);
     }
-
-    if (thrCheck.joinable())
-        thrCheck.join();
 
     return 0;
 }

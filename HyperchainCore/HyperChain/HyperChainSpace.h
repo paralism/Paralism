@@ -1,4 +1,4 @@
-/*Copyright 2016-2024 hyperchain.net (Hyperchain)
+/*Copyright 2016-2022 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -60,6 +60,7 @@ typedef struct _syncblockinfo
 HC_ENUM(SERVICE, short, DoNothing,
     GetMaxBlockID,
     GetLatestHyperBlockIDAndHash,
+    IsLatestHyperBlockReady,
     GetLatestHyperBlock,
     GetHyperBlockByID,
     GetHyperBlockByHash,
@@ -105,12 +106,12 @@ HC_ENUM(SERVICE, short, DoNothing,
     NoHyperBlockHeader,
     MQCostStatistics);
 
-typedef struct _headers_mtroot
+typedef struct _headerinfo
 {
     uint64 id;               //HCE: Hyperblock header ID
     vector <uint16> section; //HC: 由超块头ID组成超块区段信息
                              //HCE: ordered set composed by hyperblock header IDs
-    vector <T_SHA256> hash_MTRoots;  //HC: 超块头Hash对应的默克尔树根
+    vector <T_SHA256> hashMTRootList;  //HC: 超块头Hash对应的默克尔树根
                                        //HCE: table of Merkle Tree root for each hyperblock header hash
     system_clock::time_point sync_time = system_clock::now();    //HC: 同步超块头时请求HashMTRoot的发送时间
                                                                  //HCE: request send time of fetching HashMTRoot of the hyperblock header
@@ -119,14 +120,14 @@ typedef struct _headers_mtroot
     void Set(uint64 hid);
     void Set(vector <T_SHA256>& hashMTRootlist);
 
-    bool hasCommonPart(_headers_mtroot other);
+    bool IsSameChain(_headerinfo other);
 
-}T_HEADERS_MTROOTS, * T_PHEADERS_MTROOTS;
+}T_HEADERINFO, * T_PHEADERINFO;
 
 typedef struct _chaininfo
 {
     bool checked = false;
-    T_HEADERS_MTROOTS headerMTRootinfo;
+    T_HEADERINFO headerinfo;
     list<string> nodelist;
     map<uint64, T_SHA256> headerhash;
     uint64 sync_hash_hid = 0;                                         //HC: 同步中用到的超块头Hash对应超块号
@@ -273,7 +274,7 @@ public:
     bool GetHeaderHashMTRootData(uint64 headerid, string& msgbuf);
     void AnalyzeHeaderHashMTRootData(string strbuf, string nodeid);
 
-    uint64 GetLocalLatestHID() { return m_bestChainLocalHID.empty() ? UINT64_MAX : *m_bestChainLocalHID.rbegin(); }
+    uint64 GetLocalLatestHID() { return m_localHID.empty() ? UINT64_MAX : *m_localHID.rbegin(); }
     uint64 GetHeaderHashCacheLatestHID();
     uint64 GetGlobalLatestHyperBlockNo();
 
@@ -319,7 +320,7 @@ private:
     void SplitString(const string& s, vector<std::string>& v, const std::string& c);
     bool SaveHeaderListIndex(map<pair<uint64, T_SHA256>, T_HYPERBLOCKHEADER>& headerMap, string from_nodeid, bool& Flag);
     bool SaveHeaderIndex(T_SHA256 headerhash, T_SHA256 preheaderhash, T_HYPERBLOCKHEADER header, string from_nodeid, bool& Flag);
-    uint64 CheckDiffPos(uint64 startid, uint64 endid, map<uint64, T_SHA256>& headerhash, T_HEADERS_MTROOTS& headerinfo);
+    uint64 CheckDiffPos(uint64 startid, uint64 endid, map<uint64, T_SHA256>& headerhash, T_HEADERINFO& headerinfo);
     T_SHA256 GenerateHeaderHashMTRoot(uint64 startid, uint64 endid, map<uint64, T_SHA256>& headerhashmap);
     void GenerateHeaderHashMTRootList(vector<uint16>& location, vector<T_SHA256>& hashMTRootlist, map<uint64, T_SHA256>& headerhashmap);
 
@@ -357,12 +358,10 @@ private:
 
     string m_mynodeid;                      //HCE: node id (uuid)
     uint64 m_gensisblockID = 0;             //HCE: Genesis Hyper Block ID, sandbox start from 0, testnet fork start from 48600.
-    T_SHA256 m_gensisblockHeaderhash;       //HCE: Genesis Hyper Block Header hash
-
-    std::set<uint64> m_bestChainLocalHID;   //HCE: all hyper blocks id hold by node and local cache, best chain.
+    T_SHA256 m_gensisblockHeaderhash;       //HCE: Genesis Hyper Block Headerhash
+    std::set<uint64> m_localHID;            //HCE: all hyperblocks id hold by node and local cached
     vector <string> m_localHIDsection;      //HCE: (all local hold)hyperblock id ordered set list for Chain Space overview.ordered set displayed as "<ID>-<ID>".
-
-    vector<CUInt128> m_MulticastNodes;      //HCE: list of receiver nodes to which hyperblock data would broadcast after each run of global consensus.
+    vector<CUInt128> m_MulticastNodes;      //HCE: list of recevier nodes to which hyperblock data would broadcast after each run of global consensus.
 
     DBmgr* m_db = nullptr;
 
@@ -376,11 +375,12 @@ private:
     std::atomic<uint64> uiMaxBlockNum = 0;        //HC: 本地最高超块号
                                                   //HCE: The local stored highest hyperblock ID/height
     std::atomic<uint64> uiGlobalMaxBlockNum = 0;  //HC: 链空间看到的全网最新超块号
-                                                  //HCE: The global highest hyperblock ID found by Chain Space
-
+                                                  //HCE: The gobal higest hyperblock ID found by Chain Space
     std::atomic<uint64> uiCollateMaxBlockNum = 0; //HC: 清理分叉数据所需的开始超块号
                                                   //HCE: The highest hyperblock ID on which the local fork cleaner to start working
 
+    map<uint64, T_SHA256> m_BlockHashMap;    //HC: 内存缓存最优链所有超块哈希
+                                             //HCE: All hyperblock hash of the qualified longest chain,in memory cached.
     bool m_localHeaderReady = false;             //HC: 链空间全网最高超块块头是否验证完成
                                                  //HCE: The status indicator of the global highest hyper block header verification
     std::atomic<uint64> uiMaxHeaderID = 0;       //HC: 全网最高超块块头id(=超块ID)
@@ -389,54 +389,49 @@ private:
                                              //HCE: local stored hyperblock header ID(=hyperblock ID)
     vector <string> m_localHeaderIDsection;  //HC: 本地缓存超块块头ID区间段格式 "ID-ID"
                                              //HCE: list of Local stored hyperblock header ID ordered set (ordered set displayed as "<ID>-<ID>")
-
-    map<uint64, T_SHA256> m_bestChainHeadersHash;   //HC: 内存缓存最优链所有超块块头Hash, best chain
-                                                    //HCE: Hyperblock header hash cache of the local qualified longest chain, in-memory cached
-
-    map<uint64, T_SHA256> m_bestChainBlocksHash;    //HC: 内存缓存最优链所有超块哈希
-                                                    //HCE: All hyperblock hash of the qualified longest chain,in memory cached.
+    map<uint64, T_SHA256> m_HeaderHashMap;   //HC: 内存缓存最优链所有超块块头Hash
+                                             //HCE: Hyperblock header hash cache of the local qualifed longest chain, in-memory cached
 
     vector<list<pair<uint64, T_SHA256>>> m_BlocksHeaderHash;  //HC: 全部分叉备选链所有超块头hash列表
                                                               //HCE: List of hyperblock header hashes of each chain fork found
     vector<list<pair<uint64, T_SHA256>>>::iterator m_HashChain; //HCE: iterator for m_BlocksHeaderHash
 
-    MAP_T_HEADERINDEX m_HeaderIndexMap;                   //HCE: block header index cache for Hyperblock dependency
+    MAP_T_HEADERINDEX m_HeaderIndexMap;      //HCE: block header index cache for Hyperblock dependecy
 
-    map<uint64, std::set<string>> m_ReqHeaderHashNodes;   //HC: 超块所在节点集合的映射关系，目前用于获取超块头Hash发送请求
-                                                          //HCE: map from hyperblock to node set, for now used by send hyperblock header hash fetch request
+    map<uint64, std::set<string>> m_ReqHeaderHashNodes;  //HC: 超块所在节点集合的映射关系，目前用于获取超块头Hash发送请求
+                                                         //HCE: map from hyperblock to node set，for now used by send hyperblock header hash fetch request
     multimap<uint64, T_SINGLEHEADER> m_SingleHeaderMap;   //HCE: headers of Orphan hyperblock found during synchronization
 
-    MAP_T_UNCONFIRMEDBLOCK m_UnconfirmedBlockMap;         //HCE: non-verified hyper blocks
+    MAP_T_UNCONFIRMEDBLOCK m_UnconfirmedBlockMap;         //HCE: non-verified Hyperblocks
 
     MAP_T_UNCONFIRMEDHEADERHASH m_UnconfirmedHashMap;     //HCE: non-verified Hyperblock headers
 
-    bool m_atleast_onenode_chainspace_ready = false;
-
-    map<uint64, std::set<string>> m_hyperblocks_nodes; //HCE: map for hyper chain space overview, <hyperblock ID, node set<nodeID>>
+    bool m_ChainspaceReady = false;
+    map<uint64, std::set<string>> m_Chainspace; //HCE: map for Hyperchain space overview, <hyperblock ID, node set<nodeID>>
 
     map<uint64, uint32> m_BlockHealthInfo;      //HCE: map for hyperblock health status(number of copies found in Chain Space),<hyperblock ID,number>
 
     map<string, string> m_chainspaceshow;       //HCE: map from node to hyperblock ordered set. <nodeID, hyperblock ID ordered set(example:0;6667-6677;6679-6690;)>
 
-    T_HEADERS_MTROOTS m_minMTRoots;
-    map<string, T_HEADERS_MTROOTS> m_nodes_MTRoots;         //HCE: <nodeID, T_HEADERINFO>
-    map<string, uint64> m_nodes_latest_height;              //HCE: <nodeID, MaxHeaderID>
-    map<string, uint64> m_chainspacesyncheaderID;           //HCE: <nodeID, sync_header_hid> for current synchronization
-    CHECK_RESULT m_HaveFixedData = CHECK_RESULT::UNCONFIRMED_DATA;   //HC: 链空间数据是否变化。
-                                                                     //HCE: indicator of Chain Space data outdated
-    bool m_ChainInfoReady = false;                  //HC: 确认链空间同步任务是否完成所有超块头数据。
-                                                    //HCE: indicator of Chain Space has processed all hyperblock header verification during synchronization
-    std::set<pair<uint64, T_SHA256>> m_chainheaderhashSet;//HC: 超块号，超块头哈希映射
-                                                          //HCE: map from hyperblock ID to hyperblock header hash
-    map<uint8, T_CHAININFO> m_alternatechains;         //HC: 链空间中分叉链集合
-                                                    //HCE: chain forks found in Chain Space
-    uint8 m_bestchainID = UINT8_MAX;//HC: 最优分叉链在集合中ID
-                                    //HCE: id of the qualified longest chain forks
+    T_HEADERINFO m_minheaderinfo;
+    map<string, T_HEADERINFO> m_chainspaceheader;   //HCE: <nodeID, T_HEADERINFO>
+    map<string, uint64> m_chainspaceheaderID;       //HCE: <nodeID, MaxHeaderID>
+    map<string, uint64> m_chainspacesyncheaderID;   //HCE: <nodeID, sync_header_hid>  for current sychronization
+    CHECK_RESULT m_HaveFixedData = CHECK_RESULT::UNCONFIRMED_DATA;   //HC:链空间数据是否变化。
+                                                                     //HCE:indicator of Chain Space data outdated
+    bool m_ChainInfoReady = false;                  //HC:确认链空间同步任务是否完成所有超块头数据。
+                                                    //HCE:indicator of Chain Space has processed all hyperblock header verification during sychronization
+    std::set<pair<uint64, T_SHA256>> m_chainheaderhashSet;//HC:超块号，超块头哈希映射
+                                                          //HCE:map from hyperblock ID to hyperblock header hash
+    map<uint8, T_CHAININFO> m_chainInfoMap;         //HC:链空间中分叉链集合
+                                                    //HCE:chain forks found in Chain Space
+    uint8 m_bestchainID = UINT8_MAX;//HC:最优分叉链在集合中ID
+                                    //HCE:id of the qualified longest chain forks
 
     std::list<thread>  m_threads;
-    unique_ptr<thread> m_threadPullAppBlocks;//HC: 从应用拉取区块的线程，已停用
-                                             //HCE: pull block data from application layer, obsoleted
-    bool _isstop = false;//HCE: set this flag to exit Chain Space refresh loop
+    unique_ptr<thread> m_threadPullAppBlocks;//HC:从应用拉取区块的线程，已停用
+                                             //HCE:pull block data from application layer,obseleted
+    bool _isstop = false;//HCE:set this flag to exit Chain Space refresh loop
 
     //HC: MQ
     MsgHandler _msghandler;
