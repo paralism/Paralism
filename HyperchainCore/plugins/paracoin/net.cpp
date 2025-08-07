@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -28,6 +28,8 @@ SOFTWARE.
 
 
 #include "headers.h"
+#include "util/threadname.h"
+
 #include "paratask.h"
 #include "irc.h"
 #include "db.h"
@@ -1561,18 +1563,17 @@ void StartNode(void* parg)
         //ERROR_FL("Error: CreateThread(ThreadIRCSeed) failed\n");
 
     // Send and receive from sockets, accept connections
-    CreateThread(ThreadSocketHandler, NULL);
+    hc::CreateThread("ParaSocketHandler", ThreadSocketHandler, NULL);
 
     // Initiate outbound connections
 	//HCE: don't connect directly
     //if (!CreateThread(ThreadOpenConnections, NULL))
         //printf("Error: CreateThread(ThreadOpenConnections) failed\n");
 
-    if (!CreateThread(ThreadSearchParacoinNode, NULL))
-        ERROR_FL("CreateThread(ThreadSearchParacoinNode) failed\n");
+    hc::CreateThread("SearchParacoinNode", ThreadSearchParacoinNode, NULL);
+
     // Process messages
-    if (!CreateThread(ThreadMessageHandler, NULL))
-        ERROR_FL("CreateThread(ThreadMessageHandler) failed\n");
+    hc::CreateThread("ParaMessageHandler", ThreadMessageHandler, NULL);
 
     // Generate coins in the background
     GenerateBitcoins(fGenerateBitcoins, pwalletMain);

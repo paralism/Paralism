@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -135,12 +135,10 @@ void StopApplication(bool isFirst)
 {
     if (isFirst) {
         fShutdown = true;
-        g_sys_interrupted = 1;
         return;
     }
 
     fShutdown = true;
-    g_sys_interrupted = 1;
     Shutdown(nullptr);
 }
 
@@ -158,6 +156,9 @@ void ShutdownExcludeRPCServer()
         consensuseng->UnregisterAppCallback(T_APPTYPE(APPTYPE::ledger,
             g_cryptoToken.GetHID(), g_cryptoToken.GetChainNum(), g_cryptoToken.GetLocalID()));
     }
+
+    //HC: 模块unregistered后，才能stop MQ
+    g_sys_interrupted = 1;
 
     if (g_pLock) {
         g_pLock->unlock();
@@ -200,6 +201,9 @@ void Shutdown(void* parg)
         consensuseng->UnregisterAppCallback(T_APPTYPE(APPTYPE::ledger,
             g_cryptoToken.GetHID(), g_cryptoToken.GetChainNum(), g_cryptoToken.GetLocalID()));
     }
+
+    //HC: 模块unregistered后，才能stop MQ
+    g_sys_interrupted = 1;
 
     if (g_pLock) {
         g_pLock->unlock();

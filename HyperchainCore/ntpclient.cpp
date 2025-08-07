@@ -1,4 +1,4 @@
-﻿/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or https://opensource.org/licenses/MIT.
@@ -26,12 +26,9 @@ DEALINGS IN THE SOFTWARE.
 
 #include "ntpclient.h"
 #include <boost/asio.hpp>
+using namespace boost::asio;
 
 const static uint64_t n1970_1900_Seconds = 2208988800;
-
-boost::asio::io_service io;
-boost::asio::ip::udp::socket _socket(io);
-boost::system::error_code _ec;
 
 static void reverseByteOrder(uint64_t& in) {
 	uint64_t rs = 0;
@@ -62,37 +59,52 @@ uint64_t ntohll(uint64_t val)
 
 time_t NtpClient::getTime()
 {
-	if (_socket.is_open()) {
-		_socket.shutdown(boost::asio::ip::udp::socket::shutdown_both, _ec);
-		if (_ec) {
-			std::cout << _ec.message() << std::endl;
-			_socket.close();
-			return 0;
-		}
-		_socket.close();
-	}
+    io_service io;
+    ip::udp::socket sock(io);
 
-	boost::asio::ip::udp::endpoint ep(boost::asio::ip::address_v4::from_string(_serverIp), NTP_PORT);
+	ip::udp::endpoint ep(ip::address_v4::from_string(_serverIp), NTP_PORT);
 	NtpPacket request;
 	std::stringstream ss;
 	std::string buf;
 	ss << request;
 	ss >> buf;
-	_socket.open(boost::asio::ip::udp::v4());
-	_socket.send_to(boost::asio::buffer(buf), ep);
-	std::array<uint8_t, 128> recv;
-	size_t len = _socket.receive_from(boost::asio::buffer(recv), ep);
-	uint8_t* pBytes = recv.data();
-	time_t tt = 0;
-	uint64_t last = 0;
-	NtpPacket resonpse;
-	std::stringstream rss;
-	rss.write(reinterpret_cast<const char*>(pBytes), len);
-	rss >> resonpse;
+	sock.open(ip::udp::v4());
 
-	last = htonll(resonpse._rep._trt);
-	tt = (last >> 32) - n1970_1900_Seconds;
-	return tt;
+    std::array<uint8_t, 128> recvbuff;
+    time_t tt = 0;
+    sock.async_send_to(boost::asio::buffer(buf), ep, [&io, &ep, &sock, &tt, &recvbuff](const boost::system::error_code &ec, std::size_t bytes) {
+        if (!ec) {
+            sock.async_receive_from(buffer(recvbuff), ep, [&io, &sock, &recvbuff, &tt](const boost::system::error_code &ec, std::size_t bytes) {
+                if (!ec) {
+                    uint64_t last = 0;
+                    NtpPacket resonpse;
+                    std::stringstream rss;
+                    rss.write(reinterpret_cast<const char*>(recvbuff.data()), bytes);
+                    rss >> resonpse;
+
+                    last = htonll(resonpse._rep._trt);
+                    tt = (last >> 32) - n1970_1900_Seconds;
+
+                    sock.close();
+                    io.stop();
+                }
+            });
+        }
+    });
+
+    //HC: 设置超时  
+    boost::asio::deadline_timer send_timer(io);
+    send_timer.expires_from_now(boost::posix_time::seconds(8)); //HC: 8秒超时  
+    send_timer.async_wait([&](const boost::system::error_code& /*e*/) {
+        if (!sock.is_open())
+            return;
+        std::cerr << "NtpClient operation timed out!" << std::endl;
+        sock.close(); //HC: 关闭套接字以取消挂起的操作  
+        });
+
+    io.run();
+
+    return tt;
 }
 
 void NtpClient::show(time_t tt)

@@ -30,6 +30,7 @@ DEALINGS IN THE SOFTWARE.
 
 #include "shastruct.h"
 #include "node/UInt128.h"
+#include "util/commontypes.h"
 
 #include <chrono>
 #include <boost/any.hpp>
@@ -1748,8 +1749,7 @@ using CONSENSUSNOTIFY = std::tuple<HANDLEGENESISCBFN,
                                     GETVPATHFN,
                                     GETNEIGHBORNODES>;
 
-enum class cbindex : char {
-    HANDLEGENESISIDX = 0,
+HC_ENUM(cbindex, char, HANDLEGENESISIDX,
     PUTONCHAINIDX,
     PUTGLOBALCHAINIDX,
     REONCHAINIDX,
@@ -1759,8 +1759,9 @@ enum class cbindex : char {
     CHECKCHAINIDX,
     GETUUIDIDX,
     GETVPATHIDX,
-    GETNEIGHBORNODESIDX
-};
+    GETNEIGHBORNODESIDX,
+    IDLE
+    );
 
 enum class CBRET : char { UNREGISTERED = 0, REGISTERED_TRUE, REGISTERED_FALSE };
 

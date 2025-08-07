@@ -1,4 +1,4 @@
-/*Copyright 2016-2022 hyperchain.net (Hyperchain)
+/*Copyright 2016-2024 hyperchain.net (Hyperchain)
 
 Distributed under the MIT software license, see the accompanying
 file COPYING or?https://opensource.org/licenses/MIT.
@@ -53,6 +53,7 @@ DEALINGS IN THE SOFTWARE.
 #include <sstream>
 
 #include "util/common.h"
+#include "util/threadname.h"
 
 #include "db/RestApi.h"
 #include "db/dbmgr.h"
@@ -534,59 +535,69 @@ void stopAll()
     consensuseng->requestStop();
 
     if (g_appPlugin) {
-        cout << "Stopping Applications..." << endl;
+        cout << "Stopping Applications...";
         g_appPlugin->StopAllApp();
+        cout << "Stopped" << endl;
     }
 
     g_sys_interrupted = 1; //HC: stop MQ
     auto datahandler = Singleton<UdpRecvDataHandler>::getInstance();
     if (datahandler) {
-        cout << "Stopping UdpRecvDataHandler..." << endl;
+        cout << "Stopping UdpRecvDataHandler...";
         datahandler->stop();
+        cout << "Stopped" << endl;
     }
 
     if (consensuseng) {
-        cout << "Stopping Consensuseng..." << endl;
+        cout << "Stopping Consensuseng...";
         consensuseng->stop();
+        cout << "Stopped" << endl;
     }
     CHyperChainSpace *hyperchainspace = Singleton<CHyperChainSpace, string>::getInstance();
     if (hyperchainspace) {
-        cout << "Stopping Hyperchain Space..." << endl;
+        cout << "Stopping Hyperchain Space...";
         hyperchainspace->stop();
+        cout << "Stopped" << endl;
     }
 
     NodeUPKeepThreadPool* nodeUpkeepThreadpool = Singleton<NodeUPKeepThreadPool>::getInstance();
     if (nodeUpkeepThreadpool) {
-        cout << "Stopping NodeUPKeepThreadPool..." << endl;
+        cout << "Stopping NodeUPKeepThreadPool...";
         nodeUpkeepThreadpool->stop();
+        cout << "Stopped" << endl;
     }
 
     NodeManager* nmg = Singleton<NodeManager>::getInstance();
     if (nmg) {
-        cout << "Stopping NodeManager..." << endl;
+        cout << "Stopping NodeManager...";
         nmg->stop();
+        cout << "Stopped" << endl;
     }
 
     UdtThreadPool *udpthreadpool = Singleton<UdtThreadPool, const char*, uint32_t>::getInstance();
     if (udpthreadpool) {
-        cout << "Stopping UDT..." << endl;
+        cout << "Stopping UDT...\n";
         udpthreadpool->stop();
+        cout << "UDT Stopped" << endl;
     }
 
     if (g_nodetype != NodeType::LedgerRPCClient) {
-        cout << "Stopping Rest Server..." << endl;
+        cout << "Stopping Rest Server...";
         RestApi::stopRest();
+        cout << "Stopped" << endl;
     }
 
     HCMQBroker *brk = Singleton<HCMQBroker>::getInstance();
     if (brk) {
-        cout << "Stopping HCBroker..." << endl;
+        cout << "Stopping HCBroker...";
         brk->stop();
+        cout << "Stopped" << endl;
     }
 
     if (Singleton<DBmgr>::instance()->isOpen()) {
-        cout << "Closing Database" << endl;
+        cout << "Closing Database...";
         Singleton<DBmgr>::instance()->close();
+        cout << "Closed" << endl;
     }
 }
 
@@ -1353,6 +1364,7 @@ int main(int argc, char *argv[])
     pathHC = boost::filesystem::system_complete(pathHC);
 
     std::thread thrCheck(checkupdate, pathHC);
+    hc::SetThreadName(&thrCheck, "checkupdate");
     thrCheck.detach();
 
     ConsoleCommandHandler *console =
